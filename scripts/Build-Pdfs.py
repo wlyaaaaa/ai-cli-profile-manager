@@ -158,9 +158,10 @@ def main() -> int:
         temp = Path(temp_name)
         for index, (source_relative, title) in enumerate(DOCS.items()):
             source = root / Path(source_relative)
-            source_bytes = source.read_bytes()
-            source_sha256 = hashlib.sha256(source_bytes).hexdigest()
-            text = rewrite_links(source_bytes.decode("utf-8"), source_relative)
+            source_text = source.read_text(encoding="utf-8")
+            normalized_source = source_text.replace("\r\n", "\n").replace("\r", "\n")
+            source_sha256 = hashlib.sha256(normalized_source.encode("utf-8")).hexdigest()
+            text = rewrite_links(source_text, source_relative)
             body = markdown.markdown(text, extensions=["tables", "fenced_code", "sane_lists", "toc"])
             html = (
                 "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>"

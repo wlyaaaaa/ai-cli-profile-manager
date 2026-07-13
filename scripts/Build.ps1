@@ -46,7 +46,15 @@ foreach ($pdfName in $pdfSources.Keys) {
     }
     $markdownPath = Join-Path $root $pdfSources[$pdfName]
     $pdfAscii = [Text.Encoding]::Latin1.GetString([IO.File]::ReadAllBytes($pdfPath))
-    $sourceHash = (Get-FileHash -LiteralPath $markdownPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sourceText = [IO.File]::ReadAllText($markdownPath)
+    $normalizedSource = $sourceText.Replace("`r`n", "`n").Replace("`r", "`n")
+    $sourceBytes = [Text.UTF8Encoding]::new($false).GetBytes($normalizedSource)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $sourceHash = ([BitConverter]::ToString($sha.ComputeHash($sourceBytes)) -replace '-', '').ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
     if ($pdfAscii -notmatch '/AICliSourceSHA256' -or $pdfAscii -notmatch [regex]::Escape($sourceHash)) {
         throw "发行 PDF 未绑定当前 canonical Markdown 的 SHA256，请重新生成并视觉验收: $pdfName"
     }
