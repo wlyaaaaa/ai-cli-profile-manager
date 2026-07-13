@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "ianaNote": "Unassigned at design time; re-check before each release",
+  "pool": [
+    43192,
+    43193,
+    43194,
+    43195,
+    43196,
+    43197,
+    43198,
+    43199,
+    43200,
+    43201,
+    43202,
+    43203,
+    43204,
+    43205,
+    43206,
+    43207,
+    43208,
+    43209
+  ],
+  "verifiedDate": "2026-07-13",
+  "preferred": {
+    "ccp": 43197,
+    "cliproxy": 43198
+  }
+}

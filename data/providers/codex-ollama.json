@@ -1,0 +1,34 @@
+{
+  "provider": "ollama",
+  "capabilities": {
+    "effort": false,
+    "streaming": true,
+    "tools": true,
+    "contextStats": true,
+    "images": false
+  },
+  "sources": [
+    "https://docs.ollama.com/integrations/codex"
+  ],
+  "endpoint": "http://127.0.0.1:11434/v1",
+  "engine": "codex",
+  "transport": "responses",
+  "plan": "local",
+  "codexProviderId": "aicli_ollama_local",
+  "region": "local",
+  "displayName": "Codex + Ollama",
+  "id": "codex-ollama",
+  "notes": "公开模板使用 Ollama 默认端口 11434；其他端口和模型请配置用户 Profile。wire_api=responses。",
+  "schemaVersion": 1,
+  "virtualReady": true,
+  "defaultEffort": "medium",
+  "models": {
+    "small": "qwen3:8b",
+    "primary": "qwen3:8b"
+  },
+  "auth": {
+    "type": "none"
+  },
+  "requiresSecret": false,
+  "dataDestination": "本机 Ollama OpenAI 兼容端点 (127.0.0.1:11434)"
+}

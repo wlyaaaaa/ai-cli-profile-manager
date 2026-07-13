@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "claude-chatgpt-ccp",
+  "displayName": "Claude Code + ChatGPT via claude-code-proxy",
+  "engine": "claude",
+  "provider": "chatgpt-proxy",
+  "plan": "subscription",
+  "region": "global",
+  "transport": "managed-proxy",
+  "proxyRef": "ccp",
+  "endpoint": null,
+  "models": {
+    "primary": "gpt-5.6-sol",
+    "small": "gpt-5.6-terra",
+    "candidates": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+  },
+  "defaultEffort": "high",
+  "auth": { "type": "proxy-oauth" },
+  "requiresSecret": false,
+  "virtualReady": false,
+  "capabilities": {
+    "effort": true,
+    "streaming": true,
+    "tools": true,
+    "contextStats": true,
+    "images": true
+  },
+  "sources": [
+    "https://github.com/raine/claude-code-proxy"
+  ],
+  "dataDestination": "经第三方 raine/claude-code-proxy 使用 ChatGPT 订阅",
+  "notes": "专用通道。需 aicli proxy ccp install/login/start。",
+  "flexible": true
+}

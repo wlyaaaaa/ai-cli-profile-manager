@@ -1,0 +1,28 @@
+{
+  "auth": {
+    "type": "api-key"
+  },
+  "plan": "custom",
+  "schemaVersion": 1,
+  "endpoint": null,
+  "models": {
+    "primary": null
+  },
+  "virtualReady": false,
+  "hidden": true,
+  "id": "codex-custom-responses",
+  "transport": "responses",
+  "dataDestination": "用户指定",
+  "capabilities": {
+    "streaming": true,
+    "tools": true
+  },
+  "codexProviderId": "aicli_custom_responses",
+  "displayName": "Codex 自定义 Responses（内部）",
+  "provider": "custom",
+  "sources": [],
+  "requiresSecret": true,
+  "engine": "codex",
+  "notes": "首版不在 --available 展示",
+  "region": "custom"
+}

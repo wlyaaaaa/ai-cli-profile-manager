@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "displayName": "Claude Code 千问 Token Plan",
+  "defaultEffort": "on",
+  "plan": "token-plan",
+  "capabilities": {
+    "tools": true,
+    "contextStats": true,
+    "images": false,
+    "streaming": true,
+    "effort": true
+  },
+  "requiresSecret": true,
+  "notes": "默认 max=qwen3.7-max-2026-06-08 / plus=qwen3.7-plus-2026-05-26（DashScope /models 2026-07-13）。可 --model 覆盖。",
+  "region": "cn-beijing",
+  "id": "claude-qwen-token-plan",
+  "auth": {
+    "type": "api-key"
+  },
+  "sources": [
+    "https://help.aliyun.com/zh/model-studio/claude-code"
+  ],
+  "endpoint": "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic",
+  "provider": "qwen",
+  "engine": "claude",
+  "flexible": true,
+  "transport": "anthropic-messages",
+  "models": {
+    "small": "qwen3.7-plus-2026-05-26",
+    "primary": "qwen3.7-max-2026-06-08",
+    "candidates": [
+      "qwen3.7-max-2026-06-08",
+      "qwen3.7-plus-2026-05-26",
+      "qwen3.7-max",
+      "qwen3.7-plus",
+      "qwen3.7-max-2026-05-20",
+      "qwen3.7-plus-2026-05-26",
+      "qwen3.7-max-preview"
+    ]
+  },
+  "dataDestination": "阿里云 Token Plan 专属 Key",
+  "virtualReady": false
+}

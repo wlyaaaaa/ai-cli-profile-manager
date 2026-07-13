@@ -1,0 +1,30 @@
+{
+  "notes": "仅 Anthropic Messages；拒绝非本机明文 HTTP",
+  "engine": "claude",
+  "displayName": "Claude Code 自定义 Anthropic 兼容",
+  "dataDestination": "用户指定远程端点（首次需确认）",
+  "region": "custom",
+  "schemaVersion": 1,
+  "requiresSecret": true,
+  "auth": {
+    "type": "api-key"
+  },
+  "provider": "custom",
+  "sources": [],
+  "capabilities": {
+    "effort": false,
+    "streaming": true,
+    "tools": true,
+    "contextStats": false,
+    "images": false
+  },
+  "plan": "custom",
+  "endpoint": null,
+  "models": {
+    "primary": null,
+    "small": null
+  },
+  "id": "claude-custom",
+  "virtualReady": false,
+  "transport": "anthropic-messages"
+}

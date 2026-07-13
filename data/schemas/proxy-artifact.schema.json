@@ -1,0 +1,11 @@
+{
+  "required": [
+    "proxyId",
+    "version",
+    "sha256",
+    "downloadUrl",
+    "assetName"
+  ],
+  "title": "proxy-artifact",
+  "type": "object"
+}

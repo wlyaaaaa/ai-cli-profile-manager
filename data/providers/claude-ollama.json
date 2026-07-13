@@ -1,0 +1,33 @@
+{
+  "region": "local",
+  "virtualReady": true,
+  "auth": {
+    "authToken": "ollama",
+    "type": "static"
+  },
+  "endpoint": "http://127.0.0.1:11434",
+  "id": "claude-ollama",
+  "requiresSecret": false,
+  "plan": "local",
+  "provider": "ollama",
+  "capabilities": {
+    "effort": true,
+    "streaming": true,
+    "tools": true,
+    "contextStats": true,
+    "images": true
+  },
+  "models": {
+    "small": "qwen3:8b",
+    "primary": "qwen3:8b"
+  },
+  "notes": "公开模板使用 Ollama 默认端口 11434；其他端口和模型请配置用户 Profile。",
+  "sources": [
+    "https://docs.ollama.com/integrations/claude-code"
+  ],
+  "displayName": "Claude Code + Ollama",
+  "transport": "anthropic-messages",
+  "engine": "claude",
+  "schemaVersion": 1,
+  "dataDestination": "本机 Ollama 端点 127.0.0.1:11434"
+}

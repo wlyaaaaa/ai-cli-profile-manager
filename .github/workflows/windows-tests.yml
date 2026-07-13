@@ -1,0 +1,103 @@
+name: windows-tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pester-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PowerShell modules
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -Force -SkipPublisherCheck -MinimumVersion 5.5.0
+      - name: Smoke tests
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File ./scripts/Test-Release.ps1
+      - name: Unit tests
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.5.0
+          $cfg = New-PesterConfiguration
+          $cfg.Run.Path = './tests'
+          $cfg.Run.Exit = $true
+          $cfg.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $cfg
+      - name: Build and inspect release archive
+        shell: pwsh
+        run: |
+          ./scripts/Build.ps1
+          $zips = @(Get-ChildItem ./dist/ai-cli-profile-manager-*-win-x64.zip)
+          if ($zips.Count -ne 1) { throw "Expected one release ZIP, found $($zips.Count)." }
+          $zip = $zips[0]
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($zip.FullName)
+          try {
+            $entries = @($archive.Entries.FullName -replace '/', '\')
+            foreach ($required in @(
+              'AI CLI Profile Manager 使用手册.pdf',
+              'Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf',
+              'scripts\Install.ps1',
+              'scripts\Uninstall.ps1'
+            )) {
+              if ($entries -notcontains $required) { throw "Archive missing: $required" }
+            }
+            if ($entries | Where-Object { $_ -eq 'AGENTS.md' -or $_ -like 'docs\product\*' -or $_ -like 'docs\plans\*' }) {
+              throw 'Archive contains internal project material.'
+            }
+          } finally {
+            $archive.Dispose()
+          }
+      - name: Isolated install and uninstall from release archive
+        shell: pwsh
+        run: |
+          $zips = @(Get-ChildItem ./dist/ai-cli-profile-manager-*-win-x64.zip)
+          if ($zips.Count -ne 1) { throw "Expected one release ZIP, found $($zips.Count)." }
+          $zip = $zips[0]
+          $work = Join-Path $env:RUNNER_TEMP ('aicli-package-' + [guid]::NewGuid().ToString('N'))
+          $extract = Join-Path $work 'package'
+          $modulePath = Join-Path $work 'PowerShell\Modules'
+          New-Item -ItemType Directory -Force -Path $extract,$modulePath | Out-Null
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extract
+          $oldModulePath = $env:PSModulePath
+          try {
+            $env:PSModulePath = "$modulePath;$oldModulePath"
+            & (Join-Path $extract 'scripts\Install.ps1') -SourceRoot $extract
+            $manifests = @(Get-ChildItem -LiteralPath (Join-Path $modulePath 'AiCliProfileManager') -Recurse -Filter AiCliProfileManager.psd1)
+            if ($manifests.Count -ne 1) { throw "Expected one installed manifest, found $($manifests.Count)." }
+            $manifest = $manifests[0]
+            $shimDir = Join-Path $env:LOCALAPPDATA 'aicli\bin'
+            if (-not (Test-Path -LiteralPath (Join-Path $shimDir 'aicli.cmd'))) { throw 'Default install did not create aicli.cmd.' }
+            $userPath = [string][Environment]::GetEnvironmentVariable('Path', 'User')
+            if (@($userPath -split ';' | ForEach-Object { $_.TrimEnd('\','/') }) -notcontains $shimDir.TrimEnd('\','/')) {
+              throw 'Default install did not add the shim directory to user PATH.'
+            }
+            if (-not (Test-Path -LiteralPath $PROFILE.CurrentUserCurrentHost)) { throw 'Default install did not create the PowerShell profile integration.' }
+            if ([IO.File]::ReadAllText($PROFILE.CurrentUserCurrentHost) -notmatch '# >>> AI CLI Profile Manager >>>') {
+              throw 'Default install did not write the managed PowerShell profile block.'
+            }
+            Import-Module $manifest.FullName -Force
+            if ((Invoke-AiCli -Tokens @('version')) -ne 0) { throw 'Installed package version command failed.' }
+            if ((Invoke-AiCli -Tokens @('profile','list','--available','--json') -DataRoot (Join-Path $work 'data')) -ne 0) {
+              throw 'Installed package profile list failed.'
+            }
+            & pwsh -NoLogo -NoProfile -File (Join-Path $extract 'scripts\Uninstall.ps1') -Yes
+            if ($LASTEXITCODE -ne 0) { throw "Package uninstall failed with exit code $LASTEXITCODE." }
+            if (Test-Path -LiteralPath (Join-Path $modulePath 'AiCliProfileManager')) { throw 'Uninstall left the module directory.' }
+            if (Test-Path -LiteralPath (Join-Path $shimDir 'aicli.cmd')) { throw 'Uninstall left the command shim.' }
+            $userPathAfter = [string][Environment]::GetEnvironmentVariable('Path', 'User')
+            if (@($userPathAfter -split ';' | ForEach-Object { $_.TrimEnd('\','/') }) -contains $shimDir.TrimEnd('\','/')) {
+              throw 'Uninstall left the shim directory in user PATH.'
+            }
+            if ((Test-Path -LiteralPath $PROFILE.CurrentUserCurrentHost) -and
+                [IO.File]::ReadAllText($PROFILE.CurrentUserCurrentHost) -match '# >>> AI CLI Profile Manager >>>') {
+              throw 'Uninstall left the managed PowerShell profile block.'
+            }
+          } finally {
+            $env:PSModulePath = $oldModulePath
+          }

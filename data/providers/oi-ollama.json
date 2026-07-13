@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "oi-ollama",
+  "displayName": "Open Interpreter + Ollama（默认端口）",
+  "engine": "interpreter",
+  "provider": "ollama",
+  "plan": "local",
+  "region": "local",
+  "transport": "openai-compatible",
+  "wireApi": "responses",
+  "interpreterProviderId": "aicli_ollama",
+  "endpoint": "http://127.0.0.1:11434/v1",
+  "requiresSecret": false,
+  "virtualReady": true,
+  "auth": {
+    "type": "none"
+  },
+  "models": {
+    "primary": "qwen3-coder:30b",
+    "small": "qwen3-coder:30b"
+  },
+  "capabilities": {
+    "tools": true,
+    "contextStats": false,
+    "images": false,
+    "streaming": true,
+    "effort": false,
+    "codeExecution": true
+  },
+  "compatibility": {
+    "family": "rust",
+    "minCliVersion": "0.0.21"
+  },
+  "dataDestination": "本机 Ollama 127.0.0.1:11434 + 本机代码执行",
+  "notes": "当前官方 Rust Open Interpreter 0.0.21+。公共默认使用 Ollama 11434 与公开模型 qwen3-coder:30b；未启用危险绕过参数。",
+  "sources": [
+    "https://www.openinterpreter.com/docs/terminal/providers",
+    "https://www.openinterpreter.com/docs/terminal/config",
+    "https://docs.ollama.com/api"
+  ]
+}

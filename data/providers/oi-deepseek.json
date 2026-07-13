@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "oi-deepseek",
+  "displayName": "Open Interpreter + DeepSeek V4（Chat）",
+  "engine": "interpreter",
+  "provider": "deepseek",
+  "plan": "paygo",
+  "region": "global",
+  "transport": "openai-compatible",
+  "wireApi": "chat",
+  "interpreterProviderId": "aicli_deepseek",
+  "endpoint": "https://api.deepseek.com/v1",
+  "requiresSecret": true,
+  "virtualReady": false,
+  "auth": {
+    "type": "api-key",
+    "envKey": "AICLI_OI_PROVIDER_KEY"
+  },
+  "models": {
+    "primary": "deepseek-v4-pro",
+    "small": "deepseek-v4-flash",
+    "aliases": {
+      "v4-pro": "deepseek-v4-pro",
+      "v4-plus": "deepseek-v4-flash",
+      "V4PLUS": "deepseek-v4-flash",
+      "V4PRO": "deepseek-v4-pro"
+    },
+    "candidates": [
+      "deepseek-v4-pro",
+      "deepseek-v4-flash"
+    ]
+  },
+  "capabilities": {
+    "tools": true,
+    "contextStats": false,
+    "images": false,
+    "streaming": true,
+    "effort": false,
+    "codeExecution": true
+  },
+  "compatibility": {
+    "family": "rust",
+    "minCliVersion": "0.0.21"
+  },
+  "dataDestination": "DeepSeek API（OpenAI 兼容）+ 本机代码执行",
+  "notes": "当前官方 Rust Open Interpreter 0.0.21+。使用 DeepSeek Chat wire API；默认不启用任何跳过审批或沙箱的危险参数。",
+  "sources": [
+    "https://www.openinterpreter.com/docs/terminal/providers",
+    "https://www.openinterpreter.com/docs/terminal/config",
+    "https://api-docs.deepseek.com/"
+  ]
+}

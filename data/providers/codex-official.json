@@ -1,0 +1,46 @@
+{
+  "provider": "openai",
+  "capabilities": {
+    "effort": true,
+    "streaming": true,
+    "tools": true,
+    "contextStats": true,
+    "images": true
+  },
+  "sources": [
+    "https://learn.chatgpt.com/docs/config-file/config-advanced"
+  ],
+  "endpoint": null,
+  "engine": "codex",
+  "transport": "responses",
+  "plan": "subscription",
+  "requiresSecret": false,
+  "region": "global",
+  "effortLevels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "ultra",
+    "max"
+  ],
+  "displayName": "Codex 官方 (ChatGPT/OpenAI)",
+  "id": "codex-official",
+  "notes": "默认 gpt-5.6-sol；可用 aicli start codex-official -- --model gpt-5.6-terra 覆盖模型；会话内用 /reasoning 调整思考等级。",
+  "schemaVersion": 1,
+  "virtualReady": true,
+  "defaultEffort": "high",
+  "models": {
+    "primary": "gpt-5.6-sol",
+    "candidates": [
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna"
+    ],
+    "small": null
+  },
+  "auth": {
+    "type": "native-login"
+  },
+  "dataDestination": "OpenAI/ChatGPT 官方路径（原生登录 / Codex 桌面同源）"
+}

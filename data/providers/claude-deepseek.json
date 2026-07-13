@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "displayName": "Claude Code + DeepSeek V4",
+  "defaultEffort": "high",
+  "effortLevels": [
+    "high",
+    "max"
+  ],
+  "plan": "paygo",
+  "capabilities": {
+    "tools": true,
+    "contextStats": true,
+    "images": false,
+    "streaming": true,
+    "effort": true
+  },
+  "requiresSecret": true,
+  "notes": "官方模型名仅 deepseek-v4-pro / deepseek-v4-flash。口语 V4PLUS 映射到 flash。可用 aicli start ... -- --model <id> 覆盖。思考 high|max。",
+  "region": "global",
+  "id": "claude-deepseek",
+  "auth": {
+    "type": "api-key"
+  },
+  "sources": [
+    "https://api-docs.deepseek.com/guides/thinking_mode",
+    "https://api-docs.deepseek.com/"
+  ],
+  "endpoint": "https://api.deepseek.com/anthropic",
+  "provider": "deepseek",
+  "engine": "claude",
+  "flexible": true,
+  "transport": "anthropic-messages",
+  "models": {
+    "small": "deepseek-v4-flash",
+    "aliases": {
+      "v4-pro": "deepseek-v4-pro",
+      "v4-plus": "deepseek-v4-flash",
+      "V4PLUS": "deepseek-v4-flash",
+      "V4PRO": "deepseek-v4-pro"
+    },
+    "primary": "deepseek-v4-pro",
+    "candidates": [
+      "deepseek-v4-pro",
+      "deepseek-v4-flash"
+    ]
+  },
+  "dataDestination": "DeepSeek API",
+  "virtualReady": false
+}

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "policy": "D-020: only install artifacts with known sha256 or trusted publisher signature",
+  "note": "Pinned 2026-07-13 from official GitHub Release assets + checksums.txt / .sha256 files. Tibo (thsottiaux) demonstrated CLIProxyAPI for Claude Code + GPT-5.6 Sol; not an OpenAI official endorsement of third-party proxies.",
+  "verifiedUtc": "2026-07-13T18:30:00Z",
+  "sources": [
+    "https://github.com/router-for-me/CLIProxyAPI/releases/tag/v7.2.72",
+    "https://github.com/raine/claude-code-proxy/releases/tag/v0.1.15",
+    "https://x.com/thsottiaux/status/2076119366647894371"
+  ],
+  "artifacts": [
+    {
+      "proxyId": "cliproxy",
+      "ownerRepo": "router-for-me/CLIProxyAPI",
+      "version": "7.2.72",
+      "tag": "v7.2.72",
+      "assetName": "CLIProxyAPI_7.2.72_windows_amd64.zip",
+      "downloadUrl": "https://github.com/router-for-me/CLIProxyAPI/releases/download/v7.2.72/CLIProxyAPI_7.2.72_windows_amd64.zip",
+      "sha256": "eac3cd2cf05a61be63573898aa248537266a279c496b30815594a60b02b48007",
+      "sizeBytes": 15097000,
+      "arch": "amd64",
+      "os": "windows",
+      "checksumSource": "release checksums.txt line match",
+      "preferredPort": 43198,
+      "upstreamDefaultPort": 8317
+    },
+    {
+      "proxyId": "ccp",
+      "ownerRepo": "raine/claude-code-proxy",
+      "version": "0.1.15",
+      "tag": "v0.1.15",
+      "assetName": "claude-code-proxy-windows-amd64.zip",
+      "downloadUrl": "https://github.com/raine/claude-code-proxy/releases/download/v0.1.15/claude-code-proxy-windows-amd64.zip",
+      "sha256": "a27040e07c2a0943351fdc7e21137d7b8b0c37fa09085b01d66ed70ebca5c725",
+      "sizeBytes": 4237748,
+      "arch": "amd64",
+      "os": "windows",
+      "checksumSource": "release claude-code-proxy-windows-amd64.sha256",
+      "preferredPort": 43197,
+      "upstreamDefaultPort": 18765
+    }
+  ]
+}

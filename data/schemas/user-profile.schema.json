@@ -1,0 +1,20 @@
+{
+  "required": [
+    "schemaVersion",
+    "id",
+    "templateId"
+  ],
+  "title": "user-profile",
+  "type": "object",
+  "properties": {
+    "models": {
+      "type": "object"
+    },
+    "secretRef": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

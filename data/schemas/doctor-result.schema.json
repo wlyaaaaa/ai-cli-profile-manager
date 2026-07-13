@@ -1,0 +1,11 @@
+{
+  "required": [
+    "schemaVersion",
+    "command",
+    "overallStatus",
+    "timestampUtc",
+    "checks"
+  ],
+  "title": "doctor-result",
+  "type": "object"
+}

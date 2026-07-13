@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "oi-qwen-paygo",
+  "displayName": "Open Interpreter 千问 3.7（Responses）",
+  "engine": "interpreter",
+  "provider": "qwen",
+  "plan": "paygo",
+  "region": "cn-beijing",
+  "transport": "openai-compatible",
+  "wireApi": "responses",
+  "interpreterProviderId": "aicli_qwen",
+  "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "requiresSecret": true,
+  "virtualReady": false,
+  "auth": {
+    "type": "api-key",
+    "envKey": "AICLI_OI_PROVIDER_KEY"
+  },
+  "models": {
+    "primary": "qwen3.7-max-2026-06-08",
+    "small": "qwen3.7-plus-2026-05-26",
+    "candidates": [
+      "qwen3.7-max-2026-06-08",
+      "qwen3.7-plus-2026-05-26",
+      "qwen3.7-max",
+      "qwen3.7-plus"
+    ]
+  },
+  "capabilities": {
+    "tools": true,
+    "contextStats": false,
+    "images": false,
+    "streaming": true,
+    "effort": false,
+    "codeExecution": true
+  },
+  "compatibility": {
+    "family": "rust",
+    "minCliVersion": "0.0.21"
+  },
+  "dataDestination": "阿里云百炼 OpenAI 兼容（按量）+ 本机代码执行",
+  "notes": "当前官方 Rust Open Interpreter 0.0.21+。通过 DashScope Responses；默认不启用任何跳过审批或沙箱的危险参数。",
+  "sources": [
+    "https://www.openinterpreter.com/docs/terminal/providers",
+    "https://www.openinterpreter.com/docs/terminal/config",
+    "https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope"
+  ]
+}

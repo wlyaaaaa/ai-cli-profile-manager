@@ -1,0 +1,22 @@
+# 本地运行态与秘密
+.local/
+secrets/
+docs/research-inputs/*.txt
+*.secret.json
+*.token.json
+*.auth.json
+*.log
+
+# PowerShell / test output
+TestResults/
+coverage/
+dist/
+
+# Local eject/export samples
+export-*/
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

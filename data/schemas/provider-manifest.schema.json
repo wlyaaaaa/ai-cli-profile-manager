@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AI CLI Profile Manager provider manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "id", "displayName", "engine", "provider", "plan", "transport",
+    "models", "auth", "capabilities", "sources", "requiresSecret", "virtualReady", "dataDestination"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "engine": { "enum": ["codex", "claude", "interpreter"] },
+    "provider": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+    "plan": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+    "region": { "type": ["string", "null"] },
+    "transport": { "enum": ["responses", "anthropic-messages", "managed-proxy", "openai-compatible"] },
+    "wireApi": { "enum": ["responses", "chat"] },
+    "endpoint": { "type": ["string", "null"] },
+    "models": { "type": "object" },
+    "auth": { "type": "object" },
+    "proxyRef": { "type": ["string", "null"] },
+    "capabilities": { "type": "object" },
+    "compatibility": { "type": "object" },
+    "sources": { "type": "array", "items": { "type": "string", "format": "uri" } },
+    "codexProviderId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+    "interpreterProviderId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+    "requiresSecret": { "type": "boolean" },
+    "virtualReady": { "type": "boolean" },
+    "dataDestination": { "type": "string", "minLength": 1 },
+    "notes": { "type": ["string", "null"] },
+    "hidden": { "type": "boolean" },
+    "defaultEffort": { "type": ["string", "null"] },
+    "effortLevels": { "type": "array", "items": { "type": "string" } },
+    "flexible": { "type": "boolean" },
+    "autoRun": { "type": "boolean" },
+    "modelPrefix": { "type": ["string", "null"] }
+  }
+}

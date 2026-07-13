@@ -1,0 +1,33 @@
+{
+  "provider": "anthropic",
+  "capabilities": {
+    "effort": true,
+    "streaming": true,
+    "tools": true,
+    "contextStats": true,
+    "images": true
+  },
+  "sources": [
+    "https://code.claude.com/docs/en/env-vars"
+  ],
+  "endpoint": null,
+  "engine": "claude",
+  "transport": "anthropic-messages",
+  "plan": "subscription",
+  "requiresSecret": false,
+  "region": "global",
+  "displayName": "Claude Code 官方",
+  "id": "claude-official",
+  "notes": "需 claude 已登录。401 时先运行交互式 claude 完成登录。",
+  "schemaVersion": 1,
+  "virtualReady": true,
+  "defaultEffort": "high",
+  "models": {
+    "small": null,
+    "primary": null
+  },
+  "auth": {
+    "type": "native-login"
+  },
+  "dataDestination": "Anthropic 官方（原生登录）"
+}
