@@ -5,6 +5,15 @@ Describe 'Profile' {
         Import-Module (Join-Path $root 'src\AiCliProfileManager\AiCliProfileManager.psd1') -Force
         $script:DataRoot = Join-Path $TestDrive 'prof'
         New-Item -ItemType Directory -Force -Path $script:DataRoot | Out-Null
+        $script:OldPath = $env:Path
+        $stubDir = Join-Path $TestDrive 'cli-stubs'
+        New-Item -ItemType Directory -Force -Path $stubDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $stubDir 'claude.cmd') -Value '@echo off' -Encoding ascii
+        $env:Path = "$stubDir;$env:Path"
+    }
+
+    AfterAll {
+        $env:Path = $script:OldPath
     }
 
     It 'resolves virtual official profiles' {
