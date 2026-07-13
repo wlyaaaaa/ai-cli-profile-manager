@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import posixpath
 import re
@@ -117,7 +118,7 @@ def render_with_edge(edge: Path, html_path: Path, output_pdf: Path, profile_dir:
         raise RuntimeError(f"Edge PDF 生成失败，退出码 {completed.returncode}: {output_pdf}")
 
 
-def finalize_pdf(input_pdf: Path, output_pdf: Path, title: str) -> None:
+def finalize_pdf(input_pdf: Path, output_pdf: Path, title: str, source_sha256: str) -> None:
     reader = PdfReader(str(input_pdf))
     for page in reader.pages:
         for annotation_ref in page.get("/Annots", []):
@@ -132,6 +133,7 @@ def finalize_pdf(input_pdf: Path, output_pdf: Path, title: str) -> None:
     metadata["/Title"] = title
     metadata["/Author"] = "AI CLI Profile Manager contributors"
     metadata["/Subject"] = f"AI CLI Profile Manager {VERSION} 中文手册"
+    metadata["/AICliSourceSHA256"] = source_sha256
     writer.add_metadata({str(k): str(v) for k, v in metadata.items() if v is not None})
     temp_target = output_pdf.with_name(output_pdf.name + ".new")
     with temp_target.open("wb") as stream:
@@ -156,7 +158,9 @@ def main() -> int:
         temp = Path(temp_name)
         for index, (source_relative, title) in enumerate(DOCS.items()):
             source = root / Path(source_relative)
-            text = rewrite_links(source.read_text(encoding="utf-8"), source_relative)
+            source_bytes = source.read_bytes()
+            source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+            text = rewrite_links(source_bytes.decode("utf-8"), source_relative)
             body = markdown.markdown(text, extensions=["tables", "fenced_code", "sane_lists", "toc"])
             html = (
                 "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>"
@@ -169,7 +173,7 @@ def main() -> int:
             html_path.write_text(html, encoding="utf-8")
             render_with_edge(edge, html_path, raw_pdf, profile)
             final_pdf = root / f"{title}.pdf"
-            finalize_pdf(raw_pdf, final_pdf, title)
+            finalize_pdf(raw_pdf, final_pdf, title, source_sha256)
             print(f"OK {final_pdf.name}: {final_pdf.stat().st_size // 1024} KiB")
             shutil.rmtree(profile, ignore_errors=True)
     return 0

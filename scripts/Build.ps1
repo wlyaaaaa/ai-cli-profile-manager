@@ -45,10 +45,11 @@ foreach ($pdfName in $pdfSources.Keys) {
         throw "发行包缺少必需 PDF: $pdfName"
     }
     $markdownPath = Join-Path $root $pdfSources[$pdfName]
-    if ((Get-Item -LiteralPath $pdfPath).LastWriteTimeUtc -lt (Get-Item -LiteralPath $markdownPath).LastWriteTimeUtc) {
-        throw "发行 PDF 早于 canonical Markdown，请重新生成并视觉验收: $pdfName"
-    }
     $pdfAscii = [Text.Encoding]::Latin1.GetString([IO.File]::ReadAllBytes($pdfPath))
+    $sourceHash = (Get-FileHash -LiteralPath $markdownPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($pdfAscii -notmatch '/AICliSourceSHA256' -or $pdfAscii -notmatch [regex]::Escape($sourceHash)) {
+        throw "发行 PDF 未绑定当前 canonical Markdown 的 SHA256，请重新生成并视觉验收: $pdfName"
+    }
     if ($pdfAscii -match '(?i)/URI\s*\(\s*file:|C:(?:/|\\)Users(?:/|\\)|AppData(?:/|\\)Local(?:/|\\)Temp|_pdfbuild_tmp') {
         throw "发行 PDF 含本机路径、file URI 或临时标题: $pdfName"
     }
