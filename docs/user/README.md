@@ -14,7 +14,7 @@
 4. 《[沙箱化 machine run](MACHINE-RUN.md)》
    供上层 AI 使用的 stdin/JSON 协议、本机四智能体 Profile、沙箱和能力边界。
 
-根目录 PDF 是已完成视觉验收的 `0.1.0` 交互式手册快照。`0.2.0` 的 machine run 新能力以本目录 Markdown 为当前事实源：
+根目录 PDF 是已完成视觉验收的 `0.1.0` 交互式手册快照。`0.2.1` 的 machine run 新能力以本目录 Markdown 为当前事实源：
 
 - `AI CLI Profile Manager 使用手册.pdf`
 - `Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf`

@@ -77,17 +77,29 @@ function Initialize-AiCliMachineRuntime {
             $arguments += @('--max-session-turns', [string]$MaxSteps, '--max-tool-calls', [string]$MaxToolCalls)
         }
         elseif ($kind -eq 'codex') {
+            $codexEntryFound = $false
             for ($index = 0; $index -lt $arguments.Count; $index++) {
                 $candidate = [string]$arguments[$index]
                 if ($candidate.EndsWith('codex.js', [StringComparison]::OrdinalIgnoreCase) -and
                     (Test-Path -LiteralPath $candidate -PathType Leaf)) {
                     $packageSource = Split-Path -Parent (Split-Path -Parent $candidate)
-                    $packageMirror = Join-Path $runtimePath 'codex-package'
-                    New-AiCliPackageMirror -Source $packageSource -Destination $packageMirror
-                    $arguments[$index] = Join-Path $packageMirror 'bin\codex.js'
+                    $nativePackages = @(Get-ChildItem -LiteralPath (Join-Path $packageSource 'node_modules\@openai') `
+                        -Directory -Filter 'codex-win32-*' -ErrorAction SilentlyContinue | Where-Object {
+                            @(Get-ChildItem -LiteralPath (Join-Path $_.FullName 'vendor') -Recurse -File `
+                                -Filter 'codex.exe' -ErrorAction SilentlyContinue).Count -gt 0
+                        })
+                    if ($nativePackages.Count -eq 0) {
+                        throw "Codex npm package is missing its Windows native runtime: $packageSource"
+                    }
+                    # Keep the installed package at its short canonical path.
+                    # The outer sandbox grants this exact package read-only;
+                    # mirroring it under a deep workspace can exceed MAX_PATH.
+                    $arguments[$index] = [IO.Path]::GetFullPath($candidate)
+                    $codexEntryFound = $true
                     break
                 }
             }
+            if (-not $codexEntryFound) { throw 'Codex machine runtime could not locate codex.js.' }
             $codexHome = Join-Path $runtimePath 'codex-home'
             New-Item -ItemType Directory -Path $codexHome -Force | Out-Null
             foreach ($configFile in @((Get-AiCliProperty $runtimeConfig 'configFiles'))) {
@@ -97,6 +109,19 @@ function Initialize-AiCliMachineRuntime {
                 }
             }
             $environment['CODEX_HOME'] = $codexHome
+
+            # `codex sandbox windows` does not forward its own stdin to the
+            # sandboxed command. Keep the private task in a runtime file and
+            # pass only a generic file-reading instruction in argv.
+            $taskPath = Join-Path $runtimePath 'task.md'
+            [IO.File]::WriteAllText($taskPath, $effectiveStdIn, [Text.UTF8Encoding]::new($false))
+            $taskInstruction = "Read the UTF-8 task request from this sandbox file and complete it: $taskPath"
+            if ($arguments.Count -gt 0 -and $arguments[-1] -eq '-') {
+                $arguments[-1] = $taskInstruction
+            } else {
+                $arguments += $taskInstruction
+            }
+            $effectiveStdIn = ''
         }
         elseif ($kind -eq 'claude') {
             $claudeConfig = Join-Path $runtimePath 'claude-config'

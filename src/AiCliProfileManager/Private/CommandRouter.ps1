@@ -336,11 +336,15 @@ function Invoke-AiCliRunCommand {
             throw '参数 --max-output-chars 必须是 1024 到 10000000。'
         }
         $native = ConvertTo-AiCliTokenList $split.After
+        $stdinText = [Console]::In.ReadToEnd()
+        if ([string]::IsNullOrWhiteSpace($stdinText)) {
+            throw '参数 --stdin 未提供任务正文；拒绝启动空任务。'
+        }
         $run = Invoke-AiCliProfileCapture `
             -ProfileId ([string]$pos[0]) `
             -ProjectPath (Get-AiCliFlagValue -Tokens $split.Before -Name '--project') `
             -NativeArgs ([string[]]$native.ToArray()) `
-            -StdInText ([Console]::In.ReadToEnd()) `
+            -StdInText $stdinText `
             -TimeoutMs ($timeoutSeconds * 1000) `
             -MaxCaptureChars $maxOutputChars `
             -SandboxPolicy $sandboxPolicy `

@@ -110,11 +110,18 @@ function ConvertTo-AiCliSandboxedCommand {
                     -not $readRoots.Contains($parent)) {
                     $readRoots.Add($parent) | Out-Null
                 }
-                $nodeModulesMarker = '\node_modules\'
-                $markerIndex = $parent.IndexOf($nodeModulesMarker, [StringComparison]::OrdinalIgnoreCase)
-                if ($markerIndex -gt 0) {
-                    $packageRoot = $parent.Substring(0, $markerIndex)
+                $codexPackageMarker = '\node_modules\@openai\codex\'
+                $codexPackageIndex = $parent.IndexOf($codexPackageMarker, [StringComparison]::OrdinalIgnoreCase)
+                if ($codexPackageIndex -gt 0) {
+                    $packageRoot = $parent.Substring(0, $codexPackageIndex + $codexPackageMarker.Length - 1)
                     if (-not $readRoots.Contains($packageRoot)) { $readRoots.Add($packageRoot) | Out-Null }
+                } else {
+                    $nodeModulesMarker = '\node_modules\'
+                    $markerIndex = $parent.IndexOf($nodeModulesMarker, [StringComparison]::OrdinalIgnoreCase)
+                    if ($markerIndex -gt 0) {
+                        $packageRoot = $parent.Substring(0, $markerIndex)
+                        if (-not $readRoots.Contains($packageRoot)) { $readRoots.Add($packageRoot) | Out-Null }
+                    }
                 }
             }
         } catch {}

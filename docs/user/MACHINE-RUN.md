@@ -24,7 +24,7 @@ $task | aicli run codex-ollama-main `
 
 安全边界：
 
-- 任务正文只从 stdin 读取，不进入 argv；返回一个 JSON envelope。
+- 调用接口只从 stdin 接收任务正文，不把正文放入 argv；Codex 路径会把正文暂存到一次性运行目录，argv 只含文件路径，结束后统一清理。返回值是一个 JSON envelope。
 - 外层 Codex Windows 沙箱是强制边界，网络关闭；内层 CLI 的自动批准不会扩大到沙箱之外。
 - `workspace-write` 允许修改指定工作区。因此应传入隔离 worktree 或暂存目录，canonical raw 数据只读保留在边界外。
 - `read-only` 让 CLI 在一次性运行目录写自身状态，来源工作区只读；任务结束后清理运行目录。

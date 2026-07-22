@@ -71,6 +71,30 @@ Describe 'Machine-facing profile runs' {
         }
     }
 
+    It 'grants a Codex npm package read-only without exposing the whole npm root' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            Mock Resolve-AiCliLaunchExecutable {
+                [pscustomobject]@{ FileName = 'C:\codex\codex.exe'; PrefixArgs = @(); Kind = 'native' }
+            }
+            $workspace = Join-Path $Work 'workspace'
+            $package = Join-Path $Work 'npm\node_modules\@openai\codex'
+            $entry = Join-Path $package 'bin\codex.js'
+            New-Item -ItemType Directory -Path $workspace, (Split-Path -Parent $entry) -Force | Out-Null
+            Set-Content -LiteralPath $entry -Value '// stub' -Encoding ascii
+
+            $wrapped = ConvertTo-AiCliSandboxedCommand -FileName 'C:\Program Files\nodejs\node.exe' `
+                -ArgumentList @($entry, 'exec') -Workspace $workspace -Policy 'workspace-write'
+
+            $roots = for ($index = 0; $index -lt $wrapped.ArgumentList.Count; $index++) {
+                if ($wrapped.ArgumentList[$index] -eq '--sandbox-state-readable-root') {
+                    $wrapped.ArgumentList[$index + 1]
+                }
+            }
+            $roots | Should -Contain ([IO.Path]::GetFullPath($package))
+            $roots | Should -Not -Contain ([IO.Path]::GetFullPath((Join-Path $Work 'npm')))
+        }
+    }
+
     It 'maps a read-only machine policy to the read-only outer sandbox' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             Mock Resolve-AiCliLaunchExecutable {
@@ -169,22 +193,30 @@ Describe 'Machine-facing profile runs' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $package = Join-Path $Work 'tool\node_modules\@openai\codex'
             $entry = Join-Path $package 'bin\codex.js'
+            $native = Join-Path $package 'node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe'
             $config = Join-Path $Work 'aicli-local.config.toml'
-            New-Item -ItemType Directory -Path (Split-Path -Parent $entry) -Force | Out-Null
+            New-Item -ItemType Directory -Path (Split-Path -Parent $entry), (Split-Path -Parent $native) -Force | Out-Null
             Set-Content -LiteralPath $entry -Value '// stub' -Encoding ascii
+            Set-Content -LiteralPath $native -Value 'native stub' -Encoding ascii
             Set-Content -LiteralPath (Join-Path $package 'package.json') -Value '{}' -Encoding ascii
             Set-Content -LiteralPath $config -Value 'model = "qwen-main-v1"' -Encoding ascii
             $plan = [pscustomobject]@{
                 engine = 'codex'
+                fileName = (Get-Command pwsh.exe).Source
                 argumentList = @($entry, '--profile', 'aicli-local', 'exec', '-')
                 workingDirectory = $Work
                 environmentDelta = @{}
                 machineRuntime = [ordered]@{ kind='codex'; configFiles=@($config) }
             }
 
-            $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' -Policy 'workspace-write'
+            $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'PRIVATE_TASK_CANARY' -Policy 'workspace-write'
             try {
-                $runtime.ArgumentList[0] | Should -Be (Join-Path $runtime.RuntimePath 'codex-package\bin\codex.js')
+                ($runtime.ArgumentList -join ' ') | Should -Not -Match 'PRIVATE_TASK_CANARY'
+                $runtime.ArgumentList[-1] | Should -Match ([regex]::Escape((Join-Path $runtime.RuntimePath 'task.md')))
+                $runtime.StdInText | Should -Be ''
+                Get-Content -Raw -LiteralPath (Join-Path $runtime.RuntimePath 'task.md') | Should -Be 'PRIVATE_TASK_CANARY'
+                $runtime.ArgumentList[0] | Should -Be ([IO.Path]::GetFullPath($entry))
+                Test-Path -LiteralPath (Join-Path $runtime.RuntimePath 'codex-package') | Should -BeFalse
                 Test-Path -LiteralPath (Join-Path $runtime.EnvironmentDelta.CODEX_HOME 'aicli-local.config.toml') | Should -BeTrue
             } finally {
                 Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath -Workspace $Work
@@ -260,6 +292,32 @@ Describe 'Machine-facing profile runs' {
                 $NativeArgs[0] -eq 'exec' -and
                 $NativeArgs[2] -eq '-'
             }
+        }
+    }
+
+    It 'rejects an empty machine task before launching an agent' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            Mock Invoke-AiCliProfileCapture { throw 'agent must not launch' }
+            $oldIn = [Console]::In
+            $oldOut = [Console]::Out
+            $reader = [IO.StringReader]::new('')
+            $writer = [IO.StringWriter]::new()
+            try {
+                [Console]::SetIn($reader)
+                [Console]::SetOut($writer)
+                $code = Invoke-AiCliRouter -Tokens @(
+                    'run', 'local', '--project', $Work, '--stdin', '--json', '--sandbox-policy', 'workspace-write',
+                    '--', 'exec', '--json', '-'
+                )
+            } finally {
+                [Console]::SetIn($oldIn)
+                [Console]::SetOut($oldOut)
+                $reader.Dispose()
+            }
+
+            $code | Should -Be 2
+            ($writer.ToString() | ConvertFrom-Json).error.summary | Should -Match 'stdin'
+            Should -Invoke Invoke-AiCliProfileCapture -Times 0 -Exactly
         }
     }
 }

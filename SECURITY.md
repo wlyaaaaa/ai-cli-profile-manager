@@ -22,7 +22,7 @@
 - Live Tool Test 只允许隔离的单用途 nonce 工具；无法证明隔离时跳过并报告限制。
 - Open Interpreter 只支持官方 Rust `0.0.21+`；默认不启用审批或沙箱绕过。
 - `aicli run` 必须经过 Codex Windows 外层沙箱并禁用外网；内部 CLI 可自动批准的前提是外层已把写权限限制在指定工作区或一次性运行目录。没有可用沙箱时拒绝运行，不无沙箱降级。
-- machine run 的任务正文只走 stdin，不进入进程参数；临时 Qwen/Codex/Claude/OpenCode 配置在任务结束后删除。
+- machine run 的调用接口只从 stdin 接收任务正文，不把正文放入进程参数；Codex 路径会在一次性运行目录暂存正文，参数只含文件路径。临时任务与 Qwen/Codex/Claude/OpenCode 配置在任务结束后删除。
 
 ## 不属于本产品的保证
 
