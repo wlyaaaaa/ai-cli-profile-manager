@@ -17,7 +17,7 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | Profile / 路径 | 实现状态 | 本轮最终 Live 状态 | 发布说明 |
 |----------------|----------|--------------------|----------|
 | `codex-official` | 已实现 | 可用但有限制（本轮按用户要求未做 Live） | 使用上游官方登录；不得由桌面端登录状态推断 CLI 一定可用 |
-| `codex-qwen-paygo` | 已实现 | 文本通过；工具层跳过（可用但有限制） | 2026-07-14（UTC+8）：Codex 0.144.3 → `qwen3.7-max-2026-06-08`，exit 0，最终正文严格 `PONG` |
+| `codex-qwen-paygo` | 已实现 | Max 文本通过；Plus 未做 Live（可用但有限制） | 2026-07-14（UTC+8）：Codex 0.144.3 → `qwen3.7-max-2026-06-08`，exit 0，最终正文严格 `PONG`。上层如选择 Plus，必须显式传 `--model qwen3.7-plus`；官方确认该模型支持 Responses 与最新版 Codex，但本表不把官方兼容性冒充本机实测。 |
 | `codex-qwen-token-plan` | 已实现 | 可用但有限制（本轮未做 Live） | Key、端点和按量套餐分开 |
 | `codex-ollama` | 已实现，公共默认 `127.0.0.1:11434` | 可用但有限制（公共默认未做 Live） | 需验证本机模型、上下文和工具能力 |
 | `claude-official` | 已实现 | 不可用（本机未登录，401） | 完成 Claude CLI 官方登录后可重新验收；不等于产品安装失败 |
