@@ -1,6 +1,7 @@
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 
 $script:InterpreterTestRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+Get-Module AiCliProfileManager -All | Remove-Module -Force -ErrorAction SilentlyContinue
 Import-Module (Join-Path $script:InterpreterTestRepoRoot 'src\AiCliProfileManager\AiCliProfileManager.psd1') -Force
 
 Describe 'Rust Open Interpreter adapter' {

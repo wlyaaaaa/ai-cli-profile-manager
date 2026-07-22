@@ -9,6 +9,7 @@ docs/research-inputs/*.txt
 
 # PowerShell / test output
 TestResults/
+testResults.xml
 coverage/
 dist/
 

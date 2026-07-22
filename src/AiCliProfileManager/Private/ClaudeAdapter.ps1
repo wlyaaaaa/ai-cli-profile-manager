@@ -240,5 +240,6 @@ function Build-AiCliClaudeLaunchPlan {
         notes             = @($notes)
         proxyRef          = $proxyRef
         effort            = $effort
+        machineRuntime    = [ordered]@{ kind='claude' }
     }
 }

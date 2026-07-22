@@ -41,6 +41,12 @@ function Build-AiCliLaunchPlan {
     if ($engine -eq 'interpreter') {
         return (Build-AiCliInterpreterLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs)
     }
+    if ($engine -eq 'qwen-code') {
+        return (Build-AiCliQwenCodeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs)
+    }
+    if ($engine -eq 'opencode') {
+        return (Build-AiCliOpenCodeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs)
+    }
     throw "未知引擎: $engine"
 }
 
@@ -239,6 +245,9 @@ function Start-AiCliProfile {
     }
     $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId -ProjectPath $ProjectPath -NativeArgs $NativeArgs
     $engine = Get-AiCliProperty $plan 'engine'
+    if ([bool](Get-AiCliProperty $plan 'machineOnly' $false)) {
+        throw "Profile $ProfileId 仅用于 aicli run 机器调用，不提供无沙箱交互启动。"
+    }
     Write-AiCliInfo ("启动 {0}（{1}）…" -f $ProfileId, $engine)
     foreach ($n in @((Get-AiCliProperty $plan 'notes') | ForEach-Object { $_ })) {
         Write-AiCliInfo ("  · {0}" -f $n)
@@ -256,4 +265,78 @@ function Start-AiCliProfile {
     Set-AiCliLastProfile -Id $ProfileId
     $code = Start-AiCliChildProcess -StartInfo $psi -Wait -SessionNote $ProfileId
     return $code
+}
+
+function Invoke-AiCliProfileCapture {
+    <#
+    .SYNOPSIS
+      Run one resolved Profile as a bounded machine-facing child process.
+    .DESCRIPTION
+      The launch environment remains inside this module. Only process output and
+      result-side metadata are returned; provider keys and environment deltas are
+      never included in the result object.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProfileId,
+        [string]$ProjectPath,
+        [string[]]$NativeArgs = @(),
+        [string]$StdInText = $null,
+        [int]$TimeoutMs = 120000,
+        [int]$MaxCaptureChars = 1000000,
+        [ValidateSet('read-only','workspace-write')][string]$SandboxPolicy = 'read-only',
+        [int]$MaxSteps = 20,
+        [int]$MaxToolCalls = 80
+    )
+    $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId -ProjectPath $ProjectPath -NativeArgs $NativeArgs
+    $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText $StdInText `
+        -Policy $SandboxPolicy -MaxSteps $MaxSteps -MaxToolCalls $MaxToolCalls
+    $started = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $captured = Invoke-AiCliChildCapture `
+            -FileName (Get-AiCliProperty $plan 'fileName') `
+            -ArgumentList @($runtime.ArgumentList) `
+            -WorkingDirectory (Get-AiCliProperty $plan 'workingDirectory') `
+            -EnvironmentDelta $runtime.EnvironmentDelta `
+            -RemoveEnvironment @((Get-AiCliProperty $plan 'removeEnvironment') | ForEach-Object { $_ }) `
+            -StdInText $runtime.StdInText `
+            -TimeoutMs $TimeoutMs `
+            -MaxCaptureChars $MaxCaptureChars `
+            -SandboxWorkspace (Get-AiCliProperty $plan 'workingDirectory') `
+            -SandboxPolicy $SandboxPolicy
+        return [pscustomobject]@{
+            profileId = $ProfileId
+            engine = [string](Get-AiCliProperty $plan 'engine')
+            exitCode = [int]$captured.ExitCode
+            stdout = [string]$captured.StdOut
+            stderr = [string]$captured.StdErr
+            timedOut = [bool](Get-AiCliProperty $captured 'TimedOut' $false)
+            durationMs = [int](Get-AiCliProperty $captured 'DurationMs' $started.ElapsedMilliseconds)
+            outputTruncated = [bool](Get-AiCliProperty $captured 'OutputTruncated' $false)
+            sandboxPolicy = $SandboxPolicy
+            limitEnforcement = [ordered]@{
+                timeout = 'hard'
+                maxSteps = if ([string](Get-AiCliProperty $plan 'engine') -in @('qwen-code','claude')) { 'upstream' } else { 'not-enforced' }
+                maxToolCalls = if ([string](Get-AiCliProperty $plan 'engine') -eq 'qwen-code') { 'upstream' } else { 'not-enforced' }
+            }
+        }
+    } catch [System.TimeoutException] {
+        return [pscustomobject]@{
+            profileId = $ProfileId
+            engine = [string](Get-AiCliProperty $plan 'engine')
+            exitCode = (Get-AiCliExitCode Unavailable)
+            stdout = ''
+            stderr = 'Child process exceeded the configured wall timeout.'
+            timedOut = $true
+            durationMs = [int]$started.ElapsedMilliseconds
+            outputTruncated = $false
+            sandboxPolicy = $SandboxPolicy
+        }
+    } finally {
+        $started.Stop()
+        if ($runtime) {
+            Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath `
+                -Workspace (Get-AiCliProperty $plan 'workingDirectory')
+        }
+    }
 }

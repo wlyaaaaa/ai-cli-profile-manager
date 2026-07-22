@@ -13,7 +13,7 @@ function Show-AiCliHelp {
         '^(perm)' { Show-AiCliHelpPermissions }
         '^(resume|session)' { Show-AiCliHelpResume }
         '^(compare)$' { Show-AiCliHelpCompare }
-        '^(setup|profile|start|doctor|test|proxy|update|native|eject|uninstall)$' { Show-AiCliHelpCommand -Command $Topic.ToLowerInvariant() }
+        '^(setup|profile|start|run|doctor|test|proxy|update|native|eject|uninstall)$' { Show-AiCliHelpCommand -Command $Topic.ToLowerInvariant() }
         default {
             throw "未知帮助主题: $Topic"
         }
@@ -26,18 +26,19 @@ function Show-AiCliHelpRoot {
     Write-Host @"
 $name — 命令帮助
 
-功能：用 Profile 启动原生 Codex / Claude Code / Open Interpreter，并做代理运维与体检。
+功能：用 Profile 启动原生 Codex / Claude Code / Qwen Code / OpenCode / Open Interpreter，或供上层 AI 发起有界沙箱任务。
 
 常用命令：
   $cmd setup
   $cmd profile list
   $cmd start <profile> [--project <path>] [-- <native-args...>]
+  $cmd run <profile> --stdin --json --project <path> --sandbox-policy <read-only|workspace-write> -- <native-args...>
   $cmd doctor [profile]
   $cmd test <profile> --live [--level text|tool|all] [--yes]
   $cmd proxy <ccp|cliproxy> status
   $cmd native <profile>
   $cmd eject <profile>
-  $cmd help setup|profile|start|doctor|test|proxy|update|native|eject|uninstall
+  $cmd help setup|profile|start|run|doctor|test|proxy|update|native|eject|uninstall
   $cmd help compact|model|effort|permissions|resume|compare
 
 详细手册见 docs/user/。
@@ -176,6 +177,7 @@ function Show-AiCliHelpCommand {
         setup     = @('首次引导与本机体检。','aicli setup','显示环境状态并选择要配置的 Profile。')
         profile   = @('查看、配置、设默认值或删除用户 Profile。','aicli profile list --available；aicli profile configure <模板 ID>；aicli profile remove <ID>','删除最后一个引用某密钥的 Profile 时，也会删除对应 DPAPI 密钥文件。')
         start     = @('在指定项目目录中启动真实上游 CLI。','aicli start <Profile ID> --project <项目路径> -- <原生参数>','Provider、模型和密钥只注入该子进程。')
+        run       = @('供上层程序通过 stdin 调用一个有界智能体任务。','aicli run <Profile ID> --stdin --json --project <路径> --sandbox-policy read-only|workspace-write -- <原生参数>','外层 Codex 沙箱禁止外网并限制文件范围；只返回子进程输出和结果侧元数据，不返回环境或密钥。')
         doctor    = @('检查 CLI、Profile、端点、代理和配置冲突，不发送模型请求。','aicli doctor [Profile ID] [--json]','输出“通过 / 可用 / 可用但有限制 / 不可用”及下一步。')
         test      = @('通过目标 CLI 发送一次真实连通请求。','aicli test <Profile ID> --live --level text --yes','会消耗额度；最终正文必须严格匹配 PONG，未执行的工具测试不会冒充通过。')
         proxy     = @('安装、登录、启停和检查 ccp / CLIProxyAPI。','aicli proxy <ccp|cliproxy> status','只允许 loopback 监听；ChatGPT 通道为可选第三方方案。')

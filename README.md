@@ -1,8 +1,8 @@
 # AI CLI Profile Manager
 
-面向 Windows 11 x64 的中文 PowerShell 工具：用统一 Profile 启动原生 Codex CLI、Claude Code 和当前官方 Rust Open Interpreter，并提供 Provider 隔离、Doctor、显式 Live Test 与可选的第三方代理运维。
+面向 Windows 11 x64 的中文 PowerShell 工具：用统一 Profile 启动原生 Codex CLI、Claude Code、Qwen Code、OpenCode 和当前官方 Rust Open Interpreter，并提供 Provider 隔离、Doctor、显式 Live Test、沙箱化 machine run 与可选的第三方代理运维。
 
-命令：`aicli`　版本：`0.1.0`　许可证：MIT
+命令：`aicli`　版本：`0.2.0`　许可证：MIT
 
 它不是新的 Agent 或聊天外壳，不接管历史会话，也不汉化上游 CLI。本工具只负责“选哪条连接、怎样安全启动、出了问题如何验证”。
 
@@ -24,12 +24,14 @@ pwsh -File .\bin\aicli.ps1 version
 pwsh -File .\bin\aicli.ps1 doctor
 ```
 
-## 首版范围
+## 当前范围
 
 | 引擎 | 已实现的公开路径 | 验收口径 |
 |------|------------------|----------|
 | Codex CLI | 官方登录、千问 Responses 按量/Token Plan、本机 Ollama | 代码已实现；每台机器仍以 Doctor 和显式 Live Test 为准 |
 | Claude Code | 官方登录、DeepSeek、千问三套餐、Ollama、自定义 Anthropic Messages | 同上 |
+| Qwen Code | 本机 Ollama `qwen-main-v1` machine run | 仅机器入口；必须经过外层沙箱 |
+| OpenCode | 本机 Ollama `qwen-main-v1` machine run | 仅机器入口；必须经过外层沙箱 |
 | Open Interpreter | 当前官方 Rust `0.0.21+`：千问 Responses、DeepSeek Chat、Ollama | 旧 Python `0.4.x` 明确不支持；最终 Live 状态见兼容性页 |
 | ChatGPT → Claude | `raine/claude-code-proxy`、`CLIProxyAPI` | 可选第三方通道；本轮未完成 OAuth 与端到端 Live 验收 |
 
@@ -45,12 +47,17 @@ Claude 官方路径在未登录机器上出现 `401`，通常表示需要先完�
 aicli profile list --available
 aicli profile configure <模板 ID>
 aicli start <Profile ID> [--project <项目路径>] [-- <原生参数...>]
+aicli run <Profile ID> --stdin --json --project <项目路径> --sandbox-policy read-only|workspace-write -- <原生参数...>
 aicli doctor [Profile ID] [--json]
 aicli test <Profile ID> --live [--level text|tool|all] [--yes]
 aicli native <Profile ID>
 aicli eject <Profile ID> [--output <新目录>]
 aicli help [主题或命令]
 ```
+
+`run` 是供上层 AI/程序使用的非交互入口：任务正文只从 stdin 读取，返回一个 JSON envelope，并强制经过 Codex Windows 外层沙箱。`workspace-write` 允许低级智能体自动操作指定工作区，但禁止访问外网或写出工作区；`read-only` 把 CLI 自身可写状态放在一次性运行目录，只把目标工作区作为只读根。Qwen Code/OpenCode 不提供绕过该边界的交互式 `start`。
+
+本机预置 Profile：`codex-ollama-main`、`claude-ollama-main`、`qwen-code-ollama-main`、`opencode-ollama-main`。它们都固定访问 `127.0.0.1:32100` 的 `qwen-main-v1`，不自动切云端、不自动 fallback。上层调用者仍负责选择 Profile、准备隔离工作区和验收最终产物。
 
 已有 OpenClaw 千问/DeepSeek 配置时，可先安全预览再导入；默认不会写入，详见主手册：
 
@@ -69,7 +76,9 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 
 3. [文档顺序索引](docs/user/README.md) · [兼容性与最终验收状态](docs/compatibility/VERIFIED-COMPATIBILITY.md)
 
-根目录同时提供已经过渲染验收的 PDF，适合直接阅读或随 Release 下载：
+4. [沙箱化 machine run](docs/user/MACHINE-RUN.md)：供上层 AI 调用本地智能体的 stdin/JSON 协议、权限边界与能力限制。
+
+根目录同时保留 0.1.0 两本交互式手册的已渲染 PDF；0.2.0 新增的 machine run 以 Markdown 文档为准：
 
 - 《[AI CLI Profile Manager 使用手册（PDF）](<AI CLI Profile Manager 使用手册.pdf>)》
 - 《[Codex、Claude Code 与 Open Interpreter CLI 中文手册（PDF）](<Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf>)》

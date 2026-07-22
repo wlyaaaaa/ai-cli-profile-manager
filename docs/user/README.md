@@ -11,9 +11,12 @@
 3. 《[兼容性与最终验收状态](../compatibility/VERIFIED-COMPATIBILITY.md)》
    区分“代码已实现”“文本 Live 已通过”“工具层跳过”“可用但有限制”和“不可用”，避免把能打开 CLI 当成 Provider 已通过。
 
-源码仓库以两本 Markdown 为唯一正文。公开 Release 同时提供由它们生成、与 `0.1.0` 正文一致并已完成视觉验收的根目录同名 PDF：
+4. 《[沙箱化 machine run](MACHINE-RUN.md)》
+   供上层 AI 使用的 stdin/JSON 协议、本机四智能体 Profile、沙箱和能力边界。
+
+根目录 PDF 是已完成视觉验收的 `0.1.0` 交互式手册快照。`0.2.0` 的 machine run 新能力以本目录 Markdown 为当前事实源：
 
 - `AI CLI Profile Manager 使用手册.pdf`
 - `Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf`
 
-PDF 是方便直接阅读和打印的发布物；后续若 Markdown 正文变化，发布前必须重新生成并再次做视觉验收。
+PDF 适合查阅旧版交互流程，不能替代当前 machine run 文档；未来重新发布 PDF 前必须再次生成并做视觉验收。

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "opencode-ollama-main",
+  "displayName": "OpenCode + local Qwen main",
+  "engine": "opencode",
+  "provider": "ollama",
+  "plan": "local",
+  "region": "local",
+  "transport": "openai-compatible",
+  "endpoint": "http://127.0.0.1:32100/v1",
+  "models": { "primary": "qwen-main-v1", "small": "qwen-main-v1" },
+  "auth": { "type": "none" },
+  "capabilities": { "tools": true, "streaming": true, "images": true, "machineRun": true },
+  "sources": [
+    "https://opencode.ai/docs/cli/",
+    "https://opencode.ai/docs/providers/"
+  ],
+  "requiresSecret": false,
+  "virtualReady": true,
+  "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
+  "notes": "Machine-only. Pure mode and transient config; no cloud or fallback."
+}

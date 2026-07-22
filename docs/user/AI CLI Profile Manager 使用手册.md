@@ -1,6 +1,6 @@
 # AI CLI Profile Manager 使用手册
 
-适用版本：`0.1.0`
+适用版本：`0.2.0`
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
@@ -22,7 +22,7 @@ AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter �
 从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
 
 ```powershell
-$version = '0.1.0'
+$version = '0.2.0'
 $base = "https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/download/v$version"
 $download = Join-Path $HOME "Downloads\ai-cli-profile-manager-$version"
 New-Item -ItemType Directory -Force -Path $download | Out-Null

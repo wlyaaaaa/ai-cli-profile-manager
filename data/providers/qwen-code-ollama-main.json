@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "qwen-code-ollama-main",
+  "displayName": "Qwen Code + local Qwen main",
+  "engine": "qwen-code",
+  "provider": "ollama",
+  "plan": "local",
+  "region": "local",
+  "transport": "openai-compatible",
+  "endpoint": "http://127.0.0.1:32100/v1",
+  "models": { "primary": "qwen-main-v1", "small": "qwen-main-v1" },
+  "auth": { "type": "none" },
+  "capabilities": { "tools": true, "streaming": true, "images": true, "machineRun": true },
+  "sources": [
+    "https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/",
+    "https://docs.ollama.com/api/openai-compatibility"
+  ],
+  "requiresSecret": false,
+  "virtualReady": true,
+  "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
+  "notes": "Machine-only. Transient QWEN_HOME; no cloud or fallback."
+}

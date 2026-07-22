@@ -11,7 +11,7 @@
     "schemaVersion": { "const": 1 },
     "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
     "displayName": { "type": "string", "minLength": 1 },
-    "engine": { "enum": ["codex", "claude", "interpreter"] },
+    "engine": { "enum": ["codex", "claude", "interpreter", "qwen-code", "opencode"] },
     "provider": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
     "plan": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
     "region": { "type": ["string", "null"] },

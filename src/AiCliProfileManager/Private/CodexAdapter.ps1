@@ -299,11 +299,13 @@ function Build-AiCliCodexLaunchPlan {
         $endpoint = Get-AiCliProperty $MergedProfile 'endpoint'
         if (-not $endpoint) { $endpoint = 'http://127.0.0.1:11434/v1' }
         if (-not $model) { $model = 'qwen3:8b' }
+        $providerId = Get-AiCliProperty $MergedProfile 'codexProviderId'
+        if (-not $providerId) { $providerId = 'aicli_' + ($id -replace '-', '_') }
         $merged2 = [ordered]@{
             id             = $id
             displayName    = Get-AiCliProperty $MergedProfile 'displayName'
             endpoint       = $endpoint
-            codexProviderId= 'aicli_ollama_local'
+            codexProviderId= $providerId
             models         = [ordered]@{ primary = $model }
         }
         $toml = New-AiCliCodexProviderToml -MergedProfile $merged2 -EnvKeyName 'AICLI_CODEX_PROVIDER_KEY'
@@ -314,7 +316,7 @@ function Build-AiCliCodexLaunchPlan {
         foreach ($v in $script:AiCliCodexProviderVars) { $removeEnv += $v }
         $removeEnv += @('OPENAI_BASE_URL')
         $envDelta['AICLI_CODEX_PROVIDER_KEY'] = 'ollama'
-        Add-AiCliCodexProviderOverrides -ArgumentList $cliArgs -MergedProfile $merged2 -ProviderId 'aicli_ollama_local' -EnvironmentKey 'AICLI_CODEX_PROVIDER_KEY'
+        Add-AiCliCodexProviderOverrides -ArgumentList $cliArgs -MergedProfile $merged2 -ProviderId $providerId -EnvironmentKey 'AICLI_CODEX_PROVIDER_KEY'
         $notes += "本机 Ollama 兼容网关: $endpoint"
         $notes += "模型: $model；wire_api=responses"
         $notes += '公开模板使用 Ollama 默认 11434；其他本机网关请配置独立用户 Profile。'
@@ -361,5 +363,6 @@ function Build-AiCliCodexLaunchPlan {
         proxyRef          = $null
         effort            = $effort
         model             = $model
+        machineRuntime    = [ordered]@{ kind='codex'; configFiles=@($configFiles) }
     }
 }

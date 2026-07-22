@@ -1,11 +1,11 @@
 @{
     RootModule        = 'AiCliProfileManager.psm1'
-    ModuleVersion     = '0.1.0'
+    ModuleVersion     = '0.2.0'
     GUID              = 'a1c11c11-0a11-4c11-b111-a1c110110011'
     Author            = 'AI CLI Profile Manager Contributors'
     CompanyName       = 'Independent'
     Copyright         = 'Copyright (c) 2026 AI CLI Profile Manager Contributors'
-    Description       = 'Windows PowerShell profile launcher for native Codex CLI, Claude Code, and Open Interpreter with provider isolation, proxy ops, doctor, live checks, and Chinese handbooks.'
+    Description       = 'Windows PowerShell profile launcher and sandboxed machine runner for Codex CLI, Claude Code, Qwen Code, OpenCode, and Open Interpreter.'
     PowerShellVersion = '7.0'
     FunctionsToExport = @('Invoke-AiCli', 'aicli', 'Get-AiCliBrand', 'Get-AiCliVersion', 'Get-AiCliAppPaths')
     CmdletsToExport   = @()
@@ -13,10 +13,10 @@
     AliasesToExport   = @()
     PrivateData       = @{
         PSData = @{
-            Tags         = @('Codex', 'Claude', 'OpenInterpreter', 'Ollama', 'Qwen', 'DeepSeek', 'CLI', 'Windows', 'Profile', 'Proxy')
+            Tags         = @('Codex', 'Claude', 'QwenCode', 'OpenCode', 'OpenInterpreter', 'Ollama', 'Qwen', 'DeepSeek', 'CLI', 'Windows', 'Profile', 'Sandbox')
             LicenseUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager'
-            ReleaseNotes = '0.1.0 首次公开版本：Profile 启动、Doctor、真实 CLI 文本自检、代理运维与中文手册。'
+            ReleaseNotes = '0.2.0：新增 Qwen Code/OpenCode 本地 Profile、stdin JSON machine run、Codex 外层沙箱、资源预算与结果回执。'
         }
     }
 }

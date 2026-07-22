@@ -2,6 +2,25 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
+## [0.2.0] - 2026-07-22
+
+### 新增
+
+- Qwen Code 与 OpenCode 的本机 `qwen-main-v1` Profile。
+- `aicli run`：任务正文走 stdin，结果返回单一 JSON envelope，支持墙钟、step、tool-call 和输出上限。
+- Codex Windows 外层沙箱：默认禁用外网；`workspace-write` 只写指定工作区，`read-only` 使用一次性可写运行目录并把来源工作区设为只读。
+- Codex/Claude/Qwen/OpenCode 的临时配置隔离，运行后清理；上层只取得结果侧元数据。
+
+### 安全修正
+
+- Qwen Code npm 包与 Codex npm 包在 machine run 中镜像到沙箱内，避免给整个用户 AppData 扩大读取权限。
+- Claude Code 的自动授权只在强制外层沙箱内生效。
+- Qwen Code/OpenCode 拒绝通过交互式入口绕过 machine sandbox。
+
+### 验收
+
+- 本机 Qwen3.6 35B 同题数据清洗：Codex CLI 21/21、47.343 秒、exit 0，被上层工具选为默认；其他 harness 保留为显式候选。
+
 ## [0.1.0] - 2026-07-14
 
 首个公开版本。

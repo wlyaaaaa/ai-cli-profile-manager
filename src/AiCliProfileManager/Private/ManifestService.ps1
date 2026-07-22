@@ -116,7 +116,10 @@ function Assert-AiCliManifestCore {
             throw "Open Interpreter DeepSeek Profile 必须使用 wireApi=chat ($($M.id))"
         }
     }
-    if ($engine -notin @('codex', 'claude', 'interpreter')) {
+    if ($engine -in @('qwen-code', 'opencode') -and $transport -ne 'openai-compatible') {
+        throw "Agent Manifest transport 仅允许 openai-compatible，收到: $transport ($($M.id))"
+    }
+    if ($engine -notin @('codex', 'claude', 'interpreter', 'qwen-code', 'opencode')) {
         throw "未知引擎: $engine ($($M.id))"
     }
     if ($engine -eq 'codex') {

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "claude-ollama-main",
+  "displayName": "Claude Code + local Qwen main",
+  "engine": "claude",
+  "provider": "ollama",
+  "plan": "local",
+  "region": "local",
+  "transport": "anthropic-messages",
+  "endpoint": "http://127.0.0.1:32100",
+  "models": { "primary": "qwen-main-v1", "small": "qwen-main-v1" },
+  "auth": { "type": "none" },
+  "capabilities": { "tools": true, "streaming": true, "images": true, "machineRun": true },
+  "sources": ["https://docs.ollama.com/integrations/claude-code"],
+  "requiresSecret": false,
+  "virtualReady": true,
+  "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
+  "notes": "Machine run is externally sandboxed; no cloud or fallback."
+}

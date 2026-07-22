@@ -147,6 +147,7 @@ function Invoke-AiCliRouter {
             }
             'profile' { return (Invoke-AiCliProfileCommand -Tokens $rest) }
             'start' { return (Invoke-AiCliStartCommand -Tokens $rest) }
+            'run' { return (Invoke-AiCliRunCommand -Tokens $rest) }
             'native' {
                 $pos = Assert-AiCliTokenShape -Tokens $rest -MinPositionals 1 -MaxPositionals 1
                 Show-AiCliNative -ProfileId $pos[0]
@@ -291,6 +292,71 @@ function Invoke-AiCliStartCommand {
     $native = ConvertTo-AiCliTokenList $split.After
     $code = Start-AiCliProfile -ProfileId $id -ProjectPath $project -NativeArgs ([string[]]$native.ToArray())
     return $code
+}
+
+function Invoke-AiCliRunCommand {
+    param($Tokens)
+    try {
+        $tokenList = ConvertTo-AiCliTokenList $Tokens
+        if ($tokenList.Count -lt 1) {
+            throw '用法: aicli run <id> --stdin --json [--project <path>] [--sandbox-policy read-only|workspace-write] [--timeout-seconds <n>] [--max-steps <n>] [--max-tool-calls <n>] [--max-output-chars <n>] -- <native-args...>'
+        }
+        $split = Split-AiCliArgs -Tokens $tokenList
+        $pos = Assert-AiCliTokenShape -Tokens $split.Before -MinPositionals 1 -MaxPositionals 1 `
+            -Switches @('--stdin','--json') `
+            -ValueOptions @('--project','--sandbox-policy','--timeout-seconds','--max-steps','--max-tool-calls','--max-output-chars')
+        if (-not (Test-AiCliHasFlag $split.Before '--stdin')) {
+            throw '参数 --stdin 是 machine run 的必需项；任务正文不得放入命令行参数。'
+        }
+        if (-not (Test-AiCliHasFlag $split.Before '--json')) {
+            throw '参数 --json 是 machine run 的必需项。'
+        }
+        $timeoutSecondsText = Get-AiCliFlagValue -Tokens $split.Before -Name '--timeout-seconds' -Default '120'
+        $sandboxPolicy = Get-AiCliFlagValue -Tokens $split.Before -Name '--sandbox-policy' -Default 'read-only'
+        if ($sandboxPolicy -notin @('read-only','workspace-write')) {
+            throw '参数 --sandbox-policy 只能是 read-only 或 workspace-write。'
+        }
+        $maxStepsText = Get-AiCliFlagValue -Tokens $split.Before -Name '--max-steps' -Default '20'
+        $maxToolCallsText = Get-AiCliFlagValue -Tokens $split.Before -Name '--max-tool-calls' -Default '80'
+        $maxOutputText = Get-AiCliFlagValue -Tokens $split.Before -Name '--max-output-chars' -Default '1000000'
+        $timeoutSeconds = 0
+        $maxSteps = 0
+        $maxToolCalls = 0
+        $maxOutputChars = 0
+        if (-not [int]::TryParse($timeoutSecondsText, [ref]$timeoutSeconds) -or $timeoutSeconds -lt 1 -or $timeoutSeconds -gt 86400) {
+            throw '参数 --timeout-seconds 必须是 1 到 86400。'
+        }
+        if (-not [int]::TryParse($maxStepsText, [ref]$maxSteps) -or $maxSteps -lt 1 -or $maxSteps -gt 200) {
+            throw '参数 --max-steps 必须是 1 到 200。'
+        }
+        if (-not [int]::TryParse($maxToolCallsText, [ref]$maxToolCalls) -or $maxToolCalls -lt 0 -or $maxToolCalls -gt 10000) {
+            throw '参数 --max-tool-calls 必须是 0 到 10000。'
+        }
+        if (-not [int]::TryParse($maxOutputText, [ref]$maxOutputChars) -or $maxOutputChars -lt 1024 -or $maxOutputChars -gt 10000000) {
+            throw '参数 --max-output-chars 必须是 1024 到 10000000。'
+        }
+        $native = ConvertTo-AiCliTokenList $split.After
+        $run = Invoke-AiCliProfileCapture `
+            -ProfileId ([string]$pos[0]) `
+            -ProjectPath (Get-AiCliFlagValue -Tokens $split.Before -Name '--project') `
+            -NativeArgs ([string[]]$native.ToArray()) `
+            -StdInText ([Console]::In.ReadToEnd()) `
+            -TimeoutMs ($timeoutSeconds * 1000) `
+            -MaxCaptureChars $maxOutputChars `
+            -SandboxPolicy $sandboxPolicy `
+            -MaxSteps $maxSteps `
+            -MaxToolCalls $maxToolCalls
+        $status = if ([int]$run.exitCode -eq 0 -and -not [bool]$run.timedOut) { '通过' } else { '不可用' }
+        Write-AiCliJson (New-AiCliResult -Command 'run' -OverallStatus $status -Extra @{ run = $run })
+        return (Get-AiCliExitCodeFromStatus $status)
+    } catch {
+        $summary = Protect-AiCliSecretText $_.Exception.Message
+        Write-AiCliJson (New-AiCliResult -Command 'run' -OverallStatus '不可用' -Extra @{
+            error = [ordered]@{ category = 'invalid_run'; summary = $summary }
+        })
+        if ($summary -match '用法:|参数|machine run') { return (Get-AiCliExitCode UsageError) }
+        return (Get-AiCliExitCode Unavailable)
+    }
 }
 
 function Invoke-AiCliTestCommand {

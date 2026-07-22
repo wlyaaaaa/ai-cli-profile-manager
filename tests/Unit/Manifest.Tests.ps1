@@ -18,6 +18,10 @@ Describe 'Manifest' {
         $all.Contains('oi-qwen-paygo') | Should -BeTrue
         $all.Contains('oi-ollama') | Should -BeTrue
         $all.Contains('oi-deepseek') | Should -BeTrue
+        $all.Contains('qwen-code-ollama-main') | Should -BeTrue
+        $all.Contains('opencode-ollama-main') | Should -BeTrue
+        $all.Contains('codex-ollama-main') | Should -BeTrue
+        $all.Contains('claude-ollama-main') | Should -BeTrue
     }
 
     It 'accepts interpreter openai-compatible transport' {
@@ -29,6 +33,19 @@ Describe 'Manifest' {
                 virtualReady=$false; dataDestination='example.com'
             }
         } | Should -Not -Throw
+    }
+
+    It 'accepts local agent engines on an OpenAI compatible transport' {
+        foreach ($engine in @('qwen-code', 'opencode')) {
+            {
+                Assert-AiCliManifestCore -M @{
+                    schemaVersion=1; id="$engine-local"; displayName='x'; engine=$engine; provider='ollama'; plan='local'; transport='openai-compatible'
+                    endpoint='http://127.0.0.1:32100/v1'; models=@{ primary='qwen-main-v1' }
+                    auth=@{}; capabilities=@{}; sources=@('https://example.com/docs'); requiresSecret=$false
+                    virtualReady=$true; dataDestination='local broker'
+                }
+            } | Should -Not -Throw
+        }
     }
 
     It 'rejects wrong transport for interpreter' {
