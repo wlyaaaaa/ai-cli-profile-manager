@@ -292,6 +292,8 @@ function Invoke-AiCliProfileCapture {
     $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText $StdInText `
         -Policy $SandboxPolicy -MaxSteps $MaxSteps -MaxToolCalls $MaxToolCalls
     $started = [System.Diagnostics.Stopwatch]::StartNew()
+    $engine = [string](Get-AiCliProperty $plan 'engine')
+    $eventProtocol = if ($engine -eq 'codex') { 'codex-jsonl' } else { 'none' }
     try {
         $captured = Invoke-AiCliChildCapture `
             -FileName (Get-AiCliProperty $plan 'fileName') `
@@ -303,10 +305,15 @@ function Invoke-AiCliProfileCapture {
             -TimeoutMs $TimeoutMs `
             -MaxCaptureChars $MaxCaptureChars `
             -SandboxWorkspace (Get-AiCliProperty $plan 'workingDirectory') `
-            -SandboxPolicy $SandboxPolicy
+            -SandboxPolicy $SandboxPolicy `
+            -EventProtocol $eventProtocol `
+            -MaxSteps $MaxSteps `
+            -MaxToolCalls $MaxToolCalls
+        $codexLimitsHard = $engine -eq 'codex' -and [bool](Get-AiCliProperty $captured 'LimitsHard' $false)
+        $cleanupConfirmed = [bool](Get-AiCliProperty $captured 'CleanupConfirmed' $true)
         return [pscustomobject]@{
             profileId = $ProfileId
-            engine = [string](Get-AiCliProperty $plan 'engine')
+            engine = $engine
             exitCode = [int]$captured.ExitCode
             stdout = [string]$captured.StdOut
             stderr = [string]$captured.StdErr
@@ -314,11 +321,38 @@ function Invoke-AiCliProfileCapture {
             durationMs = [int](Get-AiCliProperty $captured 'DurationMs' $started.ElapsedMilliseconds)
             outputTruncated = [bool](Get-AiCliProperty $captured 'OutputTruncated' $false)
             sandboxPolicy = $SandboxPolicy
+            eventProjection = if ($engine -eq 'codex') { 'codex-public-v1' } else { 'raw-v1' }
             limitEnforcement = [ordered]@{
-                timeout = 'hard'
-                maxSteps = if ([string](Get-AiCliProperty $plan 'engine') -in @('qwen-code','claude')) { 'upstream' } else { 'not-enforced' }
-                maxToolCalls = if ([string](Get-AiCliProperty $plan 'engine') -eq 'qwen-code') { 'upstream' } else { 'not-enforced' }
+                timeout = if ($cleanupConfirmed) { 'hard' } else { 'failed-closed' }
+                maxSteps = if ($codexLimitsHard) {
+                    'hard'
+                } elseif ($engine -eq 'codex') {
+                    'failed-closed'
+                } elseif ($engine -in @('qwen-code','claude')) {
+                    'upstream'
+                } else {
+                    'not-enforced'
+                }
+                maxToolCalls = if ($codexLimitsHard) {
+                    'hard'
+                } elseif ($engine -eq 'codex') {
+                    'failed-closed'
+                } elseif ($engine -eq 'qwen-code') {
+                    'upstream'
+                } else {
+                    'not-enforced'
+                }
             }
+            limitUsage = [ordered]@{
+                steps = [int](Get-AiCliProperty $captured 'StepCount' 0)
+                toolCalls = [int](Get-AiCliProperty $captured 'ToolCallCount' 0)
+                eventsSeen = [int](Get-AiCliProperty $captured 'EventsSeen' 0)
+                protocol = [string](Get-AiCliProperty $captured 'EventProtocol' $eventProtocol)
+                stepDefinition = if ($engine -eq 'codex') { 'distinct-thread-item-v1' } else { 'upstream' }
+                cleanupConfirmed = $cleanupConfirmed
+                cleanupMethod = [string](Get-AiCliProperty $captured 'CleanupMethod' 'none')
+            }
+            limitHit = Get-AiCliProperty $captured 'LimitHit'
         }
     } catch [System.TimeoutException] {
         return [pscustomobject]@{
@@ -331,6 +365,22 @@ function Invoke-AiCliProfileCapture {
             durationMs = [int]$started.ElapsedMilliseconds
             outputTruncated = $false
             sandboxPolicy = $SandboxPolicy
+            eventProjection = if ($engine -eq 'codex') { 'codex-public-v1' } else { 'raw-v1' }
+            limitEnforcement = [ordered]@{
+                timeout = 'failed-closed'
+                maxSteps = 'failed-closed'
+                maxToolCalls = 'failed-closed'
+            }
+            limitUsage = [ordered]@{
+                steps = 0
+                toolCalls = 0
+                eventsSeen = 0
+                protocol = $eventProtocol
+                stepDefinition = if ($engine -eq 'codex') { 'distinct-thread-item-v1' } else { 'upstream' }
+                cleanupConfirmed = $false
+                cleanupMethod = 'unconfirmed'
+            }
+            limitHit = 'timeout'
         }
     } finally {
         $started.Stop()

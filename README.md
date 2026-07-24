@@ -2,7 +2,7 @@
 
 面向 Windows 11 x64 的中文 PowerShell 工具：用统一 Profile 启动原生 Codex CLI、Claude Code、Qwen Code、OpenCode 和当前官方 Rust Open Interpreter，并提供 Provider 隔离、Doctor、显式 Live Test、沙箱化 machine run 与可选的第三方代理运维。
 
-命令：`aicli`　版本：`0.2.1`　许可证：MIT
+命令：`aicli`　版本：`0.3.0`　许可证：MIT
 
 它不是新的 Agent 或聊天外壳，不接管历史会话，也不汉化上游 CLI。本工具只负责“选哪条连接、怎样安全启动、出了问题如何验证”。
 
@@ -78,7 +78,7 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 
 4. [沙箱化 machine run](docs/user/MACHINE-RUN.md)：供上层 AI 调用本地智能体的 stdin/JSON 协议、权限边界与能力限制。
 
-根目录同时保留 0.1.0 两本交互式手册的已渲染 PDF；0.2.1 的 machine run 以 Markdown 文档为准：
+根目录同时保留 0.1.0 两本交互式手册的已渲染 PDF；0.3.0 的 machine run 以 Markdown 文档为准：
 
 - 《[AI CLI Profile Manager 使用手册（PDF）](<AI CLI Profile Manager 使用手册.pdf>)》
 - 《[Codex、Claude Code 与 Open Interpreter CLI 中文手册（PDF）](<Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf>)》

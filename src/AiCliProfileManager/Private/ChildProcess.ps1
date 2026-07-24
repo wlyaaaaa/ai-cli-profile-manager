@@ -176,6 +176,62 @@ exit `$LASTEXITCODE
     return $launcher
 }
 
+function Stop-AiCliProcessTree {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][System.Diagnostics.Process]$Process)
+
+    try {
+        if ($Process.HasExited) {
+            # Once the root is gone, Windows no longer gives us a reliable tree
+            # handle. Descendants may still own redirected pipes, so fail closed.
+            return [pscustomobject]@{
+                Attempted = $true
+                Confirmed = $false
+                Method = 'root-exited-before-tree-stop'
+            }
+        }
+    } catch {}
+
+    try {
+        $Process.Kill($true)
+        if ($Process.WaitForExit(5000)) {
+            return [pscustomobject]@{ Attempted = $true; Confirmed = $true; Method = 'dotnet-kill-tree' }
+        }
+    } catch {}
+
+    if ($IsWindows) {
+        try {
+            $taskkill = Get-Command taskkill.exe -ErrorAction Stop | Select-Object -First 1
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = $taskkill.Source
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            foreach ($argument in @('/PID', [string]$Process.Id, '/T', '/F')) {
+                [void]$psi.ArgumentList.Add($argument)
+            }
+            $killer = [System.Diagnostics.Process]::new()
+            $killer.StartInfo = $psi
+            [void]$killer.Start()
+            [void]$killer.StandardOutput.ReadToEnd()
+            [void]$killer.StandardError.ReadToEnd()
+            $killer.WaitForExit()
+            $taskkillExitCode = $killer.ExitCode
+            $killer.Dispose()
+            if ($taskkillExitCode -eq 0 -and $Process.WaitForExit(5000)) {
+                return [pscustomobject]@{ Attempted = $true; Confirmed = $true; Method = 'taskkill-tree' }
+            }
+        } catch {}
+    }
+
+    try {
+        if (-not $Process.HasExited) { $Process.Kill() }
+        [void]$Process.WaitForExit(5000)
+    } catch {}
+    return [pscustomobject]@{ Attempted = $true; Confirmed = $false; Method = 'unconfirmed' }
+}
+
 function Invoke-AiCliChildCapture {
     [CmdletBinding()]
     param(
@@ -189,7 +245,10 @@ function Invoke-AiCliChildCapture {
         [string]$SandboxWorkspace = $null,
         [ValidateSet('read-only','workspace-write')][string]$SandboxPolicy = 'read-only',
         [switch]$CloseStdIn,
-        [string]$StdInText = $null
+        [string]$StdInText = $null,
+        [ValidateSet('none','codex-jsonl')][string]$EventProtocol = 'none',
+        [int]$MaxSteps = 20,
+        [int]$MaxToolCalls = 80
     )
     # Redirect to temp files — avoids pipe-buffer deadlock when CLI dumps large logs (e.g. models list)
     $outFile = Join-Path ([IO.Path]::GetTempPath()) ("aicli-out-" + [guid]::NewGuid().ToString('N') + '.txt')
@@ -263,9 +322,57 @@ function Invoke-AiCliChildCapture {
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $stepCount = 0
+    $toolCallCount = 0
+    $eventsSeen = 0
+    $limitHit = $null
+    $protocolValid = $true
+    $protocolError = ''
+    $outputTruncated = $false
+    $safeStdOut = [Text.StringBuilder]::new()
+    $seenSteps = @{}
+    $seenTools = @{}
+    $stdoutTask = $null
+    $stderrTask = $null
+    $safeError = ''
+    $termination = [pscustomobject]@{ Attempted = $false; Confirmed = $true; Method = 'none' }
+    $knownEventTypes = @(
+        'thread.started',
+        'turn.started',
+        'turn.completed',
+        'turn.failed',
+        'item.started',
+        'item.updated',
+        'item.completed',
+        'error'
+    )
+    $knownItemTypes = @(
+        'agent_message',
+        'reasoning',
+        'command_execution',
+        'file_change',
+        'mcp_tool_call',
+        'collab_tool_call',
+        'web_search',
+        'todo_list',
+        'error',
+        # Accepted compatibility tool events remain conservatively charged.
+        'tool_call',
+        'dynamic_tool_call',
+        'computer_use'
+    )
+    $toolItemTypes = @(
+        'command_execution',
+        'file_change',
+        'mcp_tool_call',
+        'collab_tool_call',
+        'tool_call',
+        'dynamic_tool_call',
+        'web_search',
+        'computer_use'
+    )
     try {
         [void]$proc.Start()
-        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
         $stderrTask = $proc.StandardError.ReadToEndAsync()
         try {
             if (-not [string]::IsNullOrEmpty($StdInText)) {
@@ -276,29 +383,280 @@ function Invoke-AiCliChildCapture {
             }
             $proc.StandardInput.Close()
         } catch {}
-        if (-not $proc.WaitForExit($TimeoutMs)) {
-            try { $proc.Kill($true) } catch {}
-            throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
+
+        if ($EventProtocol -eq 'codex-jsonl') {
+            while ($true) {
+                if ($stopwatch.ElapsedMilliseconds -ge $TimeoutMs) {
+                    $termination = Stop-AiCliProcessTree -Process $proc
+                    throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
+                }
+                $readTask = $proc.StandardOutput.ReadLineAsync()
+                while (-not $readTask.IsCompleted) {
+                    $remainingReadMs = $TimeoutMs - [int]$stopwatch.ElapsedMilliseconds
+                    if ($remainingReadMs -le 0) {
+                        $termination = Stop-AiCliProcessTree -Process $proc
+                        throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
+                    }
+                    [void]$readTask.Wait([Math]::Min(50, $remainingReadMs))
+                }
+                $line = $readTask.GetAwaiter().GetResult()
+                if ($null -eq $line) { break }
+                if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
+                $eventsSeen++
+
+                try {
+                    $event = $line | ConvertFrom-Json -AsHashtable -Depth 100 -ErrorAction Stop
+                } catch {
+                    $protocolValid = $false
+                    $protocolError = 'Codex emitted a non-JSON event line.'
+                    $termination = Stop-AiCliProcessTree -Process $proc
+                    if (-not $termination.Confirmed) {
+                        $protocolError += ' Process-tree cleanup could not be confirmed.'
+                    }
+                    break
+                }
+                $eventType = [string](Get-AiCliProperty $event 'type')
+                $item = Get-AiCliProperty $event 'item'
+                $itemType = if ($item) { [string](Get-AiCliProperty $item 'type') } else { '' }
+                if ($eventType -notin $knownEventTypes) {
+                    $protocolValid = $false
+                    $protocolError = "Codex emitted an unknown event type: $eventType."
+                    $termination = Stop-AiCliProcessTree -Process $proc
+                    if (-not $termination.Confirmed) {
+                        $protocolError += ' Process-tree cleanup could not be confirmed.'
+                    }
+                    break
+                }
+                $isItemEvent = $eventType -in @('item.started','item.updated','item.completed')
+                if ($isItemEvent) {
+                    if (-not $item -or $itemType -notin $knownItemTypes) {
+                        $protocolValid = $false
+                        $protocolError = if ([string]::IsNullOrWhiteSpace($itemType)) {
+                            'Codex emitted an item event without a known item type.'
+                        } else {
+                            "Codex emitted an unknown item type: $itemType."
+                        }
+                        $termination = Stop-AiCliProcessTree -Process $proc
+                        if (-not $termination.Confirmed) {
+                            $protocolError += ' Process-tree cleanup could not be confirmed.'
+                        }
+                        break
+                    }
+                    $itemId = [string](Get-AiCliProperty $item 'id')
+                    if ([string]::IsNullOrWhiteSpace($itemId)) {
+                        $protocolValid = $false
+                        $protocolError = "Codex emitted $itemType without the required item id."
+                        $termination = Stop-AiCliProcessTree -Process $proc
+                        if (-not $termination.Confirmed) {
+                            $protocolError += ' Process-tree cleanup could not be confirmed.'
+                        }
+                        break
+                    }
+                    $stepKey = "item:$itemId"
+                    if (-not $seenSteps.ContainsKey($stepKey)) {
+                        $seenSteps[$stepKey] = $true
+                        $stepCount++
+                    }
+                    if ($itemType -in $toolItemTypes -and -not $seenTools.ContainsKey($stepKey)) {
+                        $seenTools[$stepKey] = $true
+                        $toolCallCount++
+                    }
+                    if ($itemType -eq 'collab_tool_call') {
+                        $protocolValid = $false
+                        $protocolError = 'Codex emitted a collab tool call although multi-agent is disabled.'
+                        $termination = Stop-AiCliProcessTree -Process $proc
+                        if (-not $termination.Confirmed) {
+                            $protocolError += ' Process-tree cleanup could not be confirmed.'
+                        }
+                        break
+                    }
+                }
+
+                # Only pass through the public thread identifier and public agent
+                # messages. Commands, tool results, and reasoning items are counted
+                # in memory where needed, then discarded rather than persisted.
+                $safeEvent = $null
+                if ($eventType -eq 'thread.started') {
+                    $safeEvent = [ordered]@{
+                        type = 'thread.started'
+                        thread_id = [string](Get-AiCliProperty $event 'thread_id')
+                    }
+                }
+                elseif ($eventType -eq 'item.completed' -and $itemType -eq 'agent_message') {
+                    $safeEvent = [ordered]@{
+                        type = 'item.completed'
+                        item = [ordered]@{
+                            type = 'agent_message'
+                            text = [string](Get-AiCliProperty $item 'text')
+                        }
+                    }
+                }
+                if ($eventType -eq 'error') {
+                    $safeError = [string](Get-AiCliProperty $event 'message')
+                } elseif ($eventType -eq 'turn.failed') {
+                    $turnError = Get-AiCliProperty $event 'error'
+                    $safeError = [string](Get-AiCliProperty $turnError 'message')
+                } elseif ($isItemEvent -and $itemType -eq 'error') {
+                    $safeError = [string](Get-AiCliProperty $item 'message')
+                }
+                if ($safeEvent) {
+                    $safeLine = $safeEvent | ConvertTo-Json -Depth 10 -Compress
+                    $separatorLength = if ($safeStdOut.Length -gt 0) { 1 } else { 0 }
+                    if ($MaxCaptureChars -le 0 -or
+                        ($safeStdOut.Length + $separatorLength + $safeLine.Length) -le $MaxCaptureChars) {
+                        if ($safeStdOut.Length -gt 0) { [void]$safeStdOut.Append("`n") }
+                        [void]$safeStdOut.Append($safeLine)
+                    } else {
+                        $outputTruncated = $true
+                    }
+                }
+
+                if ($stopwatch.ElapsedMilliseconds -ge $TimeoutMs) {
+                    $termination = Stop-AiCliProcessTree -Process $proc
+                    throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
+                } elseif ($stepCount -gt $MaxSteps) {
+                    $limitHit = 'maxSteps'
+                }
+                elseif ($toolCallCount -gt $MaxToolCalls) {
+                    $limitHit = 'maxToolCalls'
+                }
+                if ($limitHit) {
+                    $termination = Stop-AiCliProcessTree -Process $proc
+                    if (-not $termination.Confirmed) {
+                        $protocolValid = $false
+                        $protocolError = 'Process-tree cleanup could not be confirmed after a hard-limit stop.'
+                    }
+                    break
+                }
+            }
+            if (-not $proc.HasExited) {
+                $remainingMs = $TimeoutMs - [int]$stopwatch.ElapsedMilliseconds
+                if ($remainingMs -le 0 -or -not $proc.WaitForExit($remainingMs)) {
+                    $termination = Stop-AiCliProcessTree -Process $proc
+                    throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
+                }
+            }
+            $proc.WaitForExit()
+            $stdout = $safeStdOut.ToString()
+        } else {
+            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+            if (-not $proc.WaitForExit($TimeoutMs)) {
+                $termination = Stop-AiCliProcessTree -Process $proc
+                throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
+            }
+            $proc.WaitForExit()
+            $stdout = $stdoutTask.GetAwaiter().GetResult()
         }
-        $proc.WaitForExit()
-        $stdout = $stdoutTask.GetAwaiter().GetResult()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
-        $truncated = $false
-        if ($MaxCaptureChars -gt 0 -and $stdout.Length -gt $MaxCaptureChars) {
+        $rawStderr = $stderrTask.GetAwaiter().GetResult()
+        $stderr = if ($EventProtocol -eq 'codex-jsonl') {
+            if ($proc.ExitCode -ne 0) {
+                if ([string]::IsNullOrWhiteSpace($safeError)) {
+                    'Codex process failed without a public error event.'
+                } else {
+                    $safeError
+                }
+            } else {
+                ''
+            }
+        } else {
+            $rawStderr
+        }
+        if ($EventProtocol -eq 'codex-jsonl' -and $proc.ExitCode -eq 0 -and $eventsSeen -eq 0) {
+            $protocolValid = $false
+            $protocolError = 'Codex returned success without any countable JSON events.'
+        }
+        if ($EventProtocol -eq 'none' -and $MaxCaptureChars -gt 0 -and $stdout.Length -gt $MaxCaptureChars) {
             $stdout = $stdout.Substring(0, $MaxCaptureChars)
-            $truncated = $true
+            $outputTruncated = $true
         }
         if ($MaxCaptureChars -gt 0 -and $stderr.Length -gt $MaxCaptureChars) {
             $stderr = $stderr.Substring(0, $MaxCaptureChars)
-            $truncated = $true
+            $outputTruncated = $true
         }
+        $exitCode = if ($limitHit) {
+            75
+        } elseif (-not $protocolValid) {
+            74
+        } else {
+            $proc.ExitCode
+        }
+        if ($limitHit) {
+            $stderr = "Agent exceeded the configured hard limit: $limitHit."
+        } elseif (-not $protocolValid) {
+            $stderr = $protocolError
+        }
+        $limitsHard = (
+            $EventProtocol -eq 'codex-jsonl' -and
+            $protocolValid -and
+            (-not $termination.Attempted -or $termination.Confirmed)
+        )
         return [pscustomobject]@{
-            ExitCode = $proc.ExitCode
+            ExitCode = $exitCode
             StdOut   = $stdout
             StdErr   = $stderr
             TimedOut = $false
             DurationMs = [int]$stopwatch.ElapsedMilliseconds
-            OutputTruncated = $truncated
+            OutputTruncated = $outputTruncated
+            StepCount = $stepCount
+            ToolCallCount = $toolCallCount
+            EventsSeen = $eventsSeen
+            EventProtocol = $EventProtocol
+            LimitHit = $limitHit
+            LimitsHard = $limitsHard
+            CleanupConfirmed = [bool]$termination.Confirmed
+            CleanupMethod = [string]$termination.Method
+        }
+    } catch [System.TimeoutException] {
+        if (-not $termination.Attempted -or -not $termination.Confirmed) {
+            $retriedTermination = Stop-AiCliProcessTree -Process $proc
+            if ($retriedTermination.Confirmed -or -not $termination.Attempted) {
+                $termination = $retriedTermination
+            }
+        }
+
+        $stdout = if ($EventProtocol -eq 'codex-jsonl') {
+            $safeStdOut.ToString()
+        } elseif ($stdoutTask) {
+            try {
+                if ($stdoutTask.Wait(5000)) { [string]$stdoutTask.GetAwaiter().GetResult() } else { '' }
+            } catch { '' }
+        } else {
+            ''
+        }
+        $stderr = if ($stderrTask) {
+            try {
+                if ($stderrTask.Wait(5000)) { [string]$stderrTask.GetAwaiter().GetResult() } else { '' }
+            } catch { '' }
+        } else {
+            ''
+        }
+        if ($EventProtocol -eq 'none' -and $MaxCaptureChars -gt 0 -and $stdout.Length -gt $MaxCaptureChars) {
+            $stdout = $stdout.Substring(0, $MaxCaptureChars)
+            $outputTruncated = $true
+        }
+        if ($MaxCaptureChars -gt 0 -and $stderr.Length -gt $MaxCaptureChars) {
+            $stderr = $stderr.Substring(0, $MaxCaptureChars)
+            $outputTruncated = $true
+        }
+        return [pscustomobject]@{
+            ExitCode = (Get-AiCliExitCode Unavailable)
+            StdOut = $stdout
+            StdErr = 'Child process exceeded the configured wall timeout.'
+            TimedOut = $true
+            DurationMs = [int]$stopwatch.ElapsedMilliseconds
+            OutputTruncated = $outputTruncated
+            StepCount = $stepCount
+            ToolCallCount = $toolCallCount
+            EventsSeen = $eventsSeen
+            EventProtocol = $EventProtocol
+            LimitHit = 'timeout'
+            LimitsHard = (
+                $EventProtocol -eq 'codex-jsonl' -and
+                $protocolValid -and
+                [bool]$termination.Confirmed
+            )
+            CleanupConfirmed = [bool]$termination.Confirmed
+            CleanupMethod = [string]$termination.Method
         }
     } finally {
         $stopwatch.Stop()

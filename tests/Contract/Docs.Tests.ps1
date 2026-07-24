@@ -16,10 +16,10 @@ Describe 'Docs contract' {
         }
     }
 
-    It 'README mentions aicli and 0.2.1' {
+    It 'README mentions aicli and 0.3.0' {
         $readme = Get-Content (Join-Path $script:Root 'README.md') -Raw
         $readme | Should -Match 'aicli'
-        $readme | Should -Match '0\.2\.1'
+        $readme | Should -Match '0\.3\.0'
     }
 
     It 'no TODO placeholders in user docs' {

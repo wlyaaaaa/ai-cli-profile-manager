@@ -22,11 +22,19 @@ Describe 'Machine-facing profile runs' {
             Mock Invoke-AiCliChildCapture {
                 [pscustomobject]@{
                     ExitCode = 0
-                    StdOut = '{"type":"item.completed"}'
+                    StdOut = '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}'
                     StdErr = ''
                     TimedOut = $false
                     DurationMs = 123
                     OutputTruncated = $false
+                    StepCount = 1
+                    ToolCallCount = 0
+                    EventsSeen = 2
+                    EventProtocol = 'codex-jsonl'
+                    LimitHit = $null
+                    LimitsHard = $true
+                    CleanupConfirmed = $true
+                    CleanupMethod = 'none'
                 }
             }
 
@@ -34,16 +42,183 @@ Describe 'Machine-facing profile runs' {
                 -NativeArgs @('exec', '--json', '-') -StdInText 'TASK' -TimeoutMs 9000 -MaxCaptureChars 4096
 
             $result.exitCode | Should -Be 0
-            $result.stdout | Should -Be '{"type":"item.completed"}'
+            $result.stdout | Should -Match 'agent_message'
             $result.durationMs | Should -Be 123
             $result.limitEnforcement.timeout | Should -Be 'hard'
-            $result.limitEnforcement.maxSteps | Should -Be 'not-enforced'
+            $result.limitEnforcement.maxSteps | Should -Be 'hard'
+            $result.limitEnforcement.maxToolCalls | Should -Be 'hard'
+            $result.limitUsage.steps | Should -Be 1
+            $result.limitUsage.toolCalls | Should -Be 0
+            $result.limitUsage.protocol | Should -Be 'codex-jsonl'
+            $result.limitUsage.stepDefinition | Should -Be 'distinct-thread-item-v1'
+            $result.limitUsage.cleanupConfirmed | Should -BeTrue
+            $result.eventProjection | Should -Be 'codex-public-v1'
+            $result.limitHit | Should -BeNullOrEmpty
             $result.PSObject.Properties.Name | Should -Not -Contain 'environmentDelta'
             ($result | ConvertTo-Json -Depth 10) | Should -Not -Match 'CANARY_SECRET'
             Should -Invoke Invoke-AiCliChildCapture -Times 1 -Exactly -ParameterFilter {
                 $StdInText -eq 'TASK' -and $TimeoutMs -eq 9000 -and $MaxCaptureChars -eq 4096 -and
-                $SandboxWorkspace -eq $Work
+                $SandboxWorkspace -eq $Work -and $EventProtocol -eq 'codex-jsonl'
             }
+        }
+    }
+
+    It 'counts Codex public events and never returns hidden reasoning text' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'emit-safe-codex-events.ps1'
+            @'
+[Console]::Out.WriteLine('{"type":"thread.started","thread_id":"thread-1"}')
+[Console]::Out.WriteLine('{"type":"turn.started","turn_id":"turn-1"}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"reason-1","type":"reasoning","text":"HIDDEN_COT_CANARY"}}')
+[Console]::Out.WriteLine('{"type":"item.started","item":{"id":"tool-1","type":"command_execution","command":"PRIVATE_COMMAND"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"tool-1","type":"command_execution","aggregated_output":"PRIVATE_OUTPUT"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"web-1","type":"web_search","query":"PRIVATE_QUERY"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"message-1","type":"agent_message","text":"FINAL_PUBLIC"}}')
+[Console]::Error.WriteLine('HIDDEN_STDERR_CANARY')
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            $result.LimitsHard | Should -BeTrue
+            $result.StepCount | Should -Be 4
+            $result.ToolCallCount | Should -Be 2
+            $result.EventsSeen | Should -Be 7
+            $result.StdOut | Should -Match 'FINAL_PUBLIC'
+            $result.StdOut | Should -Not -Match 'HIDDEN_COT_CANARY'
+            $result.StdOut | Should -Not -Match 'PRIVATE_COMMAND'
+            $result.StdOut | Should -Not -Match 'PRIVATE_OUTPUT'
+            $result.StdErr | Should -Not -Match 'HIDDEN_STDERR_CANARY'
+        }
+    }
+
+    It 'kills the complete Codex process tree when a tool-call hard limit is exceeded' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $marker = Join-Path $Work 'must-not-exist.txt'
+            $grandchildPath = Join-Path $Work 'write-late-marker.ps1'
+            @'
+param([Parameter(Mandatory)][string]$Marker)
+Start-Sleep -Milliseconds 1200
+[IO.File]::WriteAllText($Marker, 'escaped')
+'@ | Set-Content -LiteralPath $grandchildPath -Encoding utf8
+            $scriptPath = Join-Path $Work 'emit-over-budget-codex-events.ps1'
+            @"
+`$psi = [Diagnostics.ProcessStartInfo]::new()
+`$psi.FileName = '$((Get-Command pwsh.exe).Source.Replace("'", "''"))'
+`$psi.UseShellExecute = `$false
+`$psi.CreateNoWindow = `$true
+foreach (`$argument in @('-NoProfile','-File','$($grandchildPath.Replace("'", "''"))','$($marker.Replace("'", "''"))')) {
+    [void]`$psi.ArgumentList.Add(`$argument)
+}
+[void][Diagnostics.Process]::Start(`$psi)
+[Console]::Out.WriteLine('{"type":"turn.started","turn_id":"turn-1"}')
+[Console]::Out.WriteLine('{"type":"item.started","item":{"id":"tool-1","type":"command_execution"}}')
+Start-Sleep -Seconds 5
+"@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MaxSteps 4 -MaxToolCalls 0 -TimeoutMs 10000
+
+            $result.ExitCode | Should -Be 75
+            $result.LimitHit | Should -Be 'maxToolCalls'
+            $result.ToolCallCount | Should -Be 1
+            $result.LimitsHard | Should -BeTrue
+            $result.CleanupConfirmed | Should -BeTrue
+            Start-Sleep -Milliseconds 1600
+            Test-Path -LiteralPath $marker | Should -BeFalse
+        }
+    }
+
+    It 'returns counted hard-limit evidence after killing a timed-out Codex process tree' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $marker = Join-Path $Work 'timeout-must-not-exist.txt'
+            $scriptPath = Join-Path $Work 'emit-timeout-codex-events.ps1'
+            @"
+[Console]::Out.WriteLine('{"type":"turn.started","turn_id":"turn-1"}')
+[Console]::Out.WriteLine('{"type":"item.started","item":{"id":"tool-1","type":"command_execution"}}')
+Start-Sleep -Seconds 5
+[IO.File]::WriteAllText('$($marker.Replace("'", "''"))', 'escaped')
+"@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MaxSteps 4 -MaxToolCalls 4 -TimeoutMs 300
+
+            $result.TimedOut | Should -BeTrue
+            $result.LimitHit | Should -Be 'timeout'
+            $result.LimitsHard | Should -BeTrue
+            $result.StepCount | Should -Be 1
+            $result.ToolCallCount | Should -Be 1
+            $result.CleanupConfirmed | Should -BeTrue
+            Test-Path -LiteralPath $marker | Should -BeFalse
+        }
+    }
+
+    It 'enforces the wall deadline even while Codex continuously emits valid JSONL' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $marker = Join-Path $Work 'continuous-stream-must-not-exist.txt'
+            $scriptPath = Join-Path $Work 'emit-continuous-codex-events.ps1'
+            @"
+for (`$i = 0; `$i -lt 50000; `$i++) {
+    [Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"reason-' + `$i + '","type":"reasoning","text":"x"}}')
+}
+[IO.File]::WriteAllText('$($marker.Replace("'", "''"))', 'escaped')
+"@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MaxSteps 100000 -MaxToolCalls 100000 -TimeoutMs 200
+
+            $result.TimedOut | Should -BeTrue
+            $result.LimitHit | Should -Be 'timeout'
+            $result.LimitsHard | Should -BeTrue
+            $result.DurationMs | Should -BeLessThan 3000
+            Test-Path -LiteralPath $marker | Should -BeFalse
+        }
+    }
+
+    It 'fails closed on an unknown Codex item type' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $marker = Join-Path $Work 'unknown-event-must-not-exist.txt'
+            $scriptPath = Join-Path $Work 'emit-unknown-codex-item.ps1'
+            @"
+[Console]::Out.WriteLine('{"type":"item.started","item":{"id":"future-1","type":"future_unclassified_action"}}')
+Start-Sleep -Seconds 2
+[IO.File]::WriteAllText('$($marker.Replace("'", "''"))', 'escaped')
+"@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MaxSteps 8 -MaxToolCalls 8 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 74
+            $result.LimitsHard | Should -BeFalse
+            $result.CleanupConfirmed | Should -BeTrue
+            $result.StdErr | Should -Match 'unknown item type'
+            Test-Path -LiteralPath $marker | Should -BeFalse
+        }
+    }
+
+    It 'counts and fails closed if Codex emits a collab call while multi-agent is disabled' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'emit-forbidden-collab-item.ps1'
+            @'
+[Console]::Out.WriteLine('{"type":"item.started","item":{"id":"collab-1","type":"collab_tool_call","prompt":"PRIVATE_SUBAGENT_TASK"}}')
+Start-Sleep -Seconds 2
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MaxSteps 8 -MaxToolCalls 8 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 74
+            $result.ToolCallCount | Should -Be 1
+            $result.LimitsHard | Should -BeFalse
+            $result.StdErr | Should -Match 'collab'
+            $result.StdOut | Should -Not -Match 'PRIVATE_SUBAGENT_TASK'
         }
     }
 
@@ -213,6 +388,8 @@ Describe 'Machine-facing profile runs' {
             try {
                 ($runtime.ArgumentList -join ' ') | Should -Not -Match 'PRIVATE_TASK_CANARY'
                 $runtime.ArgumentList[-1] | Should -Match ([regex]::Escape((Join-Path $runtime.RuntimePath 'task.md')))
+                ($runtime.ArgumentList -join ' ') | Should -Match '--disable multi_agent'
+                ($runtime.ArgumentList -join ' ') | Should -Match '--disable multi_agent_v2'
                 $runtime.StdInText | Should -Be ''
                 Get-Content -Raw -LiteralPath (Join-Path $runtime.RuntimePath 'task.md') | Should -Be 'PRIVATE_TASK_CANARY'
                 $runtime.ArgumentList[0] | Should -Be ([IO.Path]::GetFullPath($entry))

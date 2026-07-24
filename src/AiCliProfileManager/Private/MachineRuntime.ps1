@@ -116,10 +116,16 @@ function Initialize-AiCliMachineRuntime {
             $taskPath = Join-Path $runtimePath 'task.md'
             [IO.File]::WriteAllText($taskPath, $effectiveStdIn, [Text.UTF8Encoding]::new($false))
             $taskInstruction = "Read the UTF-8 task request from this sandbox file and complete it: $taskPath"
+            $boundedAgentFlags = @('--disable', 'multi_agent', '--disable', 'multi_agent_v2')
             if ($arguments.Count -gt 0 -and $arguments[-1] -eq '-') {
-                $arguments[-1] = $taskInstruction
+                $beforePrompt = if ($arguments.Count -gt 1) {
+                    @($arguments[0..($arguments.Count - 2)])
+                } else {
+                    @()
+                }
+                $arguments = @($beforePrompt) + $boundedAgentFlags + @($taskInstruction)
             } else {
-                $arguments += $taskInstruction
+                $arguments += $boundedAgentFlags + @($taskInstruction)
             }
             $effectiveStdIn = ''
         }

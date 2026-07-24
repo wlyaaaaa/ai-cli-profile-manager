@@ -2,6 +2,20 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
+## [0.3.0] - 2026-07-24
+
+### 安全修正
+
+- Codex machine run 现在逐行解析公开 JSON 事件：`max-steps` 统计不同的 ThreadItem 工作单元，`max-tool-calls` 统计命令、文件、MCP、collab 与 web 等工具项；越限立即终止完整 Windows 子进程树。
+- 有界 machine run 显式关闭 Codex `multi_agent` / `multi_agent_v2`；若仍观察到 collab 事件，会计数并立即失败关闭，防止隐藏子智能体工具循环。
+- 事件类型使用封闭 allowlist；未知事件、未知 item、持续 JSONL 超过墙钟或无法确认完整进程树终止时均失败关闭，不再误报 `hard`。
+- machine run 只返回公开 agent message 与线程标识；reasoning、命令正文和工具输出在计数后即丢弃，不进入结果 envelope。
+- 回执新增 `eventProjection=codex-public-v1`、`limitUsage` 与 `limitHit`。只有事件协议和进程树清理均有效时，Codex 的 step/tool-call 上限才标记为 `hard`。
+
+### 验收
+
+- 新增 collab 计数、未知事件、持续流墙钟、隐藏推理/stderr 丢弃及真实父→孙进程树终止回归。
+
 ## [0.2.1] - 2026-07-22
 
 ### 修正
