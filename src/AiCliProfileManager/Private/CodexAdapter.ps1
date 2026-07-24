@@ -227,7 +227,8 @@ function Resolve-AiCliCodexEffort {
     $e = Get-AiCliProperty $prefs 'effort'
     if (-not $e) { $e = Get-AiCliProperty $MergedProfile 'defaultEffort' }
     if (-not $e) { $e = 'high' }
-    $allowed = Get-AiCliCodexEffortLevels
+    $allowed = @(Get-AiCliProperty $MergedProfile 'effortLevels')
+    if ($allowed.Count -eq 0) { $allowed = @(Get-AiCliCodexEffortLevels) }
     if ($allowed -notcontains $e) {
         throw "Codex 思考等级无效: $e。可选: $($allowed -join ', ')"
     }
@@ -316,9 +317,11 @@ function Build-AiCliCodexLaunchPlan {
         foreach ($v in $script:AiCliCodexProviderVars) { $removeEnv += $v }
         $removeEnv += @('OPENAI_BASE_URL')
         $envDelta['AICLI_CODEX_PROVIDER_KEY'] = 'ollama'
+        $cliArgs.Add('-c') | Out-Null
+        $cliArgs.Add("model_reasoning_effort=`"$effort`"") | Out-Null
         Add-AiCliCodexProviderOverrides -ArgumentList $cliArgs -MergedProfile $merged2 -ProviderId $providerId -EnvironmentKey 'AICLI_CODEX_PROVIDER_KEY'
         $notes += "本机 Ollama 兼容网关: $endpoint"
-        $notes += "模型: $model；wire_api=responses"
+        $notes += "模型: $model；wire_api=responses；思考等级 $effort"
         $notes += '公开模板使用 Ollama 默认 11434；其他本机网关请配置独立用户 Profile。'
     }
     else {
