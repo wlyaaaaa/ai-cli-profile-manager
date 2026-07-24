@@ -30,6 +30,7 @@ function Initialize-AiCliMachineRuntime {
     $effectiveStdIn = if ($null -eq $StdInText) { '' } else { [string]$StdInText }
     $runtimeConfig = Get-AiCliProperty $Plan 'machineRuntime'
     $kind = [string](Get-AiCliProperty $runtimeConfig 'kind')
+    $useOuterSandbox = $true
     try {
         if ($kind -eq 'qwen-code') {
             for ($index = 0; $index -lt $arguments.Count; $index++) {
@@ -108,26 +109,57 @@ function Initialize-AiCliMachineRuntime {
                     Copy-Item -LiteralPath ([string]$configFile) -Destination (Join-Path $codexHome (Split-Path -Leaf ([string]$configFile))) -Force
                 }
             }
+            $authSourceFile = [string](Get-AiCliProperty $runtimeConfig 'authSourceFile')
+            if (-not [string]::IsNullOrWhiteSpace($authSourceFile)) {
+                if ((Split-Path -Leaf $authSourceFile) -ne 'auth.json' -or
+                    -not (Test-Path -LiteralPath $authSourceFile -PathType Leaf)) {
+                    throw 'Codex machine runtime auth source must be an existing auth.json file.'
+                }
+                Copy-Item -LiteralPath $authSourceFile -Destination (Join-Path $codexHome 'auth.json') -Force
+            }
             $environment['CODEX_HOME'] = $codexHome
 
-            # `codex sandbox windows` does not forward its own stdin to the
-            # sandboxed command. Keep the private task in a runtime file and
-            # pass only a generic file-reading instruction in argv.
-            $taskPath = Join-Path $runtimePath 'task.md'
-            [IO.File]::WriteAllText($taskPath, $effectiveStdIn, [Text.UTF8Encoding]::new($false))
-            $taskInstruction = "Read the UTF-8 task request from this sandbox file and complete it: $taskPath"
             $boundedAgentFlags = @('--disable', 'multi_agent', '--disable', 'multi_agent_v2')
-            if ($arguments.Count -gt 0 -and $arguments[-1] -eq '-') {
-                $beforePrompt = if ($arguments.Count -gt 1) {
-                    @($arguments[0..($arguments.Count - 2)])
+            $sandboxBoundary = [string](Get-AiCliProperty $runtimeConfig 'sandboxBoundary' 'outer-codex')
+            if ($sandboxBoundary -eq 'codex-native') {
+                $useOuterSandbox = $false
+                $arguments = @($arguments | Where-Object {
+                    $_ -ne '--dangerously-bypass-approvals-and-sandbox'
+                })
+                $nativeBoundaryFlags = @(
+                    '--sandbox', $Policy,
+                    '--ignore-user-config',
+                    '--ignore-rules'
+                ) + $boundedAgentFlags
+                if ($arguments.Count -gt 0 -and $arguments[-1] -eq '-') {
+                    $beforePrompt = if ($arguments.Count -gt 1) {
+                        @($arguments[0..($arguments.Count - 2)])
+                    } else {
+                        @()
+                    }
+                    $arguments = @($beforePrompt) + $nativeBoundaryFlags + @('-')
                 } else {
-                    @()
+                    $arguments += $nativeBoundaryFlags
                 }
-                $arguments = @($beforePrompt) + $boundedAgentFlags + @($taskInstruction)
             } else {
-                $arguments += $boundedAgentFlags + @($taskInstruction)
+                # `codex sandbox windows` does not forward its own stdin to the
+                # sandboxed command. Keep the private task in a runtime file and
+                # pass only a generic file-reading instruction in argv.
+                $taskPath = Join-Path $runtimePath 'task.md'
+                [IO.File]::WriteAllText($taskPath, $effectiveStdIn, [Text.UTF8Encoding]::new($false))
+                $taskInstruction = "Read the UTF-8 task request from this sandbox file and complete it: $taskPath"
+                if ($arguments.Count -gt 0 -and $arguments[-1] -eq '-') {
+                    $beforePrompt = if ($arguments.Count -gt 1) {
+                        @($arguments[0..($arguments.Count - 2)])
+                    } else {
+                        @()
+                    }
+                    $arguments = @($beforePrompt) + $boundedAgentFlags + @($taskInstruction)
+                } else {
+                    $arguments += $boundedAgentFlags + @($taskInstruction)
+                }
+                $effectiveStdIn = ''
             }
-            $effectiveStdIn = ''
         }
         elseif ($kind -eq 'claude') {
             $claudeConfig = Join-Path $runtimePath 'claude-config'
@@ -175,6 +207,7 @@ function Initialize-AiCliMachineRuntime {
             ArgumentList = @($arguments)
             EnvironmentDelta = $environment
             StdInText = $effectiveStdIn
+            UseOuterSandbox = $useOuterSandbox
         }
     } catch {
         Remove-AiCliMachineRuntime -RuntimePath $runtimePath -Workspace $workspace

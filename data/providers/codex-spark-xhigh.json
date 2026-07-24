@@ -1,0 +1,43 @@
+{
+  "provider": "openai",
+  "capabilities": {
+    "effort": true,
+    "streaming": true,
+    "tools": true,
+    "contextStats": true,
+    "images": false,
+    "machineRun": true
+  },
+  "sources": [
+    "https://developers.openai.com/codex/models"
+  ],
+  "endpoint": null,
+  "engine": "codex",
+  "transport": "responses",
+  "plan": "subscription",
+  "requiresSecret": false,
+  "region": "global",
+  "effortLevels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+  ],
+  "displayName": "Codex Spark xhigh (ChatGPT/OpenAI)",
+  "id": "codex-spark-xhigh",
+  "notes": "面向有界、文本型、可验证的高速中档任务；默认 gpt-5.3-codex-spark / xhigh；不支持图像输入或 OpenAI API。",
+  "schemaVersion": 1,
+  "virtualReady": true,
+  "defaultEffort": "xhigh",
+  "models": {
+    "primary": "gpt-5.3-codex-spark",
+    "candidates": [
+      "gpt-5.3-codex-spark"
+    ],
+    "small": null
+  },
+  "auth": {
+    "type": "native-login"
+  },
+  "dataDestination": "OpenAI/ChatGPT 官方路径（Codex CLI 原生登录）"
+}

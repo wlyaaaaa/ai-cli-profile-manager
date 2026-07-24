@@ -401,6 +401,90 @@ Start-Sleep -Seconds 2
         }
     }
 
+    It 'copies only the official Codex auth file into the disposable machine home' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $package = Join-Path $Work 'tool\node_modules\@openai\codex'
+            $entry = Join-Path $package 'bin\codex.js'
+            $native = Join-Path $package 'node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe'
+            $realHome = Join-Path $Work 'real-codex-home'
+            $auth = Join-Path $realHome 'auth.json'
+            New-Item -ItemType Directory -Path (Split-Path -Parent $entry), (Split-Path -Parent $native), $realHome -Force | Out-Null
+            Set-Content -LiteralPath $entry -Value '// stub' -Encoding ascii
+            Set-Content -LiteralPath $native -Value 'native stub' -Encoding ascii
+            Set-Content -LiteralPath (Join-Path $package 'package.json') -Value '{}' -Encoding ascii
+            Set-Content -LiteralPath $auth -Value '{"auth":"test-only"}' -Encoding utf8
+            Set-Content -LiteralPath (Join-Path $realHome 'config.toml') -Value 'must_not_copy = true' -Encoding ascii
+            Set-Content -LiteralPath (Join-Path $realHome 'AGENTS.md') -Value 'must not copy' -Encoding utf8
+            New-Item -ItemType Directory -Path (Join-Path $realHome 'sessions') -Force | Out-Null
+
+            $plan = [pscustomobject]@{
+                engine = 'codex'
+                fileName = (Get-Command node.exe).Source
+                argumentList = @($entry, 'exec', '--json', '-')
+                workingDirectory = $Work
+                environmentDelta = @{}
+                machineRuntime = [ordered]@{
+                    kind = 'codex'
+                    configFiles = @()
+                    authSourceFile = $auth
+                }
+            }
+
+            $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' -Policy 'workspace-write'
+            try {
+                $machineHome = $runtime.EnvironmentDelta.CODEX_HOME
+                Test-Path -LiteralPath (Join-Path $machineHome 'auth.json') | Should -BeTrue
+                Test-Path -LiteralPath (Join-Path $machineHome 'config.toml') | Should -BeFalse
+                Test-Path -LiteralPath (Join-Path $machineHome 'AGENTS.md') | Should -BeFalse
+                Test-Path -LiteralPath (Join-Path $machineHome 'sessions') | Should -BeFalse
+            } finally {
+                Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath -Workspace $Work
+            }
+        }
+    }
+
+    It 'uses the native Codex sandbox for an official cloud machine run' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $package = Join-Path $Work 'tool\node_modules\@openai\codex'
+            $entry = Join-Path $package 'bin\codex.js'
+            $native = Join-Path $package 'node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe'
+            New-Item -ItemType Directory -Path (Split-Path -Parent $entry), (Split-Path -Parent $native) -Force | Out-Null
+            Set-Content -LiteralPath $entry -Value '// stub' -Encoding ascii
+            Set-Content -LiteralPath $native -Value 'native stub' -Encoding ascii
+            Set-Content -LiteralPath (Join-Path $package 'package.json') -Value '{}' -Encoding ascii
+            $plan = [pscustomobject]@{
+                engine = 'codex'
+                fileName = (Get-Command node.exe).Source
+                argumentList = @(
+                    $entry, 'exec', '--json', '--ephemeral',
+                    '--dangerously-bypass-approvals-and-sandbox', '-'
+                )
+                workingDirectory = $Work
+                environmentDelta = @{}
+                machineRuntime = [ordered]@{
+                    kind = 'codex'
+                    configFiles = @()
+                    sandboxBoundary = 'codex-native'
+                }
+            }
+
+            $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' -Policy 'read-only'
+            try {
+                $runtime.UseOuterSandbox | Should -BeFalse
+                $runtime.StdInText | Should -Be 'TASK'
+                $runtime.ArgumentList | Should -Not -Contain '--dangerously-bypass-approvals-and-sandbox'
+                $runtime.ArgumentList | Should -Contain '--ignore-user-config'
+                $runtime.ArgumentList | Should -Contain '--ignore-rules'
+                $sandboxIndex = [Array]::IndexOf([string[]]$runtime.ArgumentList, '--sandbox')
+                $sandboxIndex | Should -BeGreaterThan -1
+                $runtime.ArgumentList[$sandboxIndex + 1] | Should -Be 'read-only'
+                Test-Path -LiteralPath (Join-Path $runtime.RuntimePath 'task.md') | Should -BeFalse
+            } finally {
+                Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath -Workspace $Work
+            }
+        }
+    }
+
     It 'isolates Claude settings and enables autonomous execution only inside the outer sandbox' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $plan = [pscustomobject]@{

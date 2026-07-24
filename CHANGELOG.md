@@ -2,6 +2,23 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
+## [0.3.1] - 2026-07-24
+
+### 新增
+
+- 新增 `codex-spark-xhigh`：精确固定 `gpt-5.3-codex-spark` 与默认 `xhigh` 思考强度，供上层显式选择高速中档智能体；不改变任何本地 Qwen 默认路由。
+- 官方 Codex machine run 支持复用现有原生登录：一次性 `CODEX_HOME` 只复制 `auth.json`，不继承用户 `config.toml`、rules、skills、sessions 或 history。
+
+### 安全修正
+
+- 交互式官方 Codex 仍优先使用桌面版 `codex.exe`；machine run 明确选择 npm Codex CLI，避免把桌面二进制误当成可解析 JSONL 的机器运行时。
+- 官方云端 Codex machine run 使用 CLI 原生 `read-only` / `workspace-write` 沙箱，并忽略用户配置和规则；本地与第三方 Profile 继续使用网络关闭的 Windows 外层沙箱。两种边界都保留硬墙钟、step、tool-call、事件投影与进程树清理。
+- Spark 额度或上游限流不会在 aicli 内自动切换模型；上层必须显式决定是否重新提交到本地 Profile，并分别保留两份回执。
+
+### 验收
+
+- `codex-spark-xhigh` 的只读 machine run 在合成任务上返回严格 JSON，精确回执记录目标模型、`xhigh`、硬预算、墙钟时间和线程标识。
+
 ## [0.3.0] - 2026-07-24
 
 ### 安全修正

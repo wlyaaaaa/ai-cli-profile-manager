@@ -14,6 +14,7 @@ Describe 'Manifest' {
         $all = Import-AiCliProviderManifests
         $all.Keys.Count | Should -BeGreaterOrEqual 16
         $all.Contains('codex-official') | Should -BeTrue
+        $all.Contains('codex-spark-xhigh') | Should -BeTrue
         $all.Contains('claude-deepseek') | Should -BeTrue
         $all.Contains('oi-qwen-paygo') | Should -BeTrue
         $all.Contains('oi-ollama') | Should -BeTrue

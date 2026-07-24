@@ -83,3 +83,58 @@ Describe 'Codex Ollama reasoning effort' {
         }
     }
 }
+
+Describe 'Codex Spark machine profile' {
+    It 'pins the exact Spark model and xhigh effort on the npm machine launcher' {
+        $profile = Get-Content -LiteralPath (
+            Join-Path $script:CodexAdapterRepoRoot 'data\providers\codex-spark-xhigh.json'
+        ) -Raw | ConvertFrom-Json
+
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Profile = $profile } {
+            $realHome = Join-Path $Work 'real-codex-home'
+            New-Item -ItemType Directory -Path $realHome -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $realHome 'auth.json') -Value '{"auth":"test-only"}' -Encoding utf8
+            Mock Get-AiCliCodexHome { $realHome }
+            Mock Resolve-AiCliCodexLaunchExecutable {
+                [pscustomobject]@{
+                    FileName = 'C:\Program Files\nodejs\node.exe'
+                    PrefixArgs = @('C:\npm\node_modules\@openai\codex\bin\codex.js')
+                    Kind = 'npm-node'
+                }
+            } -ParameterFilter { $MachineRun }
+
+            $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work -MachineRun
+
+            $plan.model | Should -Be 'gpt-5.3-codex-spark'
+            $plan.effort | Should -Be 'xhigh'
+            $plan.fileName | Should -Be 'C:\Program Files\nodejs\node.exe'
+            $plan.argumentList[0] | Should -Be 'C:\npm\node_modules\@openai\codex\bin\codex.js'
+            $plan.argumentList | Should -Contain 'model="gpt-5.3-codex-spark"'
+            $plan.argumentList | Should -Contain 'model_reasoning_effort="xhigh"'
+            $plan.machineRuntime.authSourceFile | Should -Be (Join-Path $realHome 'auth.json')
+            Should -Invoke Resolve-AiCliCodexLaunchExecutable -Times 1 -Exactly -ParameterFilter { $MachineRun }
+        }
+    }
+
+    It 'keeps the official interactive launcher independent from the machine launcher' {
+        $profile = Get-Content -LiteralPath (
+            Join-Path $script:CodexAdapterRepoRoot 'data\providers\codex-official.json'
+        ) -Raw | ConvertFrom-Json
+
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Profile = $profile } {
+            Mock Resolve-AiCliCodexLaunchExecutable {
+                [pscustomobject]@{
+                    FileName = 'C:\desktop\codex.exe'
+                    PrefixArgs = @()
+                    Kind = 'desktop-codex'
+                }
+            } -ParameterFilter { -not $MachineRun }
+
+            $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work
+
+            $plan.fileName | Should -Be 'C:\desktop\codex.exe'
+            $plan.launcherKind | Should -Be 'desktop-codex'
+            Should -Invoke Resolve-AiCliCodexLaunchExecutable -Times 1 -Exactly -ParameterFilter { -not $MachineRun }
+        }
+    }
+}

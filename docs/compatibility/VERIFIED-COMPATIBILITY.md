@@ -1,7 +1,7 @@
 # 兼容性与最终验收状态
 
-文档日期：2026-07-14（UTC+8）
-产品版本：`0.1.0` 首次公开版本
+文档日期：2026-07-24（UTC+8）
+产品版本：`0.3.1`
 状态原则：代码路径存在不等于 Provider 已通过；最终状态必须来自当前版本、当前 Profile 指纹和真实目标 CLI 的验收记录。
 
 ## 1. 当前实现基线
@@ -17,6 +17,7 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | Profile / 路径 | 实现状态 | 本轮最终 Live 状态 | 发布说明 |
 |----------------|----------|--------------------|----------|
 | `codex-official` | 已实现 | 可用但有限制（本轮按用户要求未做 Live） | 使用上游官方登录；不得由桌面端登录状态推断 CLI 一定可用 |
+| `codex-spark-xhigh` | 已实现 | 只读 machine run 文本/严格 JSON 通过（可用但有限制） | 2026-07-24（UTC+8）：npm Codex CLI → `gpt-5.3-codex-spark` / `xhigh`，合成任务 exit 0，正文严格 `{"status":"SPARK_AICLI_OK"}`；墙钟 15.603 秒，回执显示 1 step、0 tool call，墙钟/step/tool-call均为 hard。未据此宣称图片输入、所有工具或长期额度稳定。 |
 | `codex-qwen-paygo` | 已实现 | Max 文本通过；Plus 未做 Live（可用但有限制） | 2026-07-14（UTC+8）：Codex 0.144.3 → `qwen3.7-max-2026-06-08`，exit 0，最终正文严格 `PONG`。上层如选择 Plus，必须显式传 `--model qwen3.7-plus`；官方确认该模型支持 Responses 与最新版 Codex，但本表不把官方兼容性冒充本机实测。 |
 | `codex-qwen-token-plan` | 已实现 | 可用但有限制（本轮未做 Live） | Key、端点和按量套餐分开 |
 | `codex-ollama` | 已实现，公共默认 `127.0.0.1:11434` | 可用但有限制（公共默认未做 Live） | 需验证本机模型、上下文和工具能力 |
@@ -59,6 +60,8 @@ aicli test <Profile ID> --live --level text --yes
 - 最终模型正文严格等于 `PONG`，不能由提示回显刷绿。
 - 临时空目录运行，禁用或隔离项目配置、私人规则和普通工具。
 - 记录 CLI 版本、Provider、端点、模型、Profile 指纹和测试时间，不记录提示/回复正文或秘密。
+
+`codex-spark-xhigh` 的 machine run 证据与桌面端“能够创建 Spark 任务”是两条不同事实：前者证明 aicli/工具包可以通过 Codex CLI 程序化调用并取得结构化回执，后者只证明 Codex 产品界面提供该模型选项。额度和限流仍是动态外部状态；aicli 不自动降级，调用方如改投本地模型必须显式重提并保留两份回执。
 
 ## 4. 当前命令事实
 

@@ -236,11 +236,16 @@ function Resolve-AiCliCodexEffort {
 }
 
 function Resolve-AiCliCodexLaunchExecutable {
-    param([Parameter(Mandatory)]$MergedProfile)
+    param(
+        [Parameter(Mandatory)]$MergedProfile,
+        [switch]$MachineRun
+    )
     $provider = Get-AiCliProperty $MergedProfile 'provider'
     $id = Get-AiCliProperty $MergedProfile 'id'
-    # Desktop codex.exe can hang on third-party --profile exec; prefer npm node for non-official
-    $preferDesktop = ($provider -eq 'openai' -or $id -eq 'codex-official')
+    # Interactive official sessions may use the Desktop launcher. Machine runs
+    # require the npm entry because the disposable runtime and event parser
+    # bind to the exact codex.js package rather than the private Desktop tree.
+    $preferDesktop = -not $MachineRun -and ($provider -eq 'openai' -or $id -eq 'codex-official')
     $resolved = $null
     if ($preferDesktop) {
         $resolved = Resolve-AiCliLaunchExecutable -Name 'codex'
@@ -251,11 +256,14 @@ function Resolve-AiCliCodexLaunchExecutable {
         if (-not $node) { $node = Find-AiCliCommandPath -Name 'node' }
         if ($node -and (Test-Path -LiteralPath $npmJs)) {
             $resolved = [pscustomobject]@{ FileName = $node; PrefixArgs = @($npmJs); Kind = 'npm-node' }
-        } else {
+        } elseif (-not $MachineRun) {
             $resolved = Resolve-AiCliLaunchExecutable -Name 'codex'
         }
     }
     if (-not $resolved) {
+        if ($MachineRun) {
+            throw 'Codex machine run 需要 npm Codex CLI（npm i -g @openai/codex）；桌面 codex.exe 仅保留给交互启动。'
+        }
         throw '未找到 codex。请安装 Codex CLI（npm i -g @openai/codex）或 Codex 桌面版。'
     }
     return $resolved
@@ -265,17 +273,20 @@ function Build-AiCliCodexLaunchPlan {
     param(
         $MergedProfile,
         [string]$ProjectPath,
-        [string[]]$NativeArgs = @()
+        [string[]]$NativeArgs = @(),
+        [switch]$MachineRun
     )
     Assert-AiCliCodexNativeArgs -NativeArgList $NativeArgs
     $provider = Get-AiCliProperty $MergedProfile 'provider'
     $id = Get-AiCliProperty $MergedProfile 'id'
-    $resolved = Resolve-AiCliCodexLaunchExecutable -MergedProfile $MergedProfile
+    $resolved = Resolve-AiCliCodexLaunchExecutable -MergedProfile $MergedProfile -MachineRun:$MachineRun
     $envDelta = @{}
     $removeEnv = @()
     $cliArgs = [System.Collections.Generic.List[string]]::new()
     foreach ($p in @($resolved.PrefixArgs)) { $cliArgs.Add([string]$p) | Out-Null }
     $configFiles = @()
+    $authSourceFile = $null
+    $sandboxBoundary = 'outer-codex'
     $notes = @()
     $effort = Resolve-AiCliCodexEffort -MergedProfile $MergedProfile -NativeArgs $NativeArgs
     $models = Get-AiCliProperty $MergedProfile 'models'
@@ -293,8 +304,22 @@ function Build-AiCliCodexLaunchPlan {
         $cliArgs.Add('model_provider="openai"') | Out-Null
         $notes += '使用官方 ChatGPT 登录与真实 CODEX_HOME，不生成派生配置。'
         $notes += "默认模型 $model；思考等级 $effort（low/medium/high/xhigh/ultra/max）。"
-        $notes += '可用模型例: gpt-5.6-sol / gpt-5.6-terra / gpt-5.6-luna（以账号可用为准）。'
+        if ($id -eq 'codex-spark-xhigh') {
+            $notes += '该 Profile 精确固定 gpt-5.3-codex-spark / xhigh；文本型、Codex CLI/桌面可用，API 与图像输入不属于此路径。'
+        } else {
+            $notes += '可用模型例: gpt-5.6-sol / gpt-5.6-terra / gpt-5.6-luna（以账号可用为准）。'
+        }
         $notes += "启动器: $($resolved.Kind) → $($resolved.FileName)"
+        if ($MachineRun) {
+            $authCandidate = Join-Path (Get-AiCliCodexHome) 'auth.json'
+            if (-not (Test-Path -LiteralPath $authCandidate -PathType Leaf)) {
+                throw 'Codex 官方 machine run 缺少 auth.json；请先通过 Codex CLI 或桌面版完成官方登录。'
+            }
+            $authSourceFile = [IO.Path]::GetFullPath($authCandidate)
+            $sandboxBoundary = 'codex-native'
+            $notes += '机器入口仅复制 auth.json 到一次性 CODEX_HOME；不复制配置、规则、skills、sessions 或历史。'
+            $notes += '模型传输由官方 Codex CLI 联网；模型生成的命令仍由 Codex 原生沙箱限制。'
+        }
     }
     elseif ($provider -eq 'ollama' -or $id -eq 'codex-ollama') {
         $endpoint = Get-AiCliProperty $MergedProfile 'endpoint'
@@ -366,6 +391,11 @@ function Build-AiCliCodexLaunchPlan {
         proxyRef          = $null
         effort            = $effort
         model             = $model
-        machineRuntime    = [ordered]@{ kind='codex'; configFiles=@($configFiles) }
+        machineRuntime    = [ordered]@{
+            kind = 'codex'
+            configFiles = @($configFiles)
+            authSourceFile = $authSourceFile
+            sandboxBoundary = $sandboxBoundary
+        }
     }
 }

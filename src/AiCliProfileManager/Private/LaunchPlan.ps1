@@ -4,7 +4,8 @@ function Build-AiCliLaunchPlan {
     param(
         [Parameter(Mandatory)][string]$ProfileId,
         [string]$ProjectPath,
-        [string[]]$NativeArgs = @()
+        [string[]]$NativeArgs = @(),
+        [switch]$MachineRun
     )
     $merged = Get-AiCliResolvedProfile -Id $ProfileId
     if (-not (Get-AiCliProperty $merged 'configured')) {
@@ -33,7 +34,7 @@ function Build-AiCliLaunchPlan {
     }
 
     if ($engine -eq 'codex') {
-        return (Build-AiCliCodexLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs)
+        return (Build-AiCliCodexLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs -MachineRun:$MachineRun)
     }
     if ($engine -eq 'claude') {
         return (Build-AiCliClaudeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs -ProxyPort $proxyPort)
@@ -288,13 +289,18 @@ function Invoke-AiCliProfileCapture {
         [int]$MaxSteps = 20,
         [int]$MaxToolCalls = 80
     )
-    $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId -ProjectPath $ProjectPath -NativeArgs $NativeArgs
+    $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId -ProjectPath $ProjectPath -NativeArgs $NativeArgs -MachineRun
     $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText $StdInText `
         -Policy $SandboxPolicy -MaxSteps $MaxSteps -MaxToolCalls $MaxToolCalls
     $started = [System.Diagnostics.Stopwatch]::StartNew()
     $engine = [string](Get-AiCliProperty $plan 'engine')
     $eventProtocol = if ($engine -eq 'codex') { 'codex-jsonl' } else { 'none' }
     try {
+        $sandboxWorkspace = if ([bool](Get-AiCliProperty $runtime 'UseOuterSandbox' $true)) {
+            Get-AiCliProperty $plan 'workingDirectory'
+        } else {
+            $null
+        }
         $captured = Invoke-AiCliChildCapture `
             -FileName (Get-AiCliProperty $plan 'fileName') `
             -ArgumentList @($runtime.ArgumentList) `
@@ -304,7 +310,7 @@ function Invoke-AiCliProfileCapture {
             -StdInText $runtime.StdInText `
             -TimeoutMs $TimeoutMs `
             -MaxCaptureChars $MaxCaptureChars `
-            -SandboxWorkspace (Get-AiCliProperty $plan 'workingDirectory') `
+            -SandboxWorkspace $sandboxWorkspace `
             -SandboxPolicy $SandboxPolicy `
             -EventProtocol $eventProtocol `
             -MaxSteps $MaxSteps `
