@@ -2,7 +2,7 @@
 
 面向 Windows 11 x64 的中文 PowerShell 工具：用统一 Profile 启动原生 Codex CLI、Claude Code、Qwen Code、OpenCode 和当前官方 Rust Open Interpreter，并提供 Provider 隔离、Doctor、显式 Live Test、沙箱化 machine run 与可选的第三方代理运维。
 
-命令：`aicli`　版本：`0.3.1`　许可证：MIT
+命令：`aicli`　版本：`0.3.2`　许可证：MIT
 
 它不是新的 Agent 或聊天外壳，不接管历史会话，也不汉化上游 CLI。本工具只负责“选哪条连接、怎样安全启动、出了问题如何验证”。
 
@@ -47,7 +47,7 @@ Claude 官方路径在未登录机器上出现 `401`，通常表示需要先完�
 aicli profile list --available
 aicli profile configure <模板 ID>
 aicli start <Profile ID> [--project <项目路径>] [-- <原生参数...>]
-aicli run <Profile ID> --stdin --json --project <项目路径> --sandbox-policy read-only|workspace-write -- <原生参数...>
+aicli run <Profile ID> --stdin --json --project <项目路径> --sandbox-policy read-only|workspace-write [--event-file <绝对 JSONL 路径>] -- <原生参数...>
 aicli doctor [Profile ID] [--json]
 aicli test <Profile ID> --live [--level text|tool|all] [--yes]
 aicli native <Profile ID>
@@ -55,7 +55,7 @@ aicli eject <Profile ID> [--output <新目录>]
 aicli help [主题或命令]
 ```
 
-`run` 是供上层 AI/程序使用的非交互入口：调用接口只从 stdin 接收任务正文，不把正文写入 argv，并返回一个 JSON envelope。本地与第三方 Profile 强制经过网络关闭的 Codex Windows 外层沙箱；官方 Codex Profile 使用 CLI 原生沙箱和只含登录凭据的一次性 `CODEX_HOME`，不继承用户配置、规则、技能或历史。`workspace-write` 允许低级智能体自动操作指定工作区；`read-only` 只把目标工作区作为只读根。Qwen Code/OpenCode 不提供绕过该边界的交互式 `start`。
+`run` 是供上层 AI/程序使用的非交互入口：调用接口只从 stdin 接收任务正文，不把正文写入 argv，并返回一个 JSON envelope。可选的 `--event-file` 会在运行中持续追加 `aicli.machine-event.v1` 公共事件，供观察器无需刷新地显示阶段、工具类型、文件编辑状态和公开最终消息；它不会写入隐藏推理正文、命令/参数、工具输入输出、文件内容或原始 stderr。本地与第三方 Profile 强制经过网络关闭的 Codex Windows 外层沙箱；官方 Codex Profile 使用 CLI 原生沙箱和只含登录凭据的一次性 `CODEX_HOME`，不继承用户配置、规则、技能或历史。`workspace-write` 允许低级智能体自动操作指定工作区；`read-only` 只把目标工作区作为只读根。Qwen Code/OpenCode 不提供绕过该边界的交互式 `start`。
 
 本机预置本地 Profile：`codex-ollama-main`、`claude-ollama-main`、`qwen-code-ollama-main`、`opencode-ollama-main`，都固定访问 `127.0.0.1:32100` 的 `qwen-main-v1`。另有显式 opt-in 的 `codex-spark-xhigh`，精确选择 `gpt-5.3-codex-spark` 与默认 `xhigh`。新增 Spark 不改变本地默认；所有 Profile 都不自动 fallback，上层调用者仍负责选择、额度失败后的显式重提、隔离工作区和最终验收。
 
@@ -78,7 +78,7 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 
 4. [沙箱化 machine run](docs/user/MACHINE-RUN.md)：供上层 AI 调用本地或官方 Codex 智能体的 stdin/JSON 协议、权限边界与能力限制。
 
-根目录同时保留 0.1.0 两本交互式手册的已渲染 PDF；0.3.1 的 machine run 以 Markdown 文档为准：
+根目录同时保留 0.1.0 两本交互式手册的已渲染 PDF；0.3.2 的 machine run 以 Markdown 文档为准：
 
 - 《[AI CLI Profile Manager 使用手册（PDF）](<AI CLI Profile Manager 使用手册.pdf>)》
 - 《[Codex、Claude Code 与 Open Interpreter CLI 中文手册（PDF）](<Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf>)》

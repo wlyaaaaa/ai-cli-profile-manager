@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AiCliProfileManager.psm1'
-    ModuleVersion     = '0.3.1'
+    ModuleVersion     = '0.3.2'
     GUID              = 'a1c11c11-0a11-4c11-b111-a1c110110011'
     Author            = 'AI CLI Profile Manager Contributors'
     CompanyName       = 'Independent'
@@ -16,7 +16,7 @@
             Tags         = @('Codex', 'Claude', 'QwenCode', 'OpenCode', 'OpenInterpreter', 'Ollama', 'Qwen', 'DeepSeek', 'CLI', 'Windows', 'Profile', 'Sandbox')
             LicenseUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager'
-            ReleaseNotes = '0.3.1：增加 Spark xhigh 精确 Profile，并以最小临时 CODEX_HOME 和 Codex 原生沙箱支持官方云模型 machine run。'
+            ReleaseNotes = '0.3.2：为 machine run 增加可选、安全、实时刷新的公开事件 JSONL side-channel，不输出隐藏推理、命令正文或工具结果。'
         }
     }
 }

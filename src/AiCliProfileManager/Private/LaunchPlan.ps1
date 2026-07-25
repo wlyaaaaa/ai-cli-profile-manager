@@ -287,7 +287,8 @@ function Invoke-AiCliProfileCapture {
         [int]$MaxCaptureChars = 1000000,
         [ValidateSet('read-only','workspace-write')][string]$SandboxPolicy = 'read-only',
         [int]$MaxSteps = 20,
-        [int]$MaxToolCalls = 80
+        [int]$MaxToolCalls = 80,
+        [string]$MachineEventFile = $null
     )
     $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId -ProjectPath $ProjectPath -NativeArgs $NativeArgs -MachineRun
     $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText $StdInText `
@@ -314,7 +315,9 @@ function Invoke-AiCliProfileCapture {
             -SandboxPolicy $SandboxPolicy `
             -EventProtocol $eventProtocol `
             -MaxSteps $MaxSteps `
-            -MaxToolCalls $MaxToolCalls
+            -MaxToolCalls $MaxToolCalls `
+            -MachineEventFile $MachineEventFile `
+            -WritableWorkspace (Get-AiCliProperty $plan 'workingDirectory')
         $codexLimitsHard = $engine -eq 'codex' -and [bool](Get-AiCliProperty $captured 'LimitsHard' $false)
         $cleanupConfirmed = [bool](Get-AiCliProperty $captured 'CleanupConfirmed' $true)
         return [pscustomobject]@{
@@ -328,6 +331,15 @@ function Invoke-AiCliProfileCapture {
             outputTruncated = [bool](Get-AiCliProperty $captured 'OutputTruncated' $false)
             sandboxPolicy = $SandboxPolicy
             eventProjection = if ($engine -eq 'codex') { 'codex-public-v1' } else { 'raw-v1' }
+            machineEventProjection = [string](
+                Get-AiCliProperty $captured 'MachineEventProjection' 'disabled'
+            )
+            machineEventStatus = [string](
+                Get-AiCliProperty $captured 'MachineEventStatus' 'disabled'
+            )
+            machineEventCount = [int](
+                Get-AiCliProperty $captured 'MachineEventCount' 0
+            )
             limitEnforcement = [ordered]@{
                 timeout = if ($cleanupConfirmed) { 'hard' } else { 'failed-closed' }
                 maxSteps = if ($codexLimitsHard) {
@@ -372,6 +384,19 @@ function Invoke-AiCliProfileCapture {
             outputTruncated = $false
             sandboxPolicy = $SandboxPolicy
             eventProjection = if ($engine -eq 'codex') { 'codex-public-v1' } else { 'raw-v1' }
+            machineEventProjection = if ($MachineEventFile -and $engine -eq 'codex') {
+                'aicli.machine-event.v1'
+            } else {
+                'disabled'
+            }
+            machineEventStatus = if ($MachineEventFile -and $engine -eq 'codex') {
+                'degraded'
+            } elseif ($MachineEventFile) {
+                'unsupported'
+            } else {
+                'disabled'
+            }
+            machineEventCount = 0
             limitEnforcement = [ordered]@{
                 timeout = 'failed-closed'
                 maxSteps = 'failed-closed'

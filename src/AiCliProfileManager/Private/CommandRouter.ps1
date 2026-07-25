@@ -131,8 +131,18 @@ function Invoke-AiCliRouter {
 
         switch ($cmd) {
             'version' {
-                $null = Assert-AiCliTokenShape -Tokens $rest
-                [Console]::Out.WriteLine(("{0} {1}" -f (Get-AiCliCommandName), (Get-AiCliVersion)))
+                $null = Assert-AiCliTokenShape -Tokens $rest -Switches @('--json')
+                if (Test-AiCliHasFlag $rest '--json') {
+                    Write-AiCliJson ([ordered]@{
+                        command = (Get-AiCliCommandName)
+                        version = (Get-AiCliVersion)
+                        capabilities = [ordered]@{
+                            machineEventProjection = 'aicli.machine-event.v1'
+                        }
+                    })
+                } else {
+                    [Console]::Out.WriteLine(("{0} {1}" -f (Get-AiCliCommandName), (Get-AiCliVersion)))
+                }
                 return (Get-AiCliExitCode Success)
             }
             'help' {
@@ -299,12 +309,12 @@ function Invoke-AiCliRunCommand {
     try {
         $tokenList = ConvertTo-AiCliTokenList $Tokens
         if ($tokenList.Count -lt 1) {
-            throw '用法: aicli run <id> --stdin --json [--project <path>] [--sandbox-policy read-only|workspace-write] [--timeout-seconds <n>] [--max-steps <n>] [--max-tool-calls <n>] [--max-output-chars <n>] -- <native-args...>'
+            throw '用法: aicli run <id> --stdin --json [--project <path>] [--sandbox-policy read-only|workspace-write] [--timeout-seconds <n>] [--max-steps <n>] [--max-tool-calls <n>] [--max-output-chars <n>] [--event-file <absolute-jsonl-path>] -- <native-args...>'
         }
         $split = Split-AiCliArgs -Tokens $tokenList
         $pos = Assert-AiCliTokenShape -Tokens $split.Before -MinPositionals 1 -MaxPositionals 1 `
             -Switches @('--stdin','--json') `
-            -ValueOptions @('--project','--sandbox-policy','--timeout-seconds','--max-steps','--max-tool-calls','--max-output-chars')
+            -ValueOptions @('--project','--sandbox-policy','--timeout-seconds','--max-steps','--max-tool-calls','--max-output-chars','--event-file')
         if (-not (Test-AiCliHasFlag $split.Before '--stdin')) {
             throw '参数 --stdin 是 machine run 的必需项；任务正文不得放入命令行参数。'
         }
@@ -336,6 +346,10 @@ function Invoke-AiCliRunCommand {
             throw '参数 --max-output-chars 必须是 1024 到 10000000。'
         }
         $native = ConvertTo-AiCliTokenList $split.After
+        $machineEventFile = Get-AiCliFlagValue -Tokens $split.Before -Name '--event-file'
+        if ($machineEventFile) {
+            $machineEventFile = Resolve-AiCliMachineEventFile -Path $machineEventFile
+        }
         $stdinText = [Console]::In.ReadToEnd()
         if ([string]::IsNullOrWhiteSpace($stdinText)) {
             throw '参数 --stdin 未提供任务正文；拒绝启动空任务。'
@@ -349,7 +363,8 @@ function Invoke-AiCliRunCommand {
             -MaxCaptureChars $maxOutputChars `
             -SandboxPolicy $sandboxPolicy `
             -MaxSteps $maxSteps `
-            -MaxToolCalls $maxToolCalls
+            -MaxToolCalls $maxToolCalls `
+            -MachineEventFile $machineEventFile
         $status = if ([int]$run.exitCode -eq 0 -and -not [bool]$run.timedOut) { '通过' } else { '不可用' }
         Write-AiCliJson (New-AiCliResult -Command 'run' -OverallStatus $status -Extra @{ run = $run })
         return (Get-AiCliExitCodeFromStatus $status)

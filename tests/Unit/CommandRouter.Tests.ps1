@@ -12,6 +12,21 @@ Describe 'CommandRouter' {
         $code | Should -Be 0
     }
 
+    It 'version json declares the optional machine event projection' {
+        $oldOut = [Console]::Out
+        $writer = [IO.StringWriter]::new()
+        try {
+            [Console]::SetOut($writer)
+            $code = Invoke-AiCli -Tokens @('version','--json') -DataRoot $script:DataRoot
+        } finally {
+            [Console]::SetOut($oldOut)
+        }
+        $code | Should -Be 0
+        $payload = $writer.ToString() | ConvertFrom-Json
+        $payload.version | Should -Be (Get-AiCliVersion)
+        $payload.capabilities.machineEventProjection | Should -Be 'aicli.machine-event.v1'
+    }
+
     It 'unknown command returns 2' {
         $code = Invoke-AiCli -Tokens @('definitely-not-a-command') -DataRoot $script:DataRoot
         $code | Should -Be 2

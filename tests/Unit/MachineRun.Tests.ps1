@@ -53,6 +53,8 @@ Describe 'Machine-facing profile runs' {
             $result.limitUsage.stepDefinition | Should -Be 'distinct-thread-item-v1'
             $result.limitUsage.cleanupConfirmed | Should -BeTrue
             $result.eventProjection | Should -Be 'codex-public-v1'
+            $result.machineEventProjection | Should -Be 'disabled'
+            $result.machineEventStatus | Should -Be 'disabled'
             $result.limitHit | Should -BeNullOrEmpty
             $result.PSObject.Properties.Name | Should -Not -Contain 'environmentDelta'
             ($result | ConvertTo-Json -Depth 10) | Should -Not -Match 'CANARY_SECRET'
@@ -91,6 +93,201 @@ Describe 'Machine-facing profile runs' {
             $result.StdOut | Should -Not -Match 'PRIVATE_COMMAND'
             $result.StdOut | Should -Not -Match 'PRIVATE_OUTPUT'
             $result.StdErr | Should -Not -Match 'HIDDEN_STDERR_CANARY'
+        }
+    }
+
+    It 'streams a monotonic safe machine event projection without private event content' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'emit-observer-codex-events.ps1'
+            $eventFile = Join-Path $Work 'observer-events.jsonl'
+            @'
+[Console]::Out.WriteLine('{"type":"thread.started","thread_id":"019f98ff-110f-7390-8d7b-d85d70bba89f"}')
+[Console]::Out.WriteLine('{"type":"turn.started","turn_id":"turn-private"}')
+[Console]::Out.WriteLine('{"type":"item.started","item":{"id":"reason-1","type":"reasoning","text":"HIDDEN_COT_CANARY"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"reason-1","type":"reasoning","text":"HIDDEN_COT_CANARY"}}')
+[Console]::Out.WriteLine('{"type":"item.started","item":{"id":"tool-1","type":"command_execution","command":"PRIVATE_COMMAND"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"tool-1","type":"command_execution","aggregated_output":"PRIVATE_OUTPUT"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"message-1","type":"agent_message","text":"FINAL_PUBLIC"}}')
+[Console]::Out.WriteLine('{"type":"turn.completed","usage":{"input_tokens":999}}')
+[Console]::Error.WriteLine('HIDDEN_STDERR_CANARY')
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MachineEventFile $eventFile `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            $result.MachineEventStatus | Should -Be 'ok'
+            $result.MachineEventProjection | Should -Be 'aicli.machine-event.v1'
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            $events.Count | Should -BeGreaterThan 5
+            $result.MachineEventCount | Should -Be $events.Count
+            @($events.sequence) | Should -Be @(1..$events.Count)
+            @($events.kind) | Should -Contain 'reasoning.activity'
+            @($events.kind) | Should -Contain 'tool.activity'
+            @($events.kind) | Should -Contain 'output.completed'
+            ($events | ConvertTo-Json -Depth 10) | Should -Match 'FINAL_PUBLIC'
+            ($events | ConvertTo-Json -Depth 10) | Should -Not -Match 'HIDDEN_COT_CANARY|PRIVATE_COMMAND|PRIVATE_OUTPUT|HIDDEN_STDERR_CANARY|turn-private'
+        }
+    }
+
+    It 'drops an invalid private thread identifier from every public projection' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'emit-private-thread-id.ps1'
+            $eventFile = Join-Path $Work 'private-thread-events.jsonl'
+            @'
+[Console]::Out.WriteLine('{"type":"thread.started","thread_id":"C:\\private\\PRIVATE_THREAD_TOKEN"}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"message-1","type":"agent_message","text":"PUBLIC_DONE"}}')
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MachineEventFile $eventFile `
+                -MaxSteps 4 -MaxToolCalls 1 -TimeoutMs 5000
+
+            $public = $result.StdOut + "`n" + (Get-Content -LiteralPath $eventFile -Raw -Encoding utf8)
+            $public | Should -Not -Match 'PRIVATE_THREAD_TOKEN|C:\\private'
+            $public | Should -Match 'PUBLIC_DONE'
+        }
+    }
+
+    It 'fails closed on upstream failure events without exposing their private messages' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'emit-private-upstream-errors.ps1'
+            $eventFile = Join-Path $Work 'private-upstream-error-events.jsonl'
+            @'
+[Console]::Out.WriteLine('{"type":"thread.started","thread_id":"019f98ff-110f-7390-8d7b-d85d70bba89f"}')
+[Console]::Out.WriteLine('{"type":"turn.started","turn_id":"turn-private"}')
+[Console]::Out.WriteLine('{"type":"turn.failed","error":{"message":"Bearer UPSTREAM_BEARER_CANARY at C:\\private\\PRIVATE_ERROR_PATH; command PRIVATE_COMMAND_CANARY"}}')
+[Console]::Out.WriteLine('{"type":"error","message":"Bearer SECOND_ERROR_CANARY"}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"error-1","type":"error","message":"C:\\private\\THIRD_ERROR_CANARY"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"message-1","type":"agent_message","text":"MUST_NOT_FOLLOW_TERMINAL"}}')
+[Console]::Error.WriteLine('RAW_STDERR_CANARY')
+exit 0
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MachineEventFile $eventFile `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Not -Be 0
+            $result.StdErr | Should -Be 'Codex reported an upstream failure.'
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            $terminalEvents = @(
+                $events | Where-Object { $_.kind -in @('turn.failed','run.failed','limit.hit') }
+            )
+            $terminalEvents.Count | Should -Be 1
+            $terminalEvents[0].kind | Should -Be 'run.failed'
+            $terminalEvents[0].error_category | Should -Be 'upstream_error'
+            $events[-1].kind | Should -Be 'run.failed'
+            $result.MachineEventCount | Should -Be $events.Count
+
+            $publicEnvelopeAndEvents = @(
+                ($result | ConvertTo-Json -Depth 10 -Compress)
+                (Get-Content -LiteralPath $eventFile -Raw -Encoding utf8)
+            ) -join "`n"
+            $publicEnvelopeAndEvents | Should -Not -Match (
+                'UPSTREAM_BEARER_CANARY|PRIVATE_ERROR_PATH|PRIVATE_COMMAND_CANARY|' +
+                'SECOND_ERROR_CANARY|THIRD_ERROR_CANARY|RAW_STDERR_CANARY|' +
+                'MUST_NOT_FOLLOW_TERMINAL'
+            )
+        }
+    }
+
+    It 'treats every path on a drive as inside that drive root' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $driveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Work))
+            $pathOnDrive = Join-Path $driveRoot 'aicli-drive-root-boundary\events.jsonl'
+            $nestedCurrentDirectory = Join-Path $Work 'nested\current'
+            New-Item -ItemType Directory -Path $nestedCurrentDirectory -Force | Out-Null
+            $originalCurrentDirectory = [Environment]::CurrentDirectory
+
+            try {
+                [Environment]::CurrentDirectory = $nestedCurrentDirectory
+                Test-AiCliPathWithinRoot -Path $pathOnDrive -Root $driveRoot |
+                    Should -BeTrue
+            } finally {
+                [Environment]::CurrentDirectory = $originalCurrentDirectory
+            }
+        }
+    }
+
+    It 'rejects an unsafe machine event path before starting a child' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            {
+                Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                    -ArgumentList @('-NoProfile','-Command','exit 0') `
+                    -EventProtocol codex-jsonl `
+                    -MachineEventFile 'relative-events.jsonl' -TimeoutMs 1000
+            } | Should -Throw '*绝对路径*'
+        }
+    }
+
+    It 'rejects an event file inside a workspace-write root before starting a child' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $eventFile = Join-Path $Work 'workspace-events.jsonl'
+            {
+                Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                    -ArgumentList @('-NoProfile','-Command','exit 0') `
+                    -EventProtocol codex-jsonl -MachineEventFile $eventFile `
+                    -WritableWorkspace $Work -SandboxPolicy workspace-write -TimeoutMs 1000
+            } | Should -Throw '*可写 workspace*'
+        }
+    }
+
+    It 'holds an exclusive writer while the child is running' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $workspace = Join-Path $Work 'exclusive-workspace'
+            New-Item -ItemType Directory -Path $workspace | Out-Null
+            $scriptPath = Join-Path $workspace 'attempt-event-injection.ps1'
+            $eventFile = Join-Path $Work 'exclusive-events.jsonl'
+            $marker = Join-Path $workspace 'exclusive-result.txt'
+            @'
+param([string]$EventFile, [string]$Marker)
+try {
+    [IO.File]::AppendAllText($EventFile, "FORGED_EVENT`n")
+    [IO.File]::WriteAllText($Marker, 'write_succeeded')
+} catch {
+    [IO.File]::WriteAllText($Marker, 'write_blocked')
+}
+[Console]::Out.WriteLine('{"type":"thread.started","thread_id":"019f98ff-110f-7390-8d7b-d85d70bba89f"}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"message-1","type":"agent_message","text":"PUBLIC_DONE"}}')
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath,$eventFile,$marker) `
+                -WorkingDirectory $workspace -WritableWorkspace $workspace `
+                -SandboxPolicy workspace-write -EventProtocol codex-jsonl `
+                -MachineEventFile $eventFile -MaxSteps 4 -MaxToolCalls 1 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            (Get-Content -LiteralPath $marker -Raw) | Should -Be 'write_blocked'
+            (Get-Content -LiteralPath $eventFile -Raw) | Should -Not -Match 'FORGED_EVENT'
+        }
+    }
+
+    It 'ends the machine event stream with an explicit timeout limit event' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'emit-timeout-events.ps1'
+            $eventFile = Join-Path $Work 'timeout-events.jsonl'
+            @'
+[Console]::Out.WriteLine('{"type":"thread.started","thread_id":"019f98ff-110f-7390-8d7b-d85d70bba89f"}')
+Start-Sleep -Seconds 5
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MachineEventFile $eventFile `
+                -MaxSteps 4 -MaxToolCalls 1 -TimeoutMs 250
+
+            $result.TimedOut | Should -BeTrue
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            $events[-1].kind | Should -Be 'limit.hit'
+            $events[-1].limit | Should -Be 'timeout'
+            $events[-1].status | Should -Be 'blocked'
+            $result.MachineEventCount | Should -Be $events.Count
         }
     }
 
@@ -527,9 +724,10 @@ Start-Sleep -Seconds 2
             try {
                 [Console]::SetIn($reader)
                 [Console]::SetOut($writer)
+                $eventFile = Join-Path $TestDrive 'router-events.jsonl'
                 $code = Invoke-AiCliRouter -Tokens @(
                     'run', 'local', '--project', 'C:\work', '--stdin', '--json', '--sandbox-policy', 'workspace-write',
-                    '--timeout-seconds', '9', '--max-output-chars', '4096', '--',
+                    '--timeout-seconds', '9', '--max-output-chars', '4096', '--event-file', $eventFile, '--',
                     'exec', '--json', '-'
                 )
             } finally {
@@ -548,6 +746,7 @@ Start-Sleep -Seconds 2
                 $StdInText -eq 'PROMPT_FROM_STDIN' -and
                 $TimeoutMs -eq 9000 -and
                 $MaxCaptureChars -eq 4096 -and
+                $MachineEventFile -eq $eventFile -and
                 $SandboxPolicy -eq 'workspace-write' -and
                 $NativeArgs.Count -eq 3 -and
                 $NativeArgs[0] -eq 'exec' -and

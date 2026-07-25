@@ -232,6 +232,100 @@ function Stop-AiCliProcessTree {
     return [pscustomobject]@{ Attempted = $true; Confirmed = $false; Method = 'unconfirmed' }
 }
 
+function Resolve-AiCliMachineEventFile {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    if (-not [IO.Path]::IsPathRooted($Path)) {
+        throw 'Machine event file 必须是绝对路径。'
+    }
+    $full = [IO.Path]::GetFullPath($Path)
+    if ([IO.Path]::GetExtension($full) -ine '.jsonl') {
+        throw 'Machine event file 必须使用 .jsonl 扩展名。'
+    }
+    $parent = Split-Path -Parent $full
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        throw 'Machine event file 的父目录必须已经存在。'
+    }
+    if (Test-Path -LiteralPath $full) {
+        $item = Get-Item -LiteralPath $full -Force -ErrorAction Stop
+        if ($item.PSIsContainer -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $item.Length -ne 0) {
+            throw 'Machine event file 必须是新的或空的普通文件。'
+        }
+    } else {
+        [IO.File]::WriteAllBytes($full, [byte[]]::new(0))
+    }
+    return $full
+}
+
+function Test-AiCliPathWithinRoot {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Root
+    )
+
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $fullRoot = [IO.Path]::TrimEndingDirectorySeparator(
+        [IO.Path]::GetFullPath($Root)
+    )
+    $relative = [IO.Path]::GetRelativePath($fullRoot, $fullPath)
+    return (
+        -not [IO.Path]::IsPathRooted($relative) -and
+        $relative -ne '..' -and
+        -not $relative.StartsWith(
+            "..$([IO.Path]::DirectorySeparatorChar)",
+            [StringComparison]::Ordinal
+        ) -and
+        -not $relative.StartsWith(
+            "..$([IO.Path]::AltDirectorySeparatorChar)",
+            [StringComparison]::Ordinal
+        )
+    )
+}
+
+function Get-AiCliPublicThreadId {
+    param([object]$Value)
+
+    $text = [string]$Value
+    if ($text -match '\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z') {
+        return $text.ToLowerInvariant()
+    }
+    return ''
+}
+
+function Write-AiCliMachineEvent {
+    param(
+        [Parameter(Mandatory)][IO.FileStream]$Stream,
+        [Parameter(Mandatory)][ref]$Sequence,
+        [Parameter(Mandatory)][string]$Kind,
+        [hashtable]$Data = @{}
+    )
+
+    $nextSequence = [int]$Sequence.Value + 1
+    $value = [ordered]@{
+        schema = 'aicli.machine-event.v1'
+        sequence = $nextSequence
+        occurred_utc = (Get-Date).ToUniversalTime().ToString('o')
+        kind = $Kind
+    }
+    foreach ($key in $Data.Keys) {
+        $value[[string]$key] = $Data[$key]
+    }
+    try {
+        $encoded = [Text.UTF8Encoding]::new($false).GetBytes(
+            (($value | ConvertTo-Json -Depth 10 -Compress) + "`n")
+        )
+        $Stream.Write($encoded, 0, $encoded.Length)
+        $Stream.Flush()
+        $Sequence.Value = $nextSequence
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Invoke-AiCliChildCapture {
     [CmdletBinding()]
     param(
@@ -248,8 +342,46 @@ function Invoke-AiCliChildCapture {
         [string]$StdInText = $null,
         [ValidateSet('none','codex-jsonl')][string]$EventProtocol = 'none',
         [int]$MaxSteps = 20,
-        [int]$MaxToolCalls = 80
+        [int]$MaxToolCalls = 80,
+        [string]$MachineEventFile = $null,
+        [string]$WritableWorkspace = $null
     )
+    $machineEventRequested = -not [string]::IsNullOrWhiteSpace($MachineEventFile)
+    $resolvedMachineEventFile = if ($machineEventRequested -and $EventProtocol -eq 'codex-jsonl') {
+        Resolve-AiCliMachineEventFile -Path $MachineEventFile
+    } else {
+        $null
+    }
+    $effectiveWritableWorkspace = if ($WritableWorkspace) {
+        $WritableWorkspace
+    } elseif ($SandboxPolicy -eq 'workspace-write') {
+        $SandboxWorkspace
+    } else {
+        $null
+    }
+    if (
+        $resolvedMachineEventFile -and
+        $SandboxPolicy -eq 'workspace-write' -and
+        $effectiveWritableWorkspace -and
+        (Test-AiCliPathWithinRoot -Path $resolvedMachineEventFile -Root $effectiveWritableWorkspace)
+    ) {
+        throw 'Machine event file 不能位于子智能体可写 workspace 内。'
+    }
+    $machineEventProjection = if ($resolvedMachineEventFile) {
+        'aicli.machine-event.v1'
+    } else {
+        'disabled'
+    }
+    $machineEventStatus = if ($resolvedMachineEventFile) {
+        'ok'
+    } elseif ($machineEventRequested) {
+        'unsupported'
+    } else {
+        'disabled'
+    }
+    $machineEventSequence = 0
+    $machineEventStream = $null
+    $machineTerminalEventWritten = $false
     # Redirect to temp files — avoids pipe-buffer deadlock when CLI dumps large logs (e.g. models list)
     $outFile = Join-Path ([IO.Path]::GetTempPath()) ("aicli-out-" + [guid]::NewGuid().ToString('N') + '.txt')
     $errFile = Join-Path ([IO.Path]::GetTempPath()) ("aicli-err-" + [guid]::NewGuid().ToString('N') + '.txt')
@@ -308,6 +440,9 @@ function Invoke-AiCliChildCapture {
     foreach ($name in $RemoveEnvironment) {
         if ($psi.Environment.ContainsKey($name)) { [void]$psi.Environment.Remove($name) }
     }
+    if ($psi.Environment.ContainsKey('AICLI_MACHINE_EVENT_FILE')) {
+        [void]$psi.Environment.Remove('AICLI_MACHINE_EVENT_FILE')
+    }
     if ($EnvironmentDelta) {
         foreach ($k in $EnvironmentDelta.Keys) {
             if ($null -eq $EnvironmentDelta[$k]) {
@@ -334,7 +469,8 @@ function Invoke-AiCliChildCapture {
     $seenTools = @{}
     $stdoutTask = $null
     $stderrTask = $null
-    $safeError = ''
+    $upstreamFailed = $false
+    $upstreamFailureSummary = 'Codex reported an upstream failure.'
     $termination = [pscustomobject]@{ Attempted = $false; Confirmed = $true; Method = 'none' }
     $knownEventTypes = @(
         'thread.started',
@@ -372,6 +508,16 @@ function Invoke-AiCliChildCapture {
         'computer_use'
     )
     try {
+        if ($resolvedMachineEventFile) {
+            $machineEventStream = [IO.FileStream]::new(
+                $resolvedMachineEventFile,
+                [IO.FileMode]::Open,
+                [IO.FileAccess]::Write,
+                [IO.FileShare]::Read
+            )
+            $machineEventStream.SetLength(0)
+            $machineEventStream.Position = 0
+        }
         [void]$proc.Start()
         $stderrTask = $proc.StandardError.ReadToEndAsync()
         try {
@@ -472,14 +618,26 @@ function Invoke-AiCliChildCapture {
                     }
                 }
 
+                $isUpstreamFailureEvent = (
+                    $eventType -eq 'error' -or
+                    $eventType -eq 'turn.failed' -or
+                    ($isItemEvent -and $itemType -eq 'error')
+                )
+                if ($isUpstreamFailureEvent) {
+                    $upstreamFailed = $true
+                }
+
                 # Only pass through the public thread identifier and public agent
                 # messages. Commands, tool results, and reasoning items are counted
                 # in memory where needed, then discarded rather than persisted.
                 $safeEvent = $null
                 if ($eventType -eq 'thread.started') {
+                    $publicThreadId = Get-AiCliPublicThreadId (
+                        Get-AiCliProperty $event 'thread_id'
+                    )
                     $safeEvent = [ordered]@{
                         type = 'thread.started'
-                        thread_id = [string](Get-AiCliProperty $event 'thread_id')
+                        thread_id = $publicThreadId
                     }
                 }
                 elseif ($eventType -eq 'item.completed' -and $itemType -eq 'agent_message') {
@@ -491,15 +649,7 @@ function Invoke-AiCliChildCapture {
                         }
                     }
                 }
-                if ($eventType -eq 'error') {
-                    $safeError = [string](Get-AiCliProperty $event 'message')
-                } elseif ($eventType -eq 'turn.failed') {
-                    $turnError = Get-AiCliProperty $event 'error'
-                    $safeError = [string](Get-AiCliProperty $turnError 'message')
-                } elseif ($isItemEvent -and $itemType -eq 'error') {
-                    $safeError = [string](Get-AiCliProperty $item 'message')
-                }
-                if ($safeEvent) {
+                if ($safeEvent -and -not $upstreamFailed) {
                     $safeLine = $safeEvent | ConvertTo-Json -Depth 10 -Compress
                     $separatorLength = if ($safeStdOut.Length -gt 0) { 1 } else { 0 }
                     if ($MaxCaptureChars -le 0 -or
@@ -508,6 +658,100 @@ function Invoke-AiCliChildCapture {
                         [void]$safeStdOut.Append($safeLine)
                     } else {
                         $outputTruncated = $true
+                    }
+                }
+
+                if ($machineEventStatus -eq 'ok' -and -not $machineTerminalEventWritten) {
+                    $machineEvent = $null
+                    if ($eventType -eq 'thread.started') {
+                        $machineEvent = @{
+                            Kind = 'thread.started'
+                            Data = @{
+                                thread_id = $publicThreadId
+                            }
+                        }
+                    } elseif ($isUpstreamFailureEvent) {
+                        $machineEvent = @{
+                            Kind = 'run.failed'
+                            Data = @{
+                                status = 'failed'
+                                error_category = 'upstream_error'
+                                steps = $stepCount
+                                tool_calls = $toolCallCount
+                                events_seen = $eventsSeen
+                            }
+                        }
+                    } elseif ($eventType -in @('turn.started','turn.completed')) {
+                        $machineEvent = @{
+                            Kind = $eventType
+                            Data = @{
+                                status = $eventType.Substring(5)
+                                steps = $stepCount
+                                tool_calls = $toolCallCount
+                                events_seen = $eventsSeen
+                            }
+                        }
+                    } elseif ($isItemEvent -and $itemType -eq 'reasoning') {
+                        $machineEvent = @{
+                            Kind = 'reasoning.activity'
+                            Data = @{
+                                status = $eventType.Substring(5)
+                                item_type = 'reasoning'
+                                steps = $stepCount
+                                tool_calls = $toolCallCount
+                                events_seen = $eventsSeen
+                            }
+                        }
+                    } elseif ($isItemEvent -and $itemType -in $toolItemTypes) {
+                        $machineEvent = @{
+                            Kind = 'tool.activity'
+                            Data = @{
+                                status = $eventType.Substring(5)
+                                item_type = $itemType
+                                steps = $stepCount
+                                tool_calls = $toolCallCount
+                                events_seen = $eventsSeen
+                            }
+                        }
+                    } elseif ($isItemEvent -and $itemType -eq 'todo_list') {
+                        $machineEvent = @{
+                            Kind = 'planning.activity'
+                            Data = @{
+                                status = $eventType.Substring(5)
+                                item_type = 'todo_list'
+                                steps = $stepCount
+                                tool_calls = $toolCallCount
+                                events_seen = $eventsSeen
+                            }
+                        }
+                    } elseif (
+                        $eventType -eq 'item.completed' -and
+                        $itemType -eq 'agent_message'
+                    ) {
+                        $publicText = [string](Get-AiCliProperty $item 'text')
+                        if ($publicText.Length -gt 8000) {
+                            $publicText = $publicText.Substring(0, 8000)
+                        }
+                        $machineEvent = @{
+                            Kind = 'output.completed'
+                            Data = @{
+                                status = 'completed'
+                                item_type = 'agent_message'
+                                public_text = $publicText
+                                steps = $stepCount
+                                tool_calls = $toolCallCount
+                                events_seen = $eventsSeen
+                            }
+                        }
+                    }
+                    if ($machineEvent -and -not (
+                        Write-AiCliMachineEvent -Stream $machineEventStream `
+                            -Sequence ([ref]$machineEventSequence) `
+                            -Kind $machineEvent.Kind -Data $machineEvent.Data
+                    )) {
+                        $machineEventStatus = 'degraded'
+                    } elseif ($machineEvent -and $machineEvent.Kind -in @('run.failed','limit.hit')) {
+                        $machineTerminalEventWritten = $true
                     }
                 }
 
@@ -521,6 +765,23 @@ function Invoke-AiCliChildCapture {
                     $limitHit = 'maxToolCalls'
                 }
                 if ($limitHit) {
+                    if ($machineEventStatus -eq 'ok' -and -not $machineTerminalEventWritten) {
+                        if (-not (
+                            Write-AiCliMachineEvent -Stream $machineEventStream `
+                                -Sequence ([ref]$machineEventSequence) -Kind 'limit.hit' `
+                                -Data @{
+                                    status = 'blocked'
+                                    limit = $limitHit
+                                    steps = $stepCount
+                                    tool_calls = $toolCallCount
+                                    events_seen = $eventsSeen
+                                }
+                        )) {
+                            $machineEventStatus = 'degraded'
+                        } else {
+                            $machineTerminalEventWritten = $true
+                        }
+                    }
                     $termination = Stop-AiCliProcessTree -Process $proc
                     if (-not $termination.Confirmed) {
                         $protocolValid = $false
@@ -547,19 +808,17 @@ function Invoke-AiCliChildCapture {
             $proc.WaitForExit()
             $stdout = $stdoutTask.GetAwaiter().GetResult()
         }
-        $rawStderr = $stderrTask.GetAwaiter().GetResult()
         $stderr = if ($EventProtocol -eq 'codex-jsonl') {
-            if ($proc.ExitCode -ne 0) {
-                if ([string]::IsNullOrWhiteSpace($safeError)) {
-                    'Codex process failed without a public error event.'
-                } else {
-                    $safeError
-                }
+            [void]$stderrTask.GetAwaiter().GetResult()
+            if ($upstreamFailed) {
+                $upstreamFailureSummary
+            } elseif ($proc.ExitCode -ne 0) {
+                'Codex process failed without a public error event.'
             } else {
                 ''
             }
         } else {
-            $rawStderr
+            $stderrTask.GetAwaiter().GetResult()
         }
         if ($EventProtocol -eq 'codex-jsonl' -and $proc.ExitCode -eq 0 -and $eventsSeen -eq 0) {
             $protocolValid = $false
@@ -577,6 +836,8 @@ function Invoke-AiCliChildCapture {
             75
         } elseif (-not $protocolValid) {
             74
+        } elseif ($upstreamFailed -and $proc.ExitCode -eq 0) {
+            1
         } else {
             $proc.ExitCode
         }
@@ -584,6 +845,38 @@ function Invoke-AiCliChildCapture {
             $stderr = "Agent exceeded the configured hard limit: $limitHit."
         } elseif (-not $protocolValid) {
             $stderr = $protocolError
+        }
+        if (
+            $machineEventStatus -eq 'ok' -and
+            $null -ne $machineEventStream -and
+            $exitCode -ne 0 -and
+            -not $machineTerminalEventWritten
+        ) {
+            $terminalKind = if ($limitHit) { 'limit.hit' } else { 'run.failed' }
+            $terminalData = @{
+                status = $(if ($limitHit) { 'blocked' } else { 'failed' })
+                steps = $stepCount
+                tool_calls = $toolCallCount
+                events_seen = $eventsSeen
+            }
+            if ($limitHit) {
+                $terminalData['limit'] = $limitHit
+            } else {
+                $terminalData['error_category'] = if ($upstreamFailed) {
+                    'upstream_error'
+                } else {
+                    'protocol_or_process_failure'
+                }
+            }
+            if (-not (
+                Write-AiCliMachineEvent -Stream $machineEventStream `
+                    -Sequence ([ref]$machineEventSequence) `
+                    -Kind $terminalKind -Data $terminalData
+            )) {
+                $machineEventStatus = 'degraded'
+            } else {
+                $machineTerminalEventWritten = $true
+            }
         }
         $limitsHard = (
             $EventProtocol -eq 'codex-jsonl' -and
@@ -605,6 +898,9 @@ function Invoke-AiCliChildCapture {
             LimitsHard = $limitsHard
             CleanupConfirmed = [bool]$termination.Confirmed
             CleanupMethod = [string]$termination.Method
+            MachineEventProjection = $machineEventProjection
+            MachineEventStatus = $machineEventStatus
+            MachineEventCount = $machineEventSequence
         }
     } catch [System.TimeoutException] {
         if (-not $termination.Attempted -or -not $termination.Confirmed) {
@@ -638,6 +934,27 @@ function Invoke-AiCliChildCapture {
             $stderr = $stderr.Substring(0, $MaxCaptureChars)
             $outputTruncated = $true
         }
+        if (
+            $machineEventStatus -eq 'ok' -and
+            $null -ne $machineEventStream -and
+            -not $machineTerminalEventWritten
+        ) {
+            if (-not (
+                Write-AiCliMachineEvent -Stream $machineEventStream `
+                    -Sequence ([ref]$machineEventSequence) -Kind 'limit.hit' `
+                    -Data @{
+                        status = 'blocked'
+                        limit = 'timeout'
+                        steps = $stepCount
+                        tool_calls = $toolCallCount
+                        events_seen = $eventsSeen
+                    }
+            )) {
+                $machineEventStatus = 'degraded'
+            } else {
+                $machineTerminalEventWritten = $true
+            }
+        }
         return [pscustomobject]@{
             ExitCode = (Get-AiCliExitCode Unavailable)
             StdOut = $stdout
@@ -657,9 +974,36 @@ function Invoke-AiCliChildCapture {
             )
             CleanupConfirmed = [bool]$termination.Confirmed
             CleanupMethod = [string]$termination.Method
+            MachineEventProjection = $machineEventProjection
+            MachineEventStatus = $machineEventStatus
+            MachineEventCount = $machineEventSequence
         }
+    } catch {
+        if (
+            $machineEventStatus -eq 'ok' -and
+            $null -ne $machineEventStream -and
+            -not $machineTerminalEventWritten
+        ) {
+            if (-not (
+                Write-AiCliMachineEvent -Stream $machineEventStream `
+                    -Sequence ([ref]$machineEventSequence) -Kind 'run.failed' `
+                    -Data @{
+                        status = 'failed'
+                        error_category = 'runner_failure'
+                        steps = $stepCount
+                        tool_calls = $toolCallCount
+                        events_seen = $eventsSeen
+                    }
+            )) {
+                $machineEventStatus = 'degraded'
+            }
+        }
+        throw
     } finally {
         $stopwatch.Stop()
+        if ($null -ne $machineEventStream) {
+            try { $machineEventStream.Dispose() } catch {}
+        }
         try { $proc.Dispose() } catch {}
         Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue
     }
