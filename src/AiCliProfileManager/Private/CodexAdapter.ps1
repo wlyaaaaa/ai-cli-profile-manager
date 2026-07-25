@@ -322,6 +322,14 @@ function Build-AiCliCodexLaunchPlan {
         }
     }
     elseif ($provider -eq 'ollama' -or $id -eq 'codex-ollama') {
+        if ($MachineRun) {
+            # The local gateway does not require the official-cloud sandbox
+            # contract. Keep the complete bridge/app-server tree inside the
+            # Windows outer sandbox and tell app-server that enforcement is
+            # external, so approvalPolicy=never cannot turn an already-bounded
+            # workspace command into an interactive approval request.
+            $sandboxBoundary = 'outer-codex'
+        }
         $endpoint = Get-AiCliProperty $MergedProfile 'endpoint'
         if (-not $endpoint) { $endpoint = 'http://127.0.0.1:11434/v1' }
         if (-not $model) { $model = 'qwen3:8b' }

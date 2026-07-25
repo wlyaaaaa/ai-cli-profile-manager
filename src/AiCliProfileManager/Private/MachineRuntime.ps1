@@ -31,6 +31,10 @@ function Initialize-AiCliMachineRuntime {
     $runtimeConfig = Get-AiCliProperty $Plan 'machineRuntime'
     $kind = [string](Get-AiCliProperty $runtimeConfig 'kind')
     $useOuterSandbox = $true
+    $runtimeFileName = [string](Get-AiCliProperty $Plan 'fileName')
+    $eventProtocol = $null
+    $additionalReadRoots = @()
+    $privateTaskPipeName = $null
     try {
         if ($kind -eq 'qwen-code') {
             for ($index = 0; $index -lt $arguments.Count; $index++) {
@@ -79,6 +83,8 @@ function Initialize-AiCliMachineRuntime {
         }
         elseif ($kind -eq 'codex') {
             $codexEntryFound = $false
+            $codexEntryIndex = -1
+            $codexPackageSource = $null
             for ($index = 0; $index -lt $arguments.Count; $index++) {
                 $candidate = [string]$arguments[$index]
                 if ($candidate.EndsWith('codex.js', [StringComparison]::OrdinalIgnoreCase) -and
@@ -97,10 +103,21 @@ function Initialize-AiCliMachineRuntime {
                     # mirroring it under a deep workspace can exceed MAX_PATH.
                     $arguments[$index] = [IO.Path]::GetFullPath($candidate)
                     $codexEntryFound = $true
+                    $codexEntryIndex = $index
+                    $codexPackageSource = [IO.Path]::GetFullPath($packageSource)
                     break
                 }
             }
             if (-not $codexEntryFound) { throw 'Codex machine runtime could not locate codex.js.' }
+            $execIndex = [Array]::IndexOf([string[]]$arguments, 'exec')
+            if ($execIndex -lt 0) {
+                $execIndex = [Array]::IndexOf([string[]]$arguments, 'e')
+            }
+            if ($execIndex -le $codexEntryIndex -or
+                $arguments -notcontains '--json' -or
+                $arguments[-1] -ne '-') {
+                throw 'Codex machine run requires native arguments: exec --json ... -'
+            }
             $codexHome = Join-Path $runtimePath 'codex-home'
             New-Item -ItemType Directory -Path $codexHome -Force | Out-Null
             foreach ($configFile in @((Get-AiCliProperty $runtimeConfig 'configFiles'))) {
@@ -121,45 +138,80 @@ function Initialize-AiCliMachineRuntime {
 
             $boundedAgentFlags = @('--disable', 'multi_agent', '--disable', 'multi_agent_v2')
             $sandboxBoundary = [string](Get-AiCliProperty $runtimeConfig 'sandboxBoundary' 'outer-codex')
+            if ($sandboxBoundary -notin @('outer-codex', 'codex-native')) {
+                throw "Unsupported Codex machine sandbox boundary: $sandboxBoundary"
+            }
             if ($sandboxBoundary -eq 'codex-native') {
                 $useOuterSandbox = $false
-                $arguments = @($arguments | Where-Object {
-                    $_ -ne '--dangerously-bypass-approvals-and-sandbox'
-                })
-                $nativeBoundaryFlags = @(
-                    '--sandbox', $Policy,
-                    '--ignore-user-config',
-                    '--ignore-rules'
-                ) + $boundedAgentFlags
-                if ($arguments.Count -gt 0 -and $arguments[-1] -eq '-') {
-                    $beforePrompt = if ($arguments.Count -gt 1) {
-                        @($arguments[0..($arguments.Count - 2)])
-                    } else {
-                        @()
-                    }
-                    $arguments = @($beforePrompt) + $nativeBoundaryFlags + @('-')
-                } else {
-                    $arguments += $nativeBoundaryFlags
-                }
             } else {
                 # `codex sandbox windows` does not forward its own stdin to the
-                # sandboxed command. Keep the private task in a runtime file and
-                # pass only a generic file-reading instruction in argv.
-                $taskPath = Join-Path $runtimePath 'task.md'
-                [IO.File]::WriteAllText($taskPath, $effectiveStdIn, [Text.UTF8Encoding]::new($false))
-                $taskInstruction = "Read the UTF-8 task request from this sandbox file and complete it: $taskPath"
-                if ($arguments.Count -gt 0 -and $arguments[-1] -eq '-') {
-                    $beforePrompt = if ($arguments.Count -gt 1) {
-                        @($arguments[0..($arguments.Count - 2)])
-                    } else {
-                        @()
-                    }
-                    $arguments = @($beforePrompt) + $boundedAgentFlags + @($taskInstruction)
-                } else {
-                    $arguments += $boundedAgentFlags + @($taskInstruction)
-                }
-                $effectiveStdIn = ''
+                # sandboxed command. An ACL-restricted named pipe carries the
+                # private task into the trusted bridge without argv, env-value,
+                # workspace, or temporary-file persistence.
+                $privateTaskPipeName = 'aicli-' + [guid]::NewGuid().ToString('N')
             }
+
+            $globalArguments = @(
+                if ($execIndex -gt 0) {
+                    $arguments[0..($execIndex - 1)]
+                }
+            )
+            # Codex 0.145 accepts --profile for interactive/runtime commands,
+            # but rejects it for app-server before initialize. Keep the
+            # explicit -c provider/model overrides and disposable CODEX_HOME,
+            # while removing only this runtime-only selector.
+            $appServerGlobalArguments = [System.Collections.Generic.List[string]]::new()
+            for ($index = 0; $index -lt $globalArguments.Count; $index++) {
+                if ([string]$globalArguments[$index] -eq '--profile') {
+                    if ($index + 1 -ge $globalArguments.Count) {
+                        throw 'Codex machine run profile selector is missing its value.'
+                    }
+                    $index++
+                    continue
+                }
+                [void]$appServerGlobalArguments.Add(
+                    [string]$globalArguments[$index]
+                )
+            }
+            $appServerArguments = @($appServerGlobalArguments.ToArray()) + $boundedAgentFlags +
+                @('app-server', '--stdio')
+            $bridgePath = Join-Path (
+                Split-Path -Parent $PSScriptRoot
+            ) 'Support\CodexAppServerBridge.ps1'
+            if (-not (Test-Path -LiteralPath $bridgePath -PathType Leaf)) {
+                throw 'Codex app-server bridge is missing from the installed module.'
+            }
+            $pwsh = (Get-Command pwsh.exe -ErrorAction SilentlyContinue |
+                Select-Object -First 1).Source
+            if (-not $pwsh) {
+                throw 'PowerShell 7 is required for the Codex app-server bridge.'
+            }
+            $bridgeConfigPath = Join-Path $runtimePath 'codex-app-server-bridge.json'
+            $bridgeConfig = [ordered]@{
+                fileName = [IO.Path]::GetFullPath($runtimeFileName)
+                argumentList = @($appServerArguments)
+                workingDirectory = $workspace
+                sandboxBoundary = $sandboxBoundary
+                sandboxPolicy = $Policy
+                model = [string](Get-AiCliProperty $Plan 'model')
+                minimumCliVersion = '0.145.0'
+            }
+            Write-AiCliJsonFile -Path $bridgeConfigPath -Value $bridgeConfig
+            $runtimeFileName = $pwsh
+            $arguments = @(
+                '-NoProfile',
+                '-File',
+                [IO.Path]::GetFullPath($bridgePath),
+                '-ConfigPath',
+                [IO.Path]::GetFullPath($bridgeConfigPath)
+            )
+            $eventProtocol = 'codex-app-server'
+            $additionalReadRoots = @(
+                [IO.Path]::GetFullPath((Split-Path -Parent ([string](
+                    Get-AiCliProperty $bridgeConfig 'fileName'
+                )))),
+                $codexPackageSource
+            )
         }
         elseif ($kind -eq 'claude') {
             $claudeConfig = Join-Path $runtimePath 'claude-config'
@@ -204,10 +256,14 @@ function Initialize-AiCliMachineRuntime {
         }
         return [pscustomobject]@{
             RuntimePath = $runtimePath
+            FileName = $runtimeFileName
             ArgumentList = @($arguments)
             EnvironmentDelta = $environment
             StdInText = $effectiveStdIn
             UseOuterSandbox = $useOuterSandbox
+            EventProtocol = $eventProtocol
+            AdditionalReadRoots = @($additionalReadRoots)
+            PrivateTaskPipeName = $privateTaskPipeName
         }
     } catch {
         Remove-AiCliMachineRuntime -RuntimePath $runtimePath -Workspace $workspace

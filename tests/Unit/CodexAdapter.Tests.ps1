@@ -8,6 +8,34 @@ BeforeAll {
 }
 
 Describe 'Codex Ollama reasoning effort' {
+    It 'uses the outer Windows sandbox for local app-server machine runs' {
+        $profile = Get-Content -LiteralPath (
+            Join-Path $script:CodexAdapterRepoRoot 'data\providers\codex-ollama-main.json'
+        ) -Raw | ConvertFrom-Json
+
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Profile = $profile } {
+            Mock Resolve-AiCliCodexLaunchExecutable {
+                [pscustomobject]@{
+                    FileName = 'C:\Program Files\nodejs\node.exe'
+                    PrefixArgs = @('C:\npm\node_modules\@openai\codex\bin\codex.js')
+                    Kind = 'npm-node'
+                }
+            }
+            Mock Write-AiCliCodexManagedProfile {
+                [pscustomobject]@{
+                    CliProfileName = 'aicli-codex-ollama-main'
+                    FilePath = (Join-Path $Work 'aicli-codex-ollama-main.config.toml')
+                    ContentHash = ('0' * 64)
+                }
+            }
+
+            $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile `
+                -ProjectPath $Work -MachineRun
+
+            $plan.machineRuntime.sandboxBoundary | Should -Be 'outer-codex'
+        }
+    }
+
     It 'emits max exactly once as a -c pair and preserves every provider override' {
         $profile = Get-Content -LiteralPath (
             Join-Path $script:CodexAdapterRepoRoot 'data\providers\codex-ollama-main.json'

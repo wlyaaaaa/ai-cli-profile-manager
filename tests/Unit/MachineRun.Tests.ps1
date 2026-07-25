@@ -1,6 +1,28 @@
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 
 Describe 'Machine-facing profile runs' {
+    It 'preserves Chinese text across redirected stdin and stdout' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'utf8-roundtrip.ps1'
+            @'
+$utf8 = [Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+$text = [Console]::In.ReadToEnd()
+[Console]::Out.Write($text)
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $expected = "中文输入与输出必须保持 UTF-8`n"
+            $result = Invoke-AiCliChildCapture `
+                -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $scriptPath) `
+                -WorkingDirectory $Work -StdInText $expected -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            $result.StdOut | Should -Be $expected
+        }
+    }
+
     BeforeAll {
         $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
         Get-Module AiCliProfileManager -All | Remove-Module -Force -ErrorAction SilentlyContinue
@@ -27,7 +49,7 @@ Describe 'Machine-facing profile runs' {
                     TimedOut = $false
                     DurationMs = 123
                     OutputTruncated = $false
-                    StepCount = 1
+                    StepCount = 0
                     ToolCallCount = 0
                     EventsSeen = 2
                     EventProtocol = 'codex-jsonl'
@@ -52,10 +74,10 @@ Describe 'Machine-facing profile runs' {
             $result.limitEnforcement.timeout | Should -Be 'hard'
             $result.limitEnforcement.maxSteps | Should -Be 'hard'
             $result.limitEnforcement.maxToolCalls | Should -Be 'hard'
-            $result.limitUsage.steps | Should -Be 1
+            $result.limitUsage.steps | Should -Be 0
             $result.limitUsage.toolCalls | Should -Be 0
             $result.limitUsage.protocol | Should -Be 'codex-jsonl'
-            $result.limitUsage.stepDefinition | Should -Be 'distinct-thread-item-v1'
+            $result.limitUsage.stepDefinition | Should -Be 'distinct-non-output-thread-item-v2'
             $result.limitUsage.cleanupConfirmed | Should -BeTrue
             ($result.usage | ConvertTo-Json -Compress) |
                 Should -Be '{"input_tokens":123,"cached_input_tokens":45,"output_tokens":67}'
@@ -92,7 +114,7 @@ Describe 'Machine-facing profile runs' {
 
             $result.ExitCode | Should -Be 0
             $result.LimitsHard | Should -BeTrue
-            $result.StepCount | Should -Be 4
+            $result.StepCount | Should -Be 3
             $result.ToolCallCount | Should -Be 2
             $result.EventsSeen | Should -Be 7
             $result.StdOut | Should -Match 'FINAL_PUBLIC'
@@ -101,6 +123,31 @@ Describe 'Machine-facing profile runs' {
             $result.StdOut | Should -Not -Match 'PRIVATE_OUTPUT'
             $result.StdErr | Should -Not -Match 'HIDDEN_STDERR_CANARY'
             ($result.Usage | ConvertTo-Json -Compress) | Should -Be '{}'
+        }
+    }
+
+    It 'does not spend the action-step budget on public agent messages' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'emit-public-progress-with-one-action.ps1'
+            @'
+[Console]::Out.WriteLine('{"type":"thread.started","thread_id":"thread-1"}')
+[Console]::Out.WriteLine('{"type":"turn.started","turn_id":"turn-1"}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"progress-1","type":"agent_message","text":"开始处理。"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"progress-2","type":"agent_message","text":"已完成公开检查。"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"reason-1","type":"reasoning","text":"HIDDEN_COT_CANARY"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"message-final","type":"agent_message","text":"FINAL_PUBLIC"}}')
+[Console]::Out.WriteLine('{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":3}}')
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MaxSteps 1 -MaxToolCalls 1 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            $result.StepCount | Should -Be 1
+            $result.LimitHit | Should -BeNullOrEmpty
+            $result.StdOut | Should -Match 'FINAL_PUBLIC'
+            $result.StdOut | Should -Not -Match 'HIDDEN_COT_CANARY'
         }
     }
 
@@ -202,6 +249,1411 @@ exit 0
             ($result.Usage | ConvertTo-Json -Compress) | Should -Be '{"input_tokens":12}'
             ($result | ConvertTo-Json -Depth 10 -Compress) |
                 Should -Not -Match 'cached_input_tokens|output_tokens|total_tokens|PRIVATE_USAGE_CANARY'
+        }
+    }
+
+    It 'launches local Codex app-server inside the requested outer Windows sandbox' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $package = Join-Path $Work 'tool\node_modules\@openai\codex'
+            $entry = Join-Path $package 'bin\codex.js'
+            $native = Join-Path $package (
+                'node_modules\@openai\codex-win32-x64\' +
+                'vendor\x86_64-pc-windows-msvc\bin\codex.exe'
+            )
+            New-Item -ItemType Directory -Path (
+                Split-Path -Parent $entry
+            ), (
+                Split-Path -Parent $native
+            ) -Force | Out-Null
+            Set-Content -LiteralPath $entry -Value '// stub' -Encoding ascii
+            Set-Content -LiteralPath $native -Value 'native stub' -Encoding ascii
+            Set-Content -LiteralPath (Join-Path $package 'package.json') `
+                -Value '{}' -Encoding ascii
+
+            Mock Build-AiCliLaunchPlan {
+                [pscustomobject]@{
+                    engine = 'codex'
+                    fileName = (Get-Command node.exe).Source
+                    argumentList = @($entry, 'exec', '--json', '-')
+                    workingDirectory = $Work
+                    environmentDelta = @{ AICLI_CODEX_PROVIDER_KEY = 'ollama' }
+                    removeEnvironment = @()
+                    model = 'qwen-main-v1'
+                    machineRuntime = [ordered]@{
+                        kind = 'codex'
+                        configFiles = @()
+                        sandboxBoundary = 'outer-codex'
+                    }
+                }
+            }
+            Mock Invoke-AiCliChildCapture {
+                [pscustomobject]@{
+                    ExitCode = 0
+                    StdOut = ''
+                    StdErr = ''
+                    TimedOut = $false
+                    DurationMs = 12
+                    OutputTruncated = $false
+                    StepCount = 0
+                    ToolCallCount = 0
+                    EventsSeen = 0
+                    EventProtocol = 'codex-app-server'
+                    LimitHit = $null
+                    LimitsHard = $true
+                    CleanupConfirmed = $true
+                    CleanupMethod = 'none'
+                    Usage = [ordered]@{}
+                }
+            }
+
+            $null = Invoke-AiCliProfileCapture -ProfileId 'local' `
+                -ProjectPath $Work -NativeArgs @('exec', '--json', '-') `
+                -StdInText 'PRIVATE_TASK_CANARY' -SandboxPolicy workspace-write
+
+            Should -Invoke Invoke-AiCliChildCapture -Times 1 -Exactly `
+                -ParameterFilter {
+                    $SandboxWorkspace -eq $Work -and
+                    $SandboxPolicy -eq 'workspace-write' -and
+                    $EventProtocol -eq 'codex-app-server' -and
+                    $PrivateTaskPipeName -match '^aicli-[a-f0-9]{32}$' -and
+                    $AdditionalSandboxReadRoots -contains (
+                        [IO.Path]::GetFullPath($package)
+                    )
+                }
+        }
+    }
+
+    It 'projects app-server context under the outer <Policy> contract without private payloads' -ForEach @(
+        @{ Policy = 'read-only' }
+        @{ Policy = 'workspace-write' }
+    ) {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+            Policy = $Policy
+        } {
+            $caseSuffix = $Policy.Replace('-', '_')
+            $fakeServer = Join-Path $Work "fake-codex-app-server-$caseSuffix.ps1"
+            $bridgeConfig = Join-Path $Work "app-server-bridge-$caseSuffix.json"
+            $eventFile = Join-Path $Work "app-server-events-$caseSuffix.jsonl"
+            @'
+$utf8 = [Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{"userAgent":"Codex Desktop/0.145.0 (test)","codexHome":"C:\\fake","platformFamily":"windows","platformOs":"windows"}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"},"model":"gpt-test","modelProvider":"openai","cwd":"C:\\fake","approvalPolicy":"never","approvalsReviewer":"user","sandbox":{"type":"readOnly","networkAccess":false}}}')
+        }
+        'turn/start' {
+            if ([string]$message.params.input[0].text -ne '中文任务_PRIVATE_PROMPT_CANARY') {
+                [Console]::Out.WriteLine('{"id":3,"error":{"code":-32602,"message":"invalid utf8 task"}}')
+                [Console]::Out.Flush()
+                continue
+            }
+            $sandbox = $message.params.sandboxPolicy
+            if (
+                [string]$sandbox.type -ne 'externalSandbox' -or
+                [string]$sandbox.networkAccess -ne 'restricted'
+            ) {
+                [Console]::Out.WriteLine('{"id":3,"error":{"code":-32602,"message":"externalSandbox contract missing"}}')
+                [Console]::Out.Flush()
+                continue
+            }
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","startedAtMs":1,"item":{"id":"reason-1","type":"reasoning","summary":["PRIVATE_REASONING_CANARY"]}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","startedAtMs":2,"item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_COMMAND_CANARY","aggregatedOutput":"PRIVATE_TOOL_OUTPUT_CANARY","status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","startedAtMs":2,"item":{"id":"command-2","type":"commandExecution","command":"PRIVATE_FAILED_COMMAND_CANARY","aggregatedOutput":"PRIVATE_FAILED_OUTPUT_CANARY","status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","startedAtMs":2,"item":{"id":"command-3","type":"commandExecution","command":"PRIVATE_DECLINED_COMMAND_CANARY","aggregatedOutput":"PRIVATE_DECLINED_OUTPUT_CANARY","status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":120,"cachedInputTokens":20,"outputTokens":5,"reasoningOutputTokens":3,"totalTokens":341,"secret":"PRIVATE_USAGE_CANARY"},"total":{"inputTokens":9999,"cachedInputTokens":999,"outputTokens":999,"reasoningOutputTokens":999,"totalTokens":99999},"modelContextWindow":262144}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","completedAtMs":3,"item":{"id":"reason-1","type":"reasoning","summary":["PRIVATE_REASONING_CANARY"]}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","completedAtMs":3,"item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_COMMAND_CANARY","aggregatedOutput":"PRIVATE_TOOL_OUTPUT_CANARY","status":"completed","exitCode":0,"durationMs":617}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","completedAtMs":3,"item":{"id":"command-2","type":"commandExecution","command":"PRIVATE_FAILED_COMMAND_CANARY","aggregatedOutput":"PRIVATE_FAILED_OUTPUT_CANARY","status":"failed","exitCode":9,"durationMs":731}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","completedAtMs":3,"item":{"id":"command-3","type":"commandExecution","command":"PRIVATE_DECLINED_COMMAND_CANARY","aggregatedOutput":"PRIVATE_DECLINED_OUTPUT_CANARY","status":"declined"}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","completedAtMs":3,"item":{"id":"subagent-1","type":"subAgentActivity","summary":"PRIVATE_SUBAGENT_CANARY"}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","startedAtMs":3,"item":{"id":"compact-1","type":"contextCompaction","history":"PRIVATE_HISTORY_CANARY"}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","completedAtMs":4,"item":{"id":"compact-1","type":"contextCompaction","message":"PRIVATE_COMPACTION_CANARY"}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","startedAtMs":5,"item":{"id":"message-1","type":"agentMessage","text":""}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","completedAtMs":5,"item":{"id":"message-1","type":"agentMessage","text":"FINAL_PUBLIC"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                taskFile = $null
+                sandboxBoundary = 'outer-codex'
+                sandboxPolicy = $Policy
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText '中文任务_PRIVATE_PROMPT_CANARY' `
+                -PrivateTaskPipeName ('aicli-' + [guid]::NewGuid().ToString('N')) `
+                -EventProtocol codex-app-server -MachineEventFile $eventFile `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            $result.StepCount | Should -Be 6
+            $result.ToolCallCount | Should -Be 4
+            ($result.Usage | ConvertTo-Json -Compress) | Should -Be (
+                '{"input_tokens":120,"cached_input_tokens":20,"output_tokens":5,' +
+                '"current_context_tokens":341,"context_window_tokens":262144}'
+            )
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            $context = @($events | Where-Object kind -eq 'context.usage.updated')[-1]
+            @($context.PSObject.Properties.Name | Sort-Object) | Should -Be @(
+                'context_window_tokens',
+                'current_tokens',
+                'kind',
+                'occurred_utc',
+                'schema',
+                'sequence'
+            )
+            $context.current_tokens | Should -Be 341
+            $context.context_window_tokens | Should -Be 262144
+            $compaction = @($events | Where-Object kind -eq 'context.compaction.completed')[-1]
+            @($compaction.PSObject.Properties.Name | Sort-Object) | Should -Be @(
+                'compaction_count',
+                'kind',
+                'occurred_utc',
+                'schema',
+                'sequence',
+                'status'
+            )
+            $compaction.status | Should -Be 'completed'
+            $compaction.compaction_count | Should -Be 1
+            $subAgentActivity = @(
+                $events |
+                    Where-Object {
+                        $_.kind -eq 'tool.activity' -and
+                        $_.item_type -eq 'sub_agent_activity'
+                    }
+            )
+            $subAgentActivity.Count | Should -Be 1
+            $subAgentActivity[0].status | Should -Be 'completed'
+            $commandActivity = @(
+                $events |
+                    Where-Object {
+                        $_.kind -eq 'tool.activity' -and
+                        $_.item_type -eq 'command_execution'
+                    }
+            )
+            $commandActivity.Count | Should -Be 6
+            @($commandActivity.command_status) | Should -Be @(
+                'in_progress',
+                'in_progress',
+                'in_progress',
+                'succeeded',
+                'failed',
+                'declined'
+            )
+            @($commandActivity[0].PSObject.Properties.Name | Sort-Object) |
+                Should -Be @(
+                    'command_status',
+                    'events_seen',
+                    'item_type',
+                    'kind',
+                    'occurred_utc',
+                    'schema',
+                    'sequence',
+                    'status',
+                    'steps',
+                    'tool_calls'
+                )
+            $commandActivity[3].exit_code | Should -Be 0
+            $commandActivity[3].duration_ms | Should -Be 617
+            $commandActivity[4].exit_code | Should -Be 9
+            $commandActivity[4].duration_ms | Should -Be 731
+            $commandActivity[5].PSObject.Properties.Name |
+                Should -Not -Contain 'exit_code'
+            $commandActivity[5].PSObject.Properties.Name |
+                Should -Not -Contain 'duration_ms'
+            $turnCompleted = @($events | Where-Object kind -eq 'turn.completed')[-1]
+            ($turnCompleted.usage | ConvertTo-Json -Compress) |
+                Should -Be '{"input_tokens":120,"cached_input_tokens":20,"output_tokens":5}'
+
+            $public = @(
+                ($result | ConvertTo-Json -Depth 10 -Compress)
+                (Get-Content -LiteralPath $eventFile -Raw -Encoding utf8)
+            ) -join "`n"
+            $public | Should -Match 'FINAL_PUBLIC'
+            $public | Should -Not -Match (
+                'PRIVATE_PROMPT_CANARY|PRIVATE_REASONING_CANARY|PRIVATE_COMMAND_CANARY|' +
+                'PRIVATE_TOOL_OUTPUT_CANARY|PRIVATE_USAGE_CANARY|PRIVATE_HISTORY_CANARY|' +
+                'PRIVATE_COMPACTION_CANARY|PRIVATE_SUBAGENT_CANARY|' +
+                'PRIVATE_FAILED_COMMAND_CANARY|PRIVATE_FAILED_OUTPUT_CANARY|' +
+                'PRIVATE_DECLINED_COMMAND_CANARY|PRIVATE_DECLINED_OUTPUT_CANARY|99999'
+            )
+        }
+    }
+
+    It 'fails closed on an unknown app-server notification without exposing its payload' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-unknown-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'unknown-app-server-bridge.json'
+            $eventFile = Join-Path $Work 'unknown-app-server-events.jsonl'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{"userAgent":"Codex Desktop/0.146.0 (test)","codexHome":"C:\\fake","platformFamily":"windows","platformOs":"windows"}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.146.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"future/privateNotification","params":{"prompt":"PRIVATE_UNKNOWN_NOTIFICATION_CANARY"}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                taskFile = $null
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MachineEventFile $eventFile `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.notification_unknown'
+            $result.StdErr |
+                Should -Be 'Codex app-server protocol validation failed (codex_appserver.notification_unknown).'
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            $events[-1].kind | Should -Be 'run.failed'
+            $events[-1].error_category | Should -Be 'protocol_or_process_failure'
+            $events[-1].error_code | Should -Be 'codex_appserver.notification_unknown'
+            ($result | ConvertTo-Json -Depth 10 -Compress) |
+                Should -Not -Match 'PRIVATE_UNKNOWN_NOTIFICATION_CANARY|future/privateNotification'
+        }
+    }
+
+    It 'buffers complete context usage until the turn identity is confirmed' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-early-context-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'early-context-app-server-bridge.json'
+            $eventFile = Join-Path $Work 'early-context-app-server-events.jsonl'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{"userAgent":"Codex Desktop/0.145.0 (test)"}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"totalTokens":0},"total":{"totalTokens":0},"modelContextWindow":null}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":15,"cachedInputTokens":4,"outputTokens":2,"totalTokens":41,"secret":"PRIVATE_EARLY_USAGE_CANARY"},"total":{"totalTokens":99999},"modelContextWindow":258400}}}')
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":10,"totalTokens":40},"total":{"totalTokens":40},"modelContextWindow":null}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":""}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":"EARLY_USAGE_PUBLIC"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MachineEventFile $eventFile `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            $result.ErrorCode | Should -BeNullOrEmpty
+            $result.Usage.current_context_tokens | Should -Be 41
+            $result.Usage.context_window_tokens | Should -Be 258400
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            $contextEvents = @(
+                $events | Where-Object kind -eq 'context.usage.updated'
+            )
+            $contextEvents.Count | Should -Be 1
+            $contextEvents[0].current_tokens | Should -Be 41
+            $contextEvents[0].context_window_tokens | Should -Be 258400
+            (($result | ConvertTo-Json -Depth 10 -Compress) + "`n" +
+                (Get-Content -LiteralPath $eventFile -Raw -Encoding utf8)) |
+                Should -Not -Match 'tokenUsage|modelContextWindow|PRIVATE_EARLY_USAGE_CANARY|99999'
+        }
+    }
+
+    It 'fails closed before turn start for unsupported app-server <ReportedVersion>' -ForEach @(
+        @{ ReportedVersion = '0.144.0' }
+        @{ ReportedVersion = '0.145.0-alpha' }
+    ) {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+            ReportedVersion = $ReportedVersion
+        } {
+            $fakeServer = Join-Path $Work 'fake-old-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'old-app-server-bridge.json'
+            $serverSource = @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{"userAgent":"Codex Desktop/__VERSION__ (test)","codexHome":"C:\\fake","platformFamily":"windows","platformOs":"windows"}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"__VERSION__"}}}')
+        }
+        'turn/start' {
+            [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'MUST_NOT_START_TURN'), 'bad')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@
+            $serverSource.Replace('__VERSION__', $ReportedVersion) |
+                Set-Content -LiteralPath $fakeServer -Encoding utf8
+
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                taskFile = $null
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Not -Be 0
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.version_unsupported'
+            $result.StdErr |
+                Should -Be 'Codex app-server protocol validation failed (codex_appserver.version_unsupported).'
+            Test-Path -LiteralPath (Join-Path $Work 'MUST_NOT_START_TURN') | Should -BeFalse
+            ($result.Usage | ConvertTo-Json -Compress) | Should -Be '{}'
+        }
+    }
+
+    It 'accepts a newer app-server only when its runtime protocol remains compatible' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-future-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'future-app-server-bridge.json'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{"userAgent":"Codex Desktop/0.146.0 (test)","codexHome":"C:\\fake","platformFamily":"windows","platformOs":"windows"}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.146.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":1,"totalTokens":40},"total":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":1,"totalTokens":40},"modelContextWindow":262144}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":""}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":"FUTURE_COMPATIBLE_PUBLIC"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            $result.StdOut | Should -Match 'FUTURE_COMPATIBLE_PUBLIC'
+            $result.Usage.current_context_tokens | Should -Be 40
+            $result.Usage.context_window_tokens | Should -Be 262144
+        }
+    }
+
+    It 'fails closed when a completed app-server turn has no real context snapshot' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-missing-context-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'missing-context-app-server-bridge.json'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{"userAgent":"Codex Desktop/0.146.0 (test)","codexHome":"C:\\fake","platformFamily":"windows","platformOs":"windows"}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.146.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":""}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":"MUST_NOT_SUCCEED"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Not -Be 0
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.context_usage_incomplete'
+            $result.StdErr |
+                Should -Be 'Codex app-server protocol validation failed (codex_appserver.context_usage_incomplete).'
+            ($result.Usage | ConvertTo-Json -Compress) | Should -Be '{}'
+        }
+    }
+
+    It 'fails closed when a completed app-server turn still has an unfinished item' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-unfinished-item-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'unfinished-item-app-server-bridge.json'
+            $eventFile = Join-Path $Work 'unfinished-item-events.jsonl'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{"userAgent":"Codex Desktop/0.146.0 (test)","codexHome":"C:\\fake","platformFamily":"windows","platformOs":"windows"}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.146.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":1,"totalTokens":40},"total":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":1,"totalTokens":40},"modelContextWindow":262144}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"reason-1","type":"reasoning","summary":["PRIVATE_UNFINISHED_ITEM_CANARY"]}}}')
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MachineEventFile $eventFile `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Not -Be 0
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.item_unfinished'
+            $result.StdErr |
+                Should -Be 'Codex app-server protocol validation failed (codex_appserver.item_unfinished).'
+            ($result | ConvertTo-Json -Depth 10 -Compress) |
+                Should -Not -Match 'PRIVATE_UNFINISHED_ITEM_CANARY'
+            $events = @(
+                Get-Content -LiteralPath $eventFile -Encoding utf8 |
+                    ConvertFrom-Json
+            )
+            $failed = @($events | Where-Object kind -eq 'run.failed')[-1]
+            $failed.error_code | Should -Be 'codex_appserver.item_unfinished'
+            $failed.item_type | Should -Be 'reasoning'
+        }
+    }
+
+    It 'accepts multiple superseded Codex 0.145 public messages before a completed final' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-superseded-message-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'superseded-message-app-server-bridge.json'
+            $eventFile = Join-Path $Work 'superseded-message-events.jsonl'
+            @'
+$utf8 = [Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":3,"totalTokens":41},"total":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":3,"totalTokens":41},"modelContextWindow":262144}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-progress","type":"agentMessage","text":""}}}')
+            [Console]::Out.WriteLine('{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"message-progress","delta":"正在"}}')
+            [Console]::Out.WriteLine('{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"message-progress","delta":"检查 acceptance.md"}}')
+            [Console]::Out.WriteLine('{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"message-progress","delta":"。"}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-progress-2","type":"agentMessage","text":""}}}')
+            [Console]::Out.WriteLine('{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"message-progress-2","delta":"校验已通过。"}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-final","type":"agentMessage","text":""}}}')
+            [Console]::Out.WriteLine('{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"message-final","delta":"文件"}}')
+            [Console]::Out.WriteLine('{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"message-final","delta":"已更新"}}')
+            [Console]::Out.WriteLine('{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"message-final","delta":"。"}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-final","type":"agentMessage","text":"FINAL_PUBLIC"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MachineEventFile $eventFile -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            $result.StepCount | Should -Be 0
+            $result.StdOut | Should -Match 'FINAL_PUBLIC'
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            $deltas = @($events | Where-Object kind -eq 'output.delta')
+            $deltas.Count | Should -Be 3
+            @($deltas.public_text) | Should -Be @(
+                '正在检查 acceptance.md。',
+                '校验已通过。',
+                '文件已更新。'
+            )
+            @($events | Where-Object kind -eq 'output.completed').Count | Should -Be 1
+        }
+    }
+
+    It 'rejects unsafe agent-message supersession for <CaseName>' -ForEach @(
+        @{
+            CaseName = 'a future Codex version'
+            CliVersion = '0.146.0'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-orphan","type":"agentMessage","text":""}}}',
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-final","type":"agentMessage","text":""}}}',
+                '{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-final","type":"agentMessage","text":"FINAL_PUBLIC"}}}'
+            )
+        }
+        @{
+            CaseName = 'a missing later final message'
+            CliVersion = '0.145.0'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-orphan","type":"agentMessage","text":""}}}'
+            )
+        }
+        @{
+            CaseName = 'an orphan message started after the completed final'
+            CliVersion = '0.145.0'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-final","type":"agentMessage","text":""}}}',
+                '{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-final","type":"agentMessage","text":"FINAL_PUBLIC"}}}',
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-late-orphan","type":"agentMessage","text":""}}}'
+            )
+        }
+    ) {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+            CliVersion = $CliVersion
+            NotificationLines = $NotificationLines
+        } {
+            $fakeServer = Join-Path $Work 'fake-unsafe-supersession-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'unsafe-supersession-app-server-bridge.json'
+            $notificationScript = @(
+                $NotificationLines | ForEach-Object {
+                    "[Console]::Out.WriteLine('" +
+                        ([string]$_).Replace("'", "''") +
+                        "')"
+                }
+            ) -join "`n            "
+            $serverSource = @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"__CLI_VERSION__"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":3,"totalTokens":41},"total":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":3,"totalTokens":41},"modelContextWindow":262144}}}')
+            __NOTIFICATIONS__
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@
+            $serverSource.Replace('__CLI_VERSION__', $CliVersion).
+                Replace('__NOTIFICATIONS__', $notificationScript) |
+                Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.item_unfinished'
+        }
+    }
+
+    It 'fails closed on cross-thread or invalid item lifecycle notifications' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-cross-thread-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'cross-thread-app-server-bridge.json'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"WRONG_PRIVATE_THREAD","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"compact-1","type":"contextCompaction","history":"PRIVATE_CROSS_THREAD_CANARY"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Not -Be 0
+            ($result | ConvertTo-Json -Depth 10 -Compress) |
+                Should -Not -Match 'WRONG_PRIVATE_THREAD|PRIVATE_CROSS_THREAD_CANARY'
+        }
+    }
+
+    It 'accepts one completion-only sub-agent point event and rejects a duplicate' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-duplicate-subagent-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'duplicate-subagent-app-server-bridge.json'
+            $eventFile = Join-Path $Work 'duplicate-subagent-events.jsonl'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"subagent-1","type":"subAgentActivity"}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"subagent-1","type":"subAgentActivity","summary":"PRIVATE_DUPLICATE_SUBAGENT_CANARY"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MachineEventFile $eventFile -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.item_completed_duplicate'
+            $result.StdErr |
+                Should -Be 'Codex app-server protocol validation failed (codex_appserver.item_completed_duplicate).'
+            $result.StepCount | Should -Be 1
+            $result.ToolCallCount | Should -Be 1
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            @(
+                $events |
+                    Where-Object {
+                        $_.kind -eq 'tool.activity' -and
+                        $_.item_type -eq 'sub_agent_activity'
+                    }
+            ).Count | Should -Be 1
+            (Get-Content -LiteralPath $eventFile -Raw -Encoding utf8) |
+                Should -Not -Match 'PRIVATE_DUPLICATE_SUBAGENT_CANARY'
+        }
+    }
+
+    It 'keeps regular and completion-only item counters independent for a shared id' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-shared-item-id-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'shared-item-id-app-server-bridge.json'
+            $eventFile = Join-Path $Work 'shared-item-id-events.jsonl'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":1,"totalTokens":40},"total":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":1,"totalTokens":40},"modelContextWindow":262144}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"shared-1","type":"reasoning","summary":["PRIVATE_SHARED_REASONING_CANARY"]}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"shared-1","type":"reasoning","summary":["PRIVATE_SHARED_REASONING_CANARY"]}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"shared-1","type":"subAgentActivity","summary":"PRIVATE_SHARED_SUBAGENT_CANARY"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MachineEventFile $eventFile -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            $result.ErrorCode | Should -BeNullOrEmpty
+            $result.StepCount | Should -Be 2
+            $result.ToolCallCount | Should -Be 1
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            @(
+                $events |
+                    Where-Object {
+                        $_.kind -eq 'reasoning.activity' -and
+                        $_.item_type -eq 'reasoning'
+                    }
+            ).Count | Should -Be 2
+            @(
+                $events |
+                    Where-Object {
+                        $_.kind -eq 'tool.activity' -and
+                        $_.item_type -eq 'sub_agent_activity'
+                    }
+            ).Count | Should -Be 1
+            $public = @(
+                ($result | ConvertTo-Json -Depth 10 -Compress)
+                (Get-Content -LiteralPath $eventFile -Raw -Encoding utf8)
+            ) -join "`n"
+            $public | Should -Not -Match (
+                'PRIVATE_SHARED_REASONING_CANARY|PRIVATE_SHARED_SUBAGENT_CANARY|' +
+                'codex_appserver.item_type_changed'
+            )
+        }
+    }
+
+    It 'rejects completion-first command execution with a safe lifecycle code' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-completion-first-command-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'completion-first-command-app-server-bridge.json'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_COMMAND_CANARY","status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.item_completed_without_start'
+            $result.StdErr |
+                Should -Be 'Codex app-server protocol validation failed (codex_appserver.item_completed_without_start).'
+            ($result | ConvertTo-Json -Depth 10 -Compress) |
+                Should -Not -Match 'PRIVATE_COMMAND_CANARY'
+        }
+    }
+
+    It 'fails closed instead of auto-approving a command approval request' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-command-approval-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'command-approval-app-server-bridge.json'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            if ([string]$message.params.approvalPolicy -ne 'never') {
+                [Console]::Out.WriteLine('{"id":2,"error":{"code":-32602,"message":"approval policy drift"}}')
+                [Console]::Out.Flush()
+                continue
+            }
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+        }
+        'turn/start' {
+            if ([string]$message.params.approvalPolicy -ne 'never') {
+                [Console]::Out.WriteLine('{"id":3,"error":{"code":-32602,"message":"approval policy drift"}}')
+                [Console]::Out.Flush()
+                continue
+            }
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_APPROVAL_COMMAND_CANARY","status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"id":44,"method":"item/commandExecution/requestApproval","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"command-1","startedAtMs":1,"command":"PRIVATE_APPROVAL_COMMAND_CANARY","cwd":"C:\\PRIVATE_APPROVAL_CWD_CANARY"}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'workspace-write'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.server_request_unsupported'
+            $result.StdErr |
+                Should -Be 'Codex app-server protocol validation failed (codex_appserver.server_request_unsupported).'
+            ($result | ConvertTo-Json -Depth 10 -Compress) |
+                Should -Not -Match 'PRIVATE_APPROVAL_COMMAND_CANARY|PRIVATE_APPROVAL_CWD_CANARY'
+        }
+    }
+
+    It 'reports the precise lifecycle code for <CaseName>' -ForEach @(
+        @{
+            CaseName = 'a missing item identity'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"type":"reasoning","summary":["PRIVATE_IDENTITY_CANARY"]}}}'
+            )
+            ExpectedCode = 'codex_appserver.item_identity_invalid'
+        }
+        @{
+            CaseName = 'a duplicate item start'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"reason-1","type":"reasoning"}}}',
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"reason-1","type":"reasoning","summary":["PRIVATE_DUPLICATE_START_CANARY"]}}}'
+            )
+            ExpectedCode = 'codex_appserver.item_started_duplicate'
+        }
+        @{
+            CaseName = 'a completion with a changed type'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"item-1","type":"reasoning"}}}',
+                '{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"item-1","type":"commandExecution","command":"PRIVATE_TYPE_CHANGE_CANARY"}}}'
+            )
+            ExpectedCode = 'codex_appserver.item_type_changed'
+        }
+        @{
+            CaseName = 'an agent-message delta scoped to the wrong turn'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":""}}}',
+                '{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"WRONG_PRIVATE_TURN","itemId":"message-1","delta":"PRIVATE_WRONG_TURN_DELTA_CANARY"}}'
+            )
+            ExpectedCode = 'codex_appserver.notification_scope_invalid'
+        }
+        @{
+            CaseName = 'a non-terminal turn completion status'
+            NotificationLines = @(
+                '{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}'
+            )
+            ExpectedCode = 'codex_appserver.turn_status_invalid'
+        }
+        @{
+            CaseName = 'a started-first sub-agent point event'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"subagent-1","type":"subAgentActivity","summary":"PRIVATE_SUBAGENT_START_CANARY"}}}'
+            )
+            ExpectedCode = 'codex_appserver.item_started_unexpected'
+        }
+        @{
+            CaseName = 'an unknown command execution status'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_UNKNOWN_STATUS_CANARY","status":"futureStatus"}}}'
+            )
+            ExpectedCode = 'codex_appserver.command_status_invalid'
+        }
+        @{
+            CaseName = 'a non-string command execution status'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_STATUS_TYPE_CANARY","status":{"private":"PRIVATE_STATUS_OBJECT_CANARY"}}}}'
+            )
+            ExpectedCode = 'codex_appserver.command_status_invalid'
+        }
+        @{
+            CaseName = 'a non-integer command exit code'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_EXIT_CODE_CANARY","status":"inProgress","exitCode":"PRIVATE_EXIT_CODE_VALUE_CANARY"}}}'
+            )
+            ExpectedCode = 'codex_appserver.command_metric_invalid'
+        }
+        @{
+            CaseName = 'a negative command duration'
+            NotificationLines = @(
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_DURATION_CANARY","status":"inProgress","durationMs":-1}}}'
+            )
+            ExpectedCode = 'codex_appserver.command_metric_invalid'
+        }
+    ) {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+            NotificationLines = $NotificationLines
+            ExpectedCode = $ExpectedCode
+        } {
+            $fakeServer = Join-Path $Work 'fake-precise-lifecycle-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'precise-lifecycle-app-server-bridge.json'
+            $notificationScript = @(
+                $NotificationLines | ForEach-Object {
+                    "[Console]::Out.WriteLine('" +
+                        ([string]$_).Replace("'", "''") +
+                        "')"
+                }
+            ) -join "`n            "
+            $serverSource = @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            __NOTIFICATIONS__
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@
+            $serverSource.Replace('__NOTIFICATIONS__', $notificationScript) |
+                Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be $ExpectedCode
+            $result.StdErr |
+                Should -Be "Codex app-server protocol validation failed ($ExpectedCode)."
+            ($result | ConvertTo-Json -Depth 10 -Compress) |
+                Should -Not -Match 'PRIVATE_.*_CANARY'
+        }
+    }
+
+    It 'rejects duplicate compaction completion and never double-counts it' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-duplicate-compaction-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'duplicate-compaction-app-server-bridge.json'
+            $eventFile = Join-Path $Work 'duplicate-compaction-events.jsonl'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"compact-1","type":"contextCompaction"}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"compact-1","type":"contextCompaction"}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"compact-1","type":"contextCompaction","history":"PRIVATE_DUPLICATE_CANARY"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MachineEventFile $eventFile -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Not -Be 0
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.item_completed_duplicate'
+            $result.StdErr |
+                Should -Be 'Codex app-server protocol validation failed (codex_appserver.item_completed_duplicate).'
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            @($events | Where-Object kind -eq 'context.compaction.completed').Count |
+                Should -Be 1
+            (Get-Content -LiteralPath $eventFile -Raw -Encoding utf8) |
+                Should -Not -Match 'PRIVATE_DUPLICATE_CANARY'
+        }
+    }
+
+    It 'fails closed when the bridge cannot confirm app-server tree cleanup' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-early-exit-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'early-exit-app-server-bridge.json'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":1,"totalTokens":40},"total":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":1,"totalTokens":40},"modelContextWindow":262144}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":""}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":"PUBLIC_DONE"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+            [Console]::Out.Flush()
+            exit 0
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 8000
+
+            $result.ExitCode | Should -Not -Be 0
+            $result.LimitsHard | Should -BeFalse
+            $result.StdErr | Should -Match 'cleanup could not be confirmed'
         }
     }
 
@@ -697,7 +2149,16 @@ Start-Sleep -Seconds 2
             $plan = [pscustomobject]@{
                 engine = 'codex'
                 fileName = (Get-Command pwsh.exe).Source
-                argumentList = @($entry, '--profile', 'aicli-local', 'exec', '-')
+                argumentList = @(
+                    $entry,
+                    '--profile',
+                    'aicli-local',
+                    '-c',
+                    'model="qwen-main-v1"',
+                    'exec',
+                    '--json',
+                    '-'
+                )
                 workingDirectory = $Work
                 environmentDelta = @{}
                 machineRuntime = [ordered]@{ kind='codex'; configFiles=@($config) }
@@ -706,17 +2167,79 @@ Start-Sleep -Seconds 2
             $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'PRIVATE_TASK_CANARY' -Policy 'workspace-write'
             try {
                 ($runtime.ArgumentList -join ' ') | Should -Not -Match 'PRIVATE_TASK_CANARY'
-                $runtime.ArgumentList[-1] | Should -Match ([regex]::Escape((Join-Path $runtime.RuntimePath 'task.md')))
-                ($runtime.ArgumentList -join ' ') | Should -Match '--disable multi_agent'
-                ($runtime.ArgumentList -join ' ') | Should -Match '--disable multi_agent_v2'
-                $runtime.StdInText | Should -Be ''
-                Get-Content -Raw -LiteralPath (Join-Path $runtime.RuntimePath 'task.md') | Should -Be 'PRIVATE_TASK_CANARY'
-                $runtime.ArgumentList[0] | Should -Be ([IO.Path]::GetFullPath($entry))
+                $runtime.UseOuterSandbox | Should -BeTrue
+                $runtime.FileName | Should -Be (Get-Command pwsh.exe).Source
+                $runtime.EventProtocol | Should -Be 'codex-app-server'
+                $bridgeConfig = Get-Content -LiteralPath $runtime.ArgumentList[-1] -Raw |
+                    ConvertFrom-Json
+                $bridgeConfig.PSObject.Properties.Name | Should -Not -Contain 'taskFile'
+                $bridgeConfig.sandboxBoundary | Should -Be 'outer-codex'
+                $bridgeConfig.sandboxPolicy | Should -Be 'workspace-write'
+                ($bridgeConfig.argumentList -join ' ') | Should -Match '--disable multi_agent'
+                ($bridgeConfig.argumentList -join ' ') | Should -Match '--disable multi_agent_v2'
+                ($bridgeConfig.argumentList -join ' ') | Should -Match 'app-server --stdio'
+                $bridgeConfig.argumentList | Should -Not -Contain '--profile'
+                $bridgeConfig.argumentList | Should -Not -Contain 'aicli-local'
+                $bridgeConfig.argumentList | Should -Contain '-c'
+                $bridgeConfig.argumentList | Should -Contain 'model="qwen-main-v1"'
+                $runtime.StdInText | Should -Be 'PRIVATE_TASK_CANARY'
+                $runtime.PrivateTaskPipeName | Should -Match '^aicli-[a-f0-9]{32}$'
+                Test-Path -LiteralPath (Join-Path $runtime.RuntimePath 'task.md') | Should -BeFalse
+                $persistedText = @(
+                    Get-ChildItem -LiteralPath $runtime.RuntimePath -Recurse -File |
+                        ForEach-Object {
+                            try { Get-Content -LiteralPath $_.FullName -Raw -ErrorAction Stop }
+                            catch { '' }
+                        }
+                ) -join "`n"
+                $persistedText | Should -Not -Match 'PRIVATE_TASK_CANARY'
+                $bridgeConfig.argumentList[0] | Should -Be ([IO.Path]::GetFullPath($entry))
                 Test-Path -LiteralPath (Join-Path $runtime.RuntimePath 'codex-package') | Should -BeFalse
                 Test-Path -LiteralPath (Join-Path $runtime.EnvironmentDelta.CODEX_HOME 'aicli-local.config.toml') | Should -BeTrue
             } finally {
                 Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath -Workspace $Work
             }
+        }
+    }
+
+    It 'rejects an unknown Codex machine sandbox boundary before launch' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $package = Join-Path $Work 'tool\node_modules\@openai\codex'
+            $entry = Join-Path $package 'bin\codex.js'
+            $native = Join-Path $package (
+                'node_modules\@openai\codex-win32-x64\' +
+                'vendor\x86_64-pc-windows-msvc\bin\codex.exe'
+            )
+            New-Item -ItemType Directory -Path (
+                Split-Path -Parent $entry
+            ), (
+                Split-Path -Parent $native
+            ) -Force | Out-Null
+            Set-Content -LiteralPath $entry -Value '// stub' -Encoding ascii
+            Set-Content -LiteralPath $native -Value 'native stub' -Encoding ascii
+            Set-Content -LiteralPath (Join-Path $package 'package.json') `
+                -Value '{}' -Encoding ascii
+            $plan = [pscustomobject]@{
+                engine = 'codex'
+                fileName = (Get-Command node.exe).Source
+                argumentList = @($entry, 'exec', '--json', '-')
+                workingDirectory = $Work
+                environmentDelta = @{}
+                machineRuntime = [ordered]@{
+                    kind = 'codex'
+                    configFiles = @()
+                    sandboxBoundary = 'future-unknown-boundary'
+                }
+            }
+
+            {
+                Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' `
+                    -Policy workspace-write
+            } | Should -Throw '*Unsupported Codex machine sandbox boundary*'
+            @(
+                Get-ChildItem -LiteralPath $Work -Directory `
+                    -Filter '.aicli-runtime-*' -Force
+            ).Count | Should -Be 0
         }
     }
 
@@ -791,12 +2314,19 @@ Start-Sleep -Seconds 2
             try {
                 $runtime.UseOuterSandbox | Should -BeFalse
                 $runtime.StdInText | Should -Be 'TASK'
-                $runtime.ArgumentList | Should -Not -Contain '--dangerously-bypass-approvals-and-sandbox'
-                $runtime.ArgumentList | Should -Contain '--ignore-user-config'
-                $runtime.ArgumentList | Should -Contain '--ignore-rules'
-                $sandboxIndex = [Array]::IndexOf([string[]]$runtime.ArgumentList, '--sandbox')
-                $sandboxIndex | Should -BeGreaterThan -1
-                $runtime.ArgumentList[$sandboxIndex + 1] | Should -Be 'read-only'
+                $runtime.PrivateTaskPipeName | Should -BeNullOrEmpty
+                $runtime.EventProtocol | Should -Be 'codex-app-server'
+                $bridgeConfig = Get-Content -LiteralPath $runtime.ArgumentList[-1] -Raw |
+                    ConvertFrom-Json
+                $bridgeConfig.PSObject.Properties.Name | Should -Not -Contain 'taskFile'
+                $bridgeConfig.sandboxBoundary | Should -Be 'codex-native'
+                $bridgeConfig.sandboxPolicy | Should -Be 'read-only'
+                $bridgeConfig.minimumCliVersion | Should -Be '0.145.0'
+                $bridgeArgs = @($bridgeConfig.argumentList)
+                $bridgeArgs | Should -Not -Contain '--dangerously-bypass-approvals-and-sandbox'
+                ($bridgeArgs -join ' ') | Should -Match '--disable multi_agent'
+                ($bridgeArgs -join ' ') | Should -Match '--disable multi_agent_v2'
+                ($bridgeArgs -join ' ') | Should -Match 'app-server --stdio'
                 Test-Path -LiteralPath (Join-Path $runtime.RuntimePath 'task.md') | Should -BeFalse
             } finally {
                 Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath -Workspace $Work

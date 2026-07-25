@@ -301,7 +301,13 @@ function ConvertTo-AiCliSafeUsage {
     $safe = [ordered]@{}
     if ($null -eq $Usage) { return $safe }
 
-    foreach ($name in @('input_tokens','cached_input_tokens','output_tokens')) {
+    foreach ($name in @(
+        'input_tokens',
+        'cached_input_tokens',
+        'output_tokens',
+        'current_context_tokens',
+        'context_window_tokens'
+    )) {
         $value = Get-AiCliProperty $Usage $name
         if ($null -eq $value) { continue }
         $isInteger = (
@@ -321,6 +327,55 @@ function ConvertTo-AiCliSafeUsage {
             }
             $safe[$name] = [long]$value
         } catch {}
+    }
+    return $safe
+}
+
+function ConvertTo-AiCliBoundedInteger {
+    param(
+        [object]$Value,
+        [long]$Minimum,
+        [long]$Maximum
+    )
+
+    $isInteger = (
+        $Value -is [sbyte] -or
+        $Value -is [byte] -or
+        $Value -is [int16] -or
+        $Value -is [uint16] -or
+        $Value -is [int32] -or
+        $Value -is [uint32] -or
+        $Value -is [int64] -or
+        $Value -is [uint64]
+    )
+    if (-not $isInteger) { return $null }
+    try {
+        if (
+            [decimal]$Value -lt [decimal]$Minimum -or
+            [decimal]$Value -gt [decimal]$Maximum
+        ) {
+            return $null
+        }
+        return [long]$Value
+    } catch {
+        return $null
+    }
+}
+
+function Merge-AiCliSafeRunUsage {
+    param(
+        [object]$TurnUsage,
+        [object]$ContextUsage
+    )
+
+    $safe = [ordered]@{}
+    $turn = ConvertTo-AiCliSafeUsage $TurnUsage
+    foreach ($name in @('input_tokens','cached_input_tokens','output_tokens')) {
+        if ($turn.Contains($name)) { $safe[$name] = $turn[$name] }
+    }
+    $context = ConvertTo-AiCliSafeUsage $ContextUsage
+    foreach ($name in @('current_context_tokens','context_window_tokens')) {
+        if ($context.Contains($name)) { $safe[$name] = $context[$name] }
     }
     return $safe
 }
@@ -370,14 +425,25 @@ function Invoke-AiCliChildCapture {
         [ValidateSet('read-only','workspace-write')][string]$SandboxPolicy = 'read-only',
         [switch]$CloseStdIn,
         [string]$StdInText = $null,
-        [ValidateSet('none','codex-jsonl')][string]$EventProtocol = 'none',
+        [ValidateSet('none','codex-jsonl','codex-app-server')][string]$EventProtocol = 'none',
         [int]$MaxSteps = 20,
         [int]$MaxToolCalls = 80,
         [string]$MachineEventFile = $null,
-        [string]$WritableWorkspace = $null
+        [string]$WritableWorkspace = $null,
+        [string]$PrivateTaskPipeName = $null,
+        [string[]]$AdditionalSandboxReadRoots = @()
     )
+    $isCodexEventProtocol = $EventProtocol -in @('codex-jsonl','codex-app-server')
+    $privateTaskPipeRequested = -not [string]::IsNullOrWhiteSpace($PrivateTaskPipeName)
+    if ($privateTaskPipeRequested) {
+        if ($EventProtocol -ne 'codex-app-server' -or
+            $PrivateTaskPipeName -notmatch '^aicli-[a-f0-9]{32}$' -or
+            [string]::IsNullOrWhiteSpace($StdInText)) {
+            throw 'Private task pipe requires a non-empty Codex app-server task and a valid generated name.'
+        }
+    }
     $machineEventRequested = -not [string]::IsNullOrWhiteSpace($MachineEventFile)
-    $resolvedMachineEventFile = if ($machineEventRequested -and $EventProtocol -eq 'codex-jsonl') {
+    $resolvedMachineEventFile = if ($machineEventRequested -and $isCodexEventProtocol) {
         Resolve-AiCliMachineEventFile -Path $MachineEventFile
     } else {
         $null
@@ -421,7 +487,7 @@ function Invoke-AiCliChildCapture {
         $additionalReadRoots = @(
             @('TEMP','TMP','CODEX_HOME','QWEN_HOME','OPENCODE_CONFIG_DIR','XDG_CONFIG_HOME','XDG_DATA_HOME','XDG_CACHE_HOME','XDG_STATE_HOME') |
                 ForEach-Object { if ($EnvironmentDelta.ContainsKey($_)) { [string]$EnvironmentDelta[$_] } }
-        )
+        ) + @($AdditionalSandboxReadRoots)
         $sandboxRoot = $SandboxWorkspace
         $sandboxMode = $SandboxPolicy
         if ($SandboxPolicy -eq 'read-only') {
@@ -463,6 +529,10 @@ function Invoke-AiCliChildCapture {
     $psi.RedirectStandardError = $true
     $psi.RedirectStandardInput = $true
     $psi.CreateNoWindow = $true
+    $utf8NoBom = [Text.UTF8Encoding]::new($false)
+    $psi.StandardInputEncoding = $utf8NoBom
+    $psi.StandardOutputEncoding = $utf8NoBom
+    $psi.StandardErrorEncoding = $utf8NoBom
     if ($WorkingDirectory) { $psi.WorkingDirectory = $WorkingDirectory }
     foreach ($entry in [System.Environment]::GetEnvironmentVariables().GetEnumerator()) {
         try { $psi.Environment[$entry.Key] = [string]$entry.Value } catch {}
@@ -473,6 +543,9 @@ function Invoke-AiCliChildCapture {
     if ($psi.Environment.ContainsKey('AICLI_MACHINE_EVENT_FILE')) {
         [void]$psi.Environment.Remove('AICLI_MACHINE_EVENT_FILE')
     }
+    if ($psi.Environment.ContainsKey('AICLI_CODEX_BRIDGE_TASK_PIPE')) {
+        [void]$psi.Environment.Remove('AICLI_CODEX_BRIDGE_TASK_PIPE')
+    }
     if ($EnvironmentDelta) {
         foreach ($k in $EnvironmentDelta.Keys) {
             if ($null -eq $EnvironmentDelta[$k]) {
@@ -482,10 +555,55 @@ function Invoke-AiCliChildCapture {
             }
         }
     }
+    if ($privateTaskPipeRequested) {
+        $psi.Environment['AICLI_CODEX_BRIDGE_TASK_PIPE'] = $PrivateTaskPipeName
+    }
     foreach ($a in $effectiveArgs) { [void]$psi.ArgumentList.Add([string]$a) }
 
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
+    $privateTaskPipe = $null
+    $privateTaskWriter = $null
+    if ($privateTaskPipeRequested) {
+        $pipeOptions = [IO.Pipes.PipeOptions]::Asynchronous
+        $pipeSecurity = [IO.Pipes.PipeSecurity]::new()
+        $pipeSecurity.SetAccessRuleProtection($true, $false)
+        $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        $pipeSecurity.AddAccessRule([IO.Pipes.PipeAccessRule]::new(
+            $currentSid,
+            [IO.Pipes.PipeAccessRights]::FullControl,
+            [Security.AccessControl.AccessControlType]::Allow
+        ))
+        if (-not [string]::IsNullOrWhiteSpace($SandboxWorkspace)) {
+            try {
+                $sandboxAccount = [Security.Principal.NTAccount]::new(
+                    "$env:USERDOMAIN\CodexSandboxOffline"
+                )
+                $sandboxSid = $sandboxAccount.Translate(
+                    [Security.Principal.SecurityIdentifier]
+                )
+                $pipeSecurity.AddAccessRule([IO.Pipes.PipeAccessRule]::new(
+                    $sandboxSid,
+                    [IO.Pipes.PipeAccessRights]::ReadWrite,
+                    [Security.AccessControl.AccessControlType]::Allow
+                ))
+            } catch {
+                throw 'Codex offline sandbox identity is unavailable for private task transport.'
+            }
+        }
+        $privateTaskPipe = [IO.Pipes.NamedPipeServerStreamAcl]::Create(
+            $PrivateTaskPipeName,
+            [IO.Pipes.PipeDirection]::Out,
+            1,
+            [IO.Pipes.PipeTransmissionMode]::Byte,
+            $pipeOptions,
+            4096,
+            4096,
+            $pipeSecurity,
+            [IO.HandleInheritability]::None,
+            [IO.Pipes.PipeAccessRights]0
+        )
+    }
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $stepCount = 0
     $toolCallCount = 0
@@ -493,6 +611,7 @@ function Invoke-AiCliChildCapture {
     $limitHit = $null
     $protocolValid = $true
     $protocolError = ''
+    $protocolErrorCode = ''
     $outputTruncated = $false
     $safeStdOut = [Text.StringBuilder]::new()
     $seenSteps = @{}
@@ -505,7 +624,9 @@ function Invoke-AiCliChildCapture {
     $lastRecoverableErrorEvent = 0
     $lastCompletedTurnEvent = 0
     $lastFinalMessageEvent = 0
-    $safeUsage = [ordered]@{}
+    $safeTurnUsage = [ordered]@{}
+    $safeContextUsage = [ordered]@{}
+    $compactionCount = 0
     $upstreamFailureSummary = 'Codex reported an upstream failure.'
     $termination = [pscustomobject]@{ Attempted = $false; Confirmed = $true; Method = 'none' }
     $knownEventTypes = @(
@@ -516,17 +637,61 @@ function Invoke-AiCliChildCapture {
         'item.started',
         'item.updated',
         'item.completed',
+        'context.usage.updated',
+        'bridge.failed',
+        'cleanup.failed',
         'error'
     )
+    $knownBridgeErrorCodes = @(
+        'codex_appserver.setup_failed',
+        'codex_appserver.initialize_failed',
+        'codex_appserver.initialize_rejected',
+        'codex_appserver.thread_start_failed',
+        'codex_appserver.thread_start_rejected',
+        'codex_appserver.turn_start_failed',
+        'codex_appserver.turn_start_rejected',
+        'codex_appserver.turn_stream_failed',
+        'codex_appserver.stream_closed',
+        'codex_appserver.protocol_line_invalid',
+        'codex_appserver.response_id_invalid',
+        'codex_appserver.response_after_turn_unexpected',
+        'codex_appserver.version_unsupported',
+        'codex_appserver.notification_unknown',
+        'codex_appserver.notification_scope_invalid',
+        'codex_appserver.turn_status_invalid',
+        'codex_appserver.context_usage_incomplete',
+        'codex_appserver.item_lifecycle_invalid',
+        'codex_appserver.item_identity_invalid',
+        'codex_appserver.item_started_duplicate',
+        'codex_appserver.item_started_unexpected',
+        'codex_appserver.item_completed_without_start',
+        'codex_appserver.item_type_changed',
+        'codex_appserver.item_completed_duplicate',
+        'codex_appserver.item_unfinished',
+        'codex_appserver.command_status_invalid',
+        'codex_appserver.command_metric_invalid',
+        'codex_appserver.server_request_unsupported',
+        'codex_appserver.cleanup_unconfirmed',
+        'codex_appserver.failure_code_invalid'
+    )
     $knownItemTypes = @(
+        'user_message',
+        'hook_prompt',
         'agent_message',
         'reasoning',
         'command_execution',
         'file_change',
         'mcp_tool_call',
         'collab_tool_call',
+        'sub_agent_activity',
         'web_search',
         'todo_list',
+        'image_view',
+        'sleep',
+        'image_generation',
+        'entered_review_mode',
+        'exited_review_mode',
+        'context_compaction',
         'error',
         # Accepted compatibility tool events remain conservatively charged.
         'tool_call',
@@ -538,10 +703,14 @@ function Invoke-AiCliChildCapture {
         'file_change',
         'mcp_tool_call',
         'collab_tool_call',
+        'sub_agent_activity',
         'tool_call',
         'dynamic_tool_call',
         'web_search',
-        'computer_use'
+        'computer_use',
+        'image_view',
+        'sleep',
+        'image_generation'
     )
     try {
         if ($resolvedMachineEventFile) {
@@ -557,16 +726,66 @@ function Invoke-AiCliChildCapture {
         [void]$proc.Start()
         $stderrTask = $proc.StandardError.ReadToEndAsync()
         try {
-            if (-not [string]::IsNullOrEmpty($StdInText)) {
+            if ($privateTaskPipeRequested) {
+                $proc.StandardInput.Close()
+                $connectTask = $privateTaskPipe.WaitForConnectionAsync()
+                while (-not $connectTask.IsCompleted) {
+                    $remainingPipeMs = $TimeoutMs - [int]$stopwatch.ElapsedMilliseconds
+                    if ($remainingPipeMs -le 0) {
+                        $termination = Stop-AiCliProcessTree -Process $proc
+                        throw [System.TimeoutException]::new(
+                            "Private task pipe timed out (${TimeoutMs}ms): $FileName"
+                        )
+                    }
+                    if ($proc.HasExited) {
+                        $termination = Stop-AiCliProcessTree -Process $proc
+                        throw 'Codex bridge exited before connecting to its private task pipe.'
+                    }
+                    [void]$connectTask.Wait([Math]::Min(50, $remainingPipeMs))
+                }
+                [void]$connectTask.GetAwaiter().GetResult()
+                $privateTaskWriter = [IO.StreamWriter]::new(
+                    $privateTaskPipe,
+                    [Text.UTF8Encoding]::new($false),
+                    4096,
+                    $true
+                )
+                $writeTask = $privateTaskWriter.WriteAsync($StdInText)
+                while (-not $writeTask.IsCompleted) {
+                    $remainingPipeMs = $TimeoutMs - [int]$stopwatch.ElapsedMilliseconds
+                    if ($remainingPipeMs -le 0) {
+                        $termination = Stop-AiCliProcessTree -Process $proc
+                        throw [System.TimeoutException]::new(
+                            "Private task pipe timed out (${TimeoutMs}ms): $FileName"
+                        )
+                    }
+                    [void]$writeTask.Wait([Math]::Min(50, $remainingPipeMs))
+                }
+                [void]$writeTask.GetAwaiter().GetResult()
+                $privateTaskWriter.Flush()
+                $privateTaskWriter.Dispose()
+                $privateTaskWriter = $null
+                $privateTaskPipe.Dispose()
+                $privateTaskPipe = $null
+            } elseif (-not [string]::IsNullOrEmpty($StdInText)) {
                 $proc.StandardInput.Write($StdInText)
                 if (-not $StdInText.EndsWith("`n")) {
                     $proc.StandardInput.WriteLine()
                 }
+                $proc.StandardInput.Close()
+            } else {
+                $proc.StandardInput.Close()
             }
-            $proc.StandardInput.Close()
-        } catch {}
+        } catch {
+            if ($privateTaskPipeRequested) {
+                if (-not $termination.Attempted) {
+                    $termination = Stop-AiCliProcessTree -Process $proc
+                }
+                throw
+            }
+        }
 
-        if ($EventProtocol -eq 'codex-jsonl') {
+        if ($isCodexEventProtocol) {
             while ($true) {
                 if ($stopwatch.ElapsedMilliseconds -ge $TimeoutMs) {
                     $termination = Stop-AiCliProcessTree -Process $proc
@@ -609,6 +828,43 @@ function Invoke-AiCliChildCapture {
                     }
                     break
                 }
+                if ($eventType -eq 'bridge.failed') {
+                    $bridgeErrorCode = [string](
+                        Get-AiCliProperty $event 'error_code'
+                    )
+                    $bridgeFailureItemType = [string](
+                        Get-AiCliProperty $event 'item_type'
+                    )
+                    if ($bridgeFailureItemType -notin $knownItemTypes) {
+                        $bridgeFailureItemType = ''
+                    }
+                    if ($bridgeErrorCode -notin $knownBridgeErrorCodes) {
+                        $bridgeErrorCode = 'codex_appserver.failure_code_invalid'
+                    }
+                    $protocolValid = $false
+                    if ([string]::IsNullOrWhiteSpace($protocolErrorCode)) {
+                        $protocolErrorCode = $bridgeErrorCode
+                        $protocolError = (
+                            'Codex app-server protocol validation failed (' +
+                            $bridgeErrorCode +
+                            ').'
+                        )
+                    }
+                }
+                if ($eventType -eq 'cleanup.failed') {
+                    $protocolValid = $false
+                    if ([string]::IsNullOrWhiteSpace($protocolErrorCode)) {
+                        $protocolErrorCode = 'codex_appserver.cleanup_unconfirmed'
+                        $protocolError = (
+                            'Codex app-server process-tree cleanup could not be confirmed.'
+                        )
+                    }
+                    $termination = Stop-AiCliProcessTree -Process $proc
+                    if (-not $termination.Confirmed) {
+                        $protocolError += ' Parent process-tree cleanup could not be confirmed.'
+                    }
+                    break
+                }
                 $isItemEvent = $eventType -in @('item.started','item.updated','item.completed')
                 if ($isItemEvent) {
                     if (-not $item -or $itemType -notin $knownItemTypes) {
@@ -634,8 +890,18 @@ function Invoke-AiCliChildCapture {
                         }
                         break
                     }
-                    $stepKey = "item:$itemId"
-                    if (-not $seenSteps.ContainsKey($stepKey)) {
+                    $stepKey = if ($itemType -eq 'sub_agent_activity') {
+                        "point:$itemId"
+                    } else {
+                        "item:$itemId"
+                    }
+                    # Public agent messages are observable output, not execution
+                    # actions. Counting them against maxSteps makes the requested
+                    # progress stream consume the budget needed to finish work.
+                    if (
+                        $itemType -ne 'agent_message' -and
+                        -not $seenSteps.ContainsKey($stepKey)
+                    ) {
                         $seenSteps[$stepKey] = $true
                         $stepCount++
                     }
@@ -645,7 +911,7 @@ function Invoke-AiCliChildCapture {
                     }
                     if ($itemType -eq 'collab_tool_call') {
                         $protocolValid = $false
-                        $protocolError = 'Codex emitted a collab tool call although multi-agent is disabled.'
+                        $protocolError = 'Codex emitted a collab call although multi-agent is disabled.'
                         $termination = Stop-AiCliProcessTree -Process $proc
                         if (-not $termination.Confirmed) {
                             $protocolError += ' Process-tree cleanup could not be confirmed.'
@@ -667,9 +933,29 @@ function Invoke-AiCliChildCapture {
                 }
                 if ($eventType -eq 'turn.completed') {
                     $lastCompletedTurnEvent = $eventsSeen
-                    $safeUsage = ConvertTo-AiCliSafeUsage (
+                    $completedUsage = ConvertTo-AiCliSafeUsage (
                         Get-AiCliProperty $event 'usage'
                     )
+                    $safeTurnUsage = [ordered]@{}
+                    foreach ($name in @('input_tokens','cached_input_tokens','output_tokens')) {
+                        if ($completedUsage.Contains($name)) {
+                            $safeTurnUsage[$name] = $completedUsage[$name]
+                        }
+                    }
+                    foreach ($name in @('current_context_tokens','context_window_tokens')) {
+                        if ($completedUsage.Contains($name)) {
+                            $safeContextUsage[$name] = $completedUsage[$name]
+                        }
+                    }
+                } elseif ($eventType -eq 'context.usage.updated') {
+                    $contextUpdate = ConvertTo-AiCliSafeUsage (
+                        Get-AiCliProperty $event 'usage'
+                    )
+                    foreach ($name in @('current_context_tokens','context_window_tokens')) {
+                        if ($contextUpdate.Contains($name)) {
+                            $safeContextUsage[$name] = $contextUpdate[$name]
+                        }
+                    }
                 } elseif ($eventType -eq 'item.completed' -and $itemType -eq 'agent_message') {
                     $lastFinalMessageEvent = $eventsSeen
                 }
@@ -717,6 +1003,22 @@ function Invoke-AiCliChildCapture {
                                 thread_id = $publicThreadId
                             }
                         }
+                    } elseif ($eventType -eq 'bridge.failed') {
+                        $failureData = @{
+                            status = 'failed'
+                            error_category = 'protocol_or_process_failure'
+                            error_code = $protocolErrorCode
+                            steps = $stepCount
+                            tool_calls = $toolCallCount
+                            events_seen = $eventsSeen
+                        }
+                        if (-not [string]::IsNullOrWhiteSpace($bridgeFailureItemType)) {
+                            $failureData['item_type'] = $bridgeFailureItemType
+                        }
+                        $machineEvent = @{
+                            Kind = 'run.failed'
+                            Data = $failureData
+                        }
                     } elseif ($isTerminalUpstreamFailureEvent) {
                         $machineEvent = @{
                             Kind = 'run.failed'
@@ -736,11 +1038,36 @@ function Invoke-AiCliChildCapture {
                             events_seen = $eventsSeen
                         }
                         if ($eventType -eq 'turn.completed') {
-                            $turnData['usage'] = $safeUsage
+                            $turnData['usage'] = $safeTurnUsage
                         }
                         $machineEvent = @{
                             Kind = $eventType
                             Data = $turnData
+                        }
+                    } elseif ($eventType -eq 'context.usage.updated') {
+                        if (
+                            $contextUpdate.Contains('current_context_tokens') -and
+                            $contextUpdate.Contains('context_window_tokens')
+                        ) {
+                            $machineEvent = @{
+                                Kind = 'context.usage.updated'
+                                Data = @{
+                                    current_tokens = $contextUpdate['current_context_tokens']
+                                    context_window_tokens = $contextUpdate['context_window_tokens']
+                                }
+                            }
+                        }
+                    } elseif (
+                        $eventType -eq 'item.completed' -and
+                        $itemType -eq 'context_compaction'
+                    ) {
+                        $compactionCount++
+                        $machineEvent = @{
+                            Kind = 'context.compaction.completed'
+                            Data = @{
+                                status = 'completed'
+                                compaction_count = $compactionCount
+                            }
                         }
                     } elseif ($isItemEvent -and $itemType -eq 'reasoning') {
                         $machineEvent = @{
@@ -754,15 +1081,44 @@ function Invoke-AiCliChildCapture {
                             }
                         }
                     } elseif ($isItemEvent -and $itemType -in $toolItemTypes) {
+                        $toolData = [ordered]@{
+                            status = $eventType.Substring(5)
+                            item_type = $itemType
+                            steps = $stepCount
+                            tool_calls = $toolCallCount
+                            events_seen = $eventsSeen
+                        }
+                        if ($itemType -eq 'command_execution') {
+                            $commandStatus = Get-AiCliProperty $item 'command_status'
+                            if (
+                                $commandStatus -is [string] -and
+                                $commandStatus -in @(
+                                    'in_progress',
+                                    'succeeded',
+                                    'failed',
+                                    'declined'
+                                )
+                            ) {
+                                $toolData['command_status'] = $commandStatus
+                            }
+                            $exitCode = ConvertTo-AiCliBoundedInteger `
+                                -Value (Get-AiCliProperty $item 'exit_code') `
+                                -Minimum ([int]::MinValue) `
+                                -Maximum ([int]::MaxValue)
+                            if ($null -ne $exitCode) {
+                                $toolData['exit_code'] = [int]$exitCode
+                            }
+                            $durationMs = ConvertTo-AiCliBoundedInteger `
+                                -Value (Get-AiCliProperty $item 'duration_ms') `
+                                -Minimum 0 `
+                                -Maximum ([long]::MaxValue)
+                            if ($null -ne $durationMs) {
+                                $toolData['duration_ms'] = $durationMs
+                            }
+                        }
                         $machineEvent = @{
                             Kind = 'tool.activity'
-                            Data = @{
-                                status = $eventType.Substring(5)
-                                item_type = $itemType
-                                steps = $stepCount
-                                tool_calls = $toolCallCount
-                                events_seen = $eventsSeen
-                            }
+                            Data = $toolData
                         }
                     } elseif ($isItemEvent -and $itemType -eq 'todo_list') {
                         $machineEvent = @{
@@ -773,6 +1129,27 @@ function Invoke-AiCliChildCapture {
                                 steps = $stepCount
                                 tool_calls = $toolCallCount
                                 events_seen = $eventsSeen
+                            }
+                        }
+                    } elseif (
+                        $eventType -eq 'item.updated' -and
+                        $itemType -eq 'agent_message'
+                    ) {
+                        $publicText = [string](Get-AiCliProperty $item 'text')
+                        if ($publicText.Length -gt 2000) {
+                            $publicText = $publicText.Substring(0, 2000)
+                        }
+                        if (-not [string]::IsNullOrEmpty($publicText)) {
+                            $machineEvent = @{
+                                Kind = 'output.delta'
+                                Data = @{
+                                    status = 'updated'
+                                    item_type = 'agent_message'
+                                    public_text = $publicText
+                                    steps = $stepCount
+                                    tool_calls = $toolCallCount
+                                    events_seen = $eventsSeen
+                                }
                             }
                         }
                     } elseif (
@@ -869,7 +1246,7 @@ function Invoke-AiCliChildCapture {
             $terminalUpstreamFailed -or
             ($recoverableUpstreamErrorSeen -and -not $recoverableUpstreamErrorResolved)
         )
-        $stderr = if ($EventProtocol -eq 'codex-jsonl') {
+        $stderr = if ($isCodexEventProtocol) {
             [void]$stderrTask.GetAwaiter().GetResult()
             if ($upstreamFailed) {
                 $upstreamFailureSummary
@@ -881,7 +1258,7 @@ function Invoke-AiCliChildCapture {
         } else {
             $stderrTask.GetAwaiter().GetResult()
         }
-        if ($EventProtocol -eq 'codex-jsonl' -and $proc.ExitCode -eq 0 -and $eventsSeen -eq 0) {
+        if ($isCodexEventProtocol -and $proc.ExitCode -eq 0 -and $eventsSeen -eq 0) {
             $protocolValid = $false
             $protocolError = 'Codex returned success without any countable JSON events.'
         }
@@ -928,6 +1305,9 @@ function Invoke-AiCliChildCapture {
                 } else {
                     'protocol_or_process_failure'
                 }
+                if (-not [string]::IsNullOrWhiteSpace($protocolErrorCode)) {
+                    $terminalData['error_code'] = $protocolErrorCode
+                }
             }
             if (-not (
                 Write-AiCliMachineEvent -Stream $machineEventStream `
@@ -940,7 +1320,7 @@ function Invoke-AiCliChildCapture {
             }
         }
         $limitsHard = (
-            $EventProtocol -eq 'codex-jsonl' -and
+            $isCodexEventProtocol -and
             $protocolValid -and
             (-not $termination.Attempted -or $termination.Confirmed)
         )
@@ -948,6 +1328,11 @@ function Invoke-AiCliChildCapture {
             ExitCode = $exitCode
             StdOut   = $stdout
             StdErr   = $stderr
+            ErrorCode = if ([string]::IsNullOrWhiteSpace($protocolErrorCode)) {
+                $null
+            } else {
+                $protocolErrorCode
+            }
             TimedOut = $false
             DurationMs = [int]$stopwatch.ElapsedMilliseconds
             OutputTruncated = $outputTruncated
@@ -962,7 +1347,8 @@ function Invoke-AiCliChildCapture {
             MachineEventProjection = $machineEventProjection
             MachineEventStatus = $machineEventStatus
             MachineEventCount = $machineEventSequence
-            Usage = $safeUsage
+            Usage = Merge-AiCliSafeRunUsage -TurnUsage $safeTurnUsage `
+                -ContextUsage $safeContextUsage
         }
     } catch [System.TimeoutException] {
         if (-not $termination.Attempted -or -not $termination.Confirmed) {
@@ -972,7 +1358,7 @@ function Invoke-AiCliChildCapture {
             }
         }
 
-        $stdout = if ($EventProtocol -eq 'codex-jsonl') {
+        $stdout = if ($isCodexEventProtocol) {
             $safeStdOut.ToString()
         } elseif ($stdoutTask) {
             try {
@@ -1021,6 +1407,7 @@ function Invoke-AiCliChildCapture {
             ExitCode = (Get-AiCliExitCode Unavailable)
             StdOut = $stdout
             StdErr = 'Child process exceeded the configured wall timeout.'
+            ErrorCode = $null
             TimedOut = $true
             DurationMs = [int]$stopwatch.ElapsedMilliseconds
             OutputTruncated = $outputTruncated
@@ -1030,7 +1417,7 @@ function Invoke-AiCliChildCapture {
             EventProtocol = $EventProtocol
             LimitHit = 'timeout'
             LimitsHard = (
-                $EventProtocol -eq 'codex-jsonl' -and
+                $isCodexEventProtocol -and
                 $protocolValid -and
                 [bool]$termination.Confirmed
             )
@@ -1039,7 +1426,8 @@ function Invoke-AiCliChildCapture {
             MachineEventProjection = $machineEventProjection
             MachineEventStatus = $machineEventStatus
             MachineEventCount = $machineEventSequence
-            Usage = $safeUsage
+            Usage = Merge-AiCliSafeRunUsage -TurnUsage $safeTurnUsage `
+                -ContextUsage $safeContextUsage
         }
     } catch {
         if (
@@ -1066,6 +1454,12 @@ function Invoke-AiCliChildCapture {
         $stopwatch.Stop()
         if ($null -ne $machineEventStream) {
             try { $machineEventStream.Dispose() } catch {}
+        }
+        if ($privateTaskWriter) {
+            try { $privateTaskWriter.Dispose() } catch {}
+        }
+        if ($privateTaskPipe) {
+            try { $privateTaskPipe.Dispose() } catch {}
         }
         try { $proc.Dispose() } catch {}
         Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue

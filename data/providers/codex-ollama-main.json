@@ -18,5 +18,5 @@
   "requiresSecret": false,
   "virtualReady": true,
   "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
-  "notes": "Machine run is externally sandboxed; no cloud or fallback."
+  "notes": "Machine run uses the native Codex workspace sandbox; the provider stays on the local broker with no cloud or fallback."
 }

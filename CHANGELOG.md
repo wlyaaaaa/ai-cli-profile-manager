@@ -8,16 +8,20 @@
 
 - `aicli version --json` 公开声明 `aicli.machine-event.v1` 能力。
 - `aicli run` 新增可选 `--event-file <absolute-jsonl-path>`。运行期间逐行刷新安全公共事件，供上层观察器显示线程/轮次、推理活动状态、工具类型、文件编辑状态和公开最终消息。
+- Codex machine run 以实测的 npm `codex-cli 0.145.0` app-server 协议为最低基线，`0.146.0-alpha.3.1` 已通过真实兼容验收；后续更新版本默认尝试，只有通过运行时协议门禁才继续，否则返回明确错误。公开 `agentMessage` 增量按短语聚合为 `output.delta`；`context.usage.updated` 直接投影一份同时完整包含 `tokenUsage.last.totalTokens / modelContextWindow` 的运行时快照，`context.compaction.completed` 投影自动压缩完成计数。最终 `run.usage` 新增 `current_context_tokens` 与 `context_window_tokens`，均不由本地猜测。
+- 官方与本地 Ollama Codex machine run 使用 Codex 原生 `read-only` / `workspace-write` 沙箱；第三方 Codex 及其他适用引擎继续使用网络关闭的 Windows 外层沙箱。0.145 的 `subAgentActivity` 是只发送一次 completed 的点事件，其他受支持 item 仍严格要求 started → completed。
 
 ### 安全修正
 
 - side-channel 使用严格 schema、单调 sequence、事件/字段白名单和有界公开文本；不写入隐藏推理正文、命令/参数、工具输入输出、文件内容、环境变量、秘密或原始 stderr。
+- `maxSteps` 的 Codex 计数升级为 `distinct-non-output-thread-item-v2`：推理、计划、工具、压缩等不同非输出 item 继续占用硬行动预算；公开 `agentMessage` 增量与最终消息不再挤占执行步骤。墙钟、事件输出上限与 `maxToolCalls` 仍独立约束公开输出和工具活动。
+- app-server 双向桥只在内存中处理原始通知；原生 Codex 沙箱路径直接从 stdin 接收任务，仍使用外层沙箱的路径才通过受限 ACL 的随机命名管道传递。prompt、压缩 history 和通知私有载荷不进入结果、事件文件、环境变量或临时文件。公开进度、粗粒度工具事件和最终结果可见，隐藏 reasoning 正文不公开。低于基线、必要字段缺失或结构漂移、未知通知、跨 thread/turn、非 `completed` 的成功终态、非法 item 生命周期、服务端交互请求与无法确认的进程树清理均失败关闭，不回退到 token 估算。真实复测证明 `0.145.x` 会为连续公开进度留下多个消息 orphan；兼容层只接受它们全部早于同轮次后续、已完成且有公开正文的 final `agentMessage`。更新/未知版本、缺少后续 final、final 之后的新 orphan 或任何非消息 orphan 仍明确报错。
 - 事件路径在读取 stdin 和启动模型进程前完成绝对路径、扩展名、父目录和普通文件校验。事件写入失败只将观察级别标为 `degraded`，不会重跑或篡改已经完成的模型结果。
 - 事件文件变量不会传入受管子进程；既有 stdout 单-envelope、沙箱、预算、超时和进程树清理语义保持兼容。
 
 ### 验收
 
-- 覆盖未启用 side-channel 的兼容路径、实时 flush、sequence、敏感信息阻断、非法路径提前拒绝和写入降级回执。
+- 覆盖未启用 side-channel 的兼容路径、公开消息短语聚合、实时 flush、公开消息不消耗行动步骤预算、sequence、敏感信息阻断、非法路径提前拒绝、写入降级回执、app-server 上下文/压缩投影、严格 scope/status/lifecycle、`0.145.x` 多条早期公开消息 orphan 窄兼容、最低版本门禁和未知通知失败关闭。
 
 ## [0.3.1] - 2026-07-24
 

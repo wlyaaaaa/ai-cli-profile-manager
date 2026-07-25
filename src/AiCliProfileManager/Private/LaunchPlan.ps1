@@ -295,7 +295,13 @@ function Invoke-AiCliProfileCapture {
         -Policy $SandboxPolicy -MaxSteps $MaxSteps -MaxToolCalls $MaxToolCalls
     $started = [System.Diagnostics.Stopwatch]::StartNew()
     $engine = [string](Get-AiCliProperty $plan 'engine')
-    $eventProtocol = if ($engine -eq 'codex') { 'codex-jsonl' } else { 'none' }
+    $defaultEventProtocol = if ($engine -eq 'codex') { 'codex-jsonl' } else { 'none' }
+    $runtimeEventProtocol = [string](Get-AiCliProperty $runtime 'EventProtocol')
+    $eventProtocol = if ([string]::IsNullOrWhiteSpace($runtimeEventProtocol)) {
+        $defaultEventProtocol
+    } else {
+        $runtimeEventProtocol
+    }
     try {
         $sandboxWorkspace = if ([bool](Get-AiCliProperty $runtime 'UseOuterSandbox' $true)) {
             Get-AiCliProperty $plan 'workingDirectory'
@@ -303,7 +309,11 @@ function Invoke-AiCliProfileCapture {
             $null
         }
         $captured = Invoke-AiCliChildCapture `
-            -FileName (Get-AiCliProperty $plan 'fileName') `
+            -FileName ([string](
+                Get-AiCliProperty $runtime 'FileName' (
+                    Get-AiCliProperty $plan 'fileName'
+                )
+            )) `
             -ArgumentList @($runtime.ArgumentList) `
             -WorkingDirectory (Get-AiCliProperty $plan 'workingDirectory') `
             -EnvironmentDelta $runtime.EnvironmentDelta `
@@ -317,7 +327,14 @@ function Invoke-AiCliProfileCapture {
             -MaxSteps $MaxSteps `
             -MaxToolCalls $MaxToolCalls `
             -MachineEventFile $MachineEventFile `
-            -WritableWorkspace (Get-AiCliProperty $plan 'workingDirectory')
+            -WritableWorkspace (Get-AiCliProperty $plan 'workingDirectory') `
+            -PrivateTaskPipeName ([string](
+                Get-AiCliProperty $runtime 'PrivateTaskPipeName'
+            )) `
+            -AdditionalSandboxReadRoots @(
+                (Get-AiCliProperty $runtime 'AdditionalReadRoots') |
+                    ForEach-Object { [string]$_ }
+            )
         $codexLimitsHard = $engine -eq 'codex' -and [bool](Get-AiCliProperty $captured 'LimitsHard' $false)
         $cleanupConfirmed = [bool](Get-AiCliProperty $captured 'CleanupConfirmed' $true)
         return [pscustomobject]@{
@@ -326,6 +343,7 @@ function Invoke-AiCliProfileCapture {
             exitCode = [int]$captured.ExitCode
             stdout = [string]$captured.StdOut
             stderr = [string]$captured.StdErr
+            errorCode = Get-AiCliProperty $captured 'ErrorCode'
             timedOut = [bool](Get-AiCliProperty $captured 'TimedOut' $false)
             durationMs = [int](Get-AiCliProperty $captured 'DurationMs' $started.ElapsedMilliseconds)
             outputTruncated = [bool](Get-AiCliProperty $captured 'OutputTruncated' $false)
@@ -369,7 +387,7 @@ function Invoke-AiCliProfileCapture {
                 toolCalls = [int](Get-AiCliProperty $captured 'ToolCallCount' 0)
                 eventsSeen = [int](Get-AiCliProperty $captured 'EventsSeen' 0)
                 protocol = [string](Get-AiCliProperty $captured 'EventProtocol' $eventProtocol)
-                stepDefinition = if ($engine -eq 'codex') { 'distinct-thread-item-v1' } else { 'upstream' }
+                stepDefinition = if ($engine -eq 'codex') { 'distinct-non-output-thread-item-v2' } else { 'upstream' }
                 cleanupConfirmed = $cleanupConfirmed
                 cleanupMethod = [string](Get-AiCliProperty $captured 'CleanupMethod' 'none')
             }
@@ -382,6 +400,7 @@ function Invoke-AiCliProfileCapture {
             exitCode = (Get-AiCliExitCode Unavailable)
             stdout = ''
             stderr = 'Child process exceeded the configured wall timeout.'
+            errorCode = $null
             timedOut = $true
             durationMs = [int]$started.ElapsedMilliseconds
             outputTruncated = $false
@@ -411,7 +430,7 @@ function Invoke-AiCliProfileCapture {
                 toolCalls = 0
                 eventsSeen = 0
                 protocol = $eventProtocol
-                stepDefinition = if ($engine -eq 'codex') { 'distinct-thread-item-v1' } else { 'upstream' }
+                stepDefinition = if ($engine -eq 'codex') { 'distinct-non-output-thread-item-v2' } else { 'upstream' }
                 cleanupConfirmed = $false
                 cleanupMethod = 'unconfirmed'
             }
