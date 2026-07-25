@@ -340,6 +340,9 @@ function Invoke-AiCliProfileCapture {
             machineEventCount = [int](
                 Get-AiCliProperty $captured 'MachineEventCount' 0
             )
+            usage = ConvertTo-AiCliSafeUsage (
+                Get-AiCliProperty $captured 'Usage'
+            )
             limitEnforcement = [ordered]@{
                 timeout = if ($cleanupConfirmed) { 'hard' } else { 'failed-closed' }
                 maxSteps = if ($codexLimitsHard) {
@@ -397,6 +400,7 @@ function Invoke-AiCliProfileCapture {
                 'disabled'
             }
             machineEventCount = 0
+            usage = [ordered]@{}
             limitEnforcement = [ordered]@{
                 timeout = 'failed-closed'
                 maxSteps = 'failed-closed'

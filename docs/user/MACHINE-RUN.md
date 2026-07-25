@@ -36,6 +36,8 @@ $task | aicli run codex-ollama-main `
 - Codex 的 `max-steps` 统计不同的 ThreadItem 工作单元，`max-tool-calls` 统计命令、文件、MCP、collab、web 等工具项；machine run 逐行解析公开 JSON 事件并硬执行，越限会终止完整子进程树。
 - 有界 machine run 显式关闭 Codex `multi_agent` / `multi_agent_v2`，避免一次 collab 调用在事件边界后隐藏未计数的子智能体工具循环；若仍出现 collab 事件，会先计为一次工具调用，再按配置不变量失效而失败关闭。
 - Codex 输出采用版本化的 `eventProjection=codex-public-v1`：只返回公开 agent message 与线程标识。reasoning、命令正文、工具输出和原始 stderr 只在内存中识别后丢弃，不进入 JSON envelope。
+- Codex 的 `turn.failed` 与最终非零进程退出是终态失败。顶层 `error` 和 `item.type=error` 只作为待确认错误观察：只有其后同时出现公开 final message、`turn.completed`，且进程最终退出码为 `0` 时才恢复为成功；否则失败关闭。错误正文和原始 stderr 在两种路径中都不会进入公开回执或事件文件。
+- 成功解析 `turn.completed.usage` 时，最终 JSON envelope 的 `run.usage` 只允许非负整数 `input_tokens`、`cached_input_tokens`、`output_tokens`；缺失或无效字段会省略，其他字段一律丢弃。该对象只是上游 token 回执，不是 aicli 计算的费用或账单。
 - `--event-file` 是可选的机器观察 side-channel，必须是父目录已存在的绝对 `.jsonl` 路径。AICLI 会先校验并清空该普通文件，再在运行中逐行 flush `aicli.machine-event.v1`；`aicli version --json` 可用于无模型调用的能力探测。
 - side-channel 只投影线程/轮次、`reasoning.activity` 活动状态、粗粒度工具类型与状态、限制/失败状态和有界公开 agent message。它不包含隐藏推理正文、命令文本或参数、工具输入输出、文件内容、环境变量、秘密或原始 stderr；因此观察器应把它显示为“公开工作摘要”，不能标注为原始思维链。
 - 最终回执通过 `machineEventProjection`、`machineEventStatus` 与 `machineEventCount` 标明观察级别。事件写入失败时状态为 `degraded`，已完成的模型结果不会被重跑；调用方也不得用失败后的自动重试制造重复副作用。

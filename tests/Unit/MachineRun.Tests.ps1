@@ -35,6 +35,11 @@ Describe 'Machine-facing profile runs' {
                     LimitsHard = $true
                     CleanupConfirmed = $true
                     CleanupMethod = 'none'
+                    Usage = [ordered]@{
+                        input_tokens = [long]123
+                        cached_input_tokens = [long]45
+                        output_tokens = [long]67
+                    }
                 }
             }
 
@@ -52,6 +57,8 @@ Describe 'Machine-facing profile runs' {
             $result.limitUsage.protocol | Should -Be 'codex-jsonl'
             $result.limitUsage.stepDefinition | Should -Be 'distinct-thread-item-v1'
             $result.limitUsage.cleanupConfirmed | Should -BeTrue
+            ($result.usage | ConvertTo-Json -Compress) |
+                Should -Be '{"input_tokens":123,"cached_input_tokens":45,"output_tokens":67}'
             $result.eventProjection | Should -Be 'codex-public-v1'
             $result.machineEventProjection | Should -Be 'disabled'
             $result.machineEventStatus | Should -Be 'disabled'
@@ -93,6 +100,7 @@ Describe 'Machine-facing profile runs' {
             $result.StdOut | Should -Not -Match 'PRIVATE_COMMAND'
             $result.StdOut | Should -Not -Match 'PRIVATE_OUTPUT'
             $result.StdErr | Should -Not -Match 'HIDDEN_STDERR_CANARY'
+            ($result.Usage | ConvertTo-Json -Compress) | Should -Be '{}'
         }
     }
 
@@ -129,6 +137,120 @@ Describe 'Machine-facing profile runs' {
             @($events.kind) | Should -Contain 'output.completed'
             ($events | ConvertTo-Json -Depth 10) | Should -Match 'FINAL_PUBLIC'
             ($events | ConvertTo-Json -Depth 10) | Should -Not -Match 'HIDDEN_COT_CANARY|PRIVATE_COMMAND|PRIVATE_OUTPUT|HIDDEN_STDERR_CANARY|turn-private'
+        }
+    }
+
+    It 'recovers from non-terminal error events after a completed turn and exposes only safe usage' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'emit-recoverable-codex-errors.ps1'
+            $eventFile = Join-Path $Work 'recoverable-error-events.jsonl'
+            @'
+[Console]::Out.WriteLine('{"type":"thread.started","thread_id":"019f98ff-110f-7390-8d7b-d85d70bba89f"}')
+[Console]::Out.WriteLine('{"type":"error","message":"Bearer RECOVERABLE_TOP_LEVEL_CANARY at C:\\private\\TOP_LEVEL_PATH"}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"error-1","type":"error","message":"RECOVERABLE_ITEM_CANARY"}}')
+[Console]::Out.WriteLine('{"type":"item.started","item":{"id":"tool-1","type":"command_execution","command":"PRIVATE_COMMAND"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"tool-1","type":"command_execution","aggregated_output":"PRIVATE_OUTPUT"}}')
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"message-1","type":"agent_message","text":"FINAL_AFTER_RECOVERY"}}')
+[Console]::Out.WriteLine('{"type":"turn.completed","usage":{"input_tokens":1234,"cached_input_tokens":234,"output_tokens":56,"total_tokens":1524,"secret":"USAGE_SECRET_CANARY","nested":{"path":"C:\\private\\USAGE_PATH"}}}')
+[Console]::Error.WriteLine('RECOVERABLE_RAW_STDERR_CANARY')
+exit 0
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MachineEventFile $eventFile `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            $result.StdErr | Should -Be ''
+            $result.StdOut | Should -Match 'FINAL_AFTER_RECOVERY'
+            ($result.Usage | ConvertTo-Json -Compress) |
+                Should -Be '{"input_tokens":1234,"cached_input_tokens":234,"output_tokens":56}'
+
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            @($events.kind) | Should -Not -Contain 'run.failed'
+            $completed = @($events | Where-Object kind -eq 'turn.completed')[-1]
+            ($completed.usage | ConvertTo-Json -Compress) |
+                Should -Be '{"input_tokens":1234,"cached_input_tokens":234,"output_tokens":56}'
+
+            $publicEnvelopeAndEvents = @(
+                ($result | ConvertTo-Json -Depth 10 -Compress)
+                (Get-Content -LiteralPath $eventFile -Raw -Encoding utf8)
+            ) -join "`n"
+            $publicEnvelopeAndEvents | Should -Not -Match (
+                'RECOVERABLE_TOP_LEVEL_CANARY|TOP_LEVEL_PATH|RECOVERABLE_ITEM_CANARY|' +
+                'PRIVATE_COMMAND|PRIVATE_OUTPUT|RECOVERABLE_RAW_STDERR_CANARY|' +
+                'total_tokens|USAGE_SECRET_CANARY|USAGE_PATH|nested'
+            )
+        }
+    }
+
+    It 'omits invalid and unknown usage fields without failing an otherwise completed run' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'emit-invalid-codex-usage.ps1'
+            @'
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"message-1","type":"agent_message","text":"PUBLIC_DONE"}}')
+[Console]::Out.WriteLine('{"type":"turn.completed","usage":{"input_tokens":12,"cached_input_tokens":-1,"output_tokens":4.5,"total_tokens":15,"other":"PRIVATE_USAGE_CANARY"}}')
+exit 0
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MaxSteps 4 -MaxToolCalls 1 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            ($result.Usage | ConvertTo-Json -Compress) | Should -Be '{"input_tokens":12}'
+            ($result | ConvertTo-Json -Depth 10 -Compress) |
+                Should -Not -Match 'cached_input_tokens|output_tokens|total_tokens|PRIVATE_USAGE_CANARY'
+        }
+    }
+
+    It 'fails closed when non-terminal error events lack later completion evidence' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'emit-unresolved-codex-error.ps1'
+            $eventFile = Join-Path $Work 'unresolved-error-events.jsonl'
+            @'
+[Console]::Out.WriteLine('{"type":"thread.started","thread_id":"019f98ff-110f-7390-8d7b-d85d70bba89f"}')
+[Console]::Out.WriteLine('{"type":"error","message":"UNRESOLVED_ERROR_CANARY"}')
+exit 0
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MachineEventFile $eventFile `
+                -MaxSteps 4 -MaxToolCalls 1 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Not -Be 0
+            $result.StdErr | Should -Be 'Codex reported an upstream failure.'
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            $events[-1].kind | Should -Be 'run.failed'
+            $events[-1].error_category | Should -Be 'upstream_error'
+            (($result | ConvertTo-Json -Depth 10 -Compress) + "`n" +
+                (Get-Content -LiteralPath $eventFile -Raw -Encoding utf8)) |
+                Should -Not -Match 'UNRESOLVED_ERROR_CANARY'
+        }
+    }
+
+    It 'keeps a final nonzero process exit terminal after an otherwise completed turn' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $scriptPath = Join-Path $Work 'emit-nonzero-after-completion.ps1'
+            $eventFile = Join-Path $Work 'nonzero-after-completion-events.jsonl'
+            @'
+[Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"message-1","type":"agent_message","text":"PUBLIC_BEFORE_NONZERO"}}')
+[Console]::Out.WriteLine('{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":2,"output_tokens":3}}')
+exit 9
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
+                -EventProtocol codex-jsonl -MachineEventFile $eventFile `
+                -MaxSteps 4 -MaxToolCalls 1 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 9
+            $result.StdErr | Should -Be 'Codex process failed without a public error event.'
+            $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            $events[-1].kind | Should -Be 'run.failed'
+            $events[-1].error_category | Should -Be 'protocol_or_process_failure'
         }
     }
 
@@ -342,7 +464,7 @@ Start-Sleep -Seconds 5
 
             $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
                 -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
-                -EventProtocol codex-jsonl -MaxSteps 4 -MaxToolCalls 4 -TimeoutMs 300
+                -EventProtocol codex-jsonl -MaxSteps 4 -MaxToolCalls 4 -TimeoutMs 1000
 
             $result.TimedOut | Should -BeTrue
             $result.LimitHit | Should -Be 'timeout'
@@ -715,6 +837,11 @@ Start-Sleep -Seconds 2
                     timedOut = $false
                     durationMs = 10
                     outputTruncated = $false
+                    usage = [ordered]@{
+                        input_tokens = [long]21
+                        cached_input_tokens = [long]8
+                        output_tokens = [long]5
+                    }
                 }
             }
             $oldIn = [Console]::In
@@ -740,6 +867,8 @@ Start-Sleep -Seconds 2
             $payload = $writer.ToString() | ConvertFrom-Json
             $payload.command | Should -Be 'run'
             $payload.run.stdout | Should -Be '{"ok":true}'
+            ($payload.run.usage | ConvertTo-Json -Compress) |
+                Should -Be '{"input_tokens":21,"cached_input_tokens":8,"output_tokens":5}'
             Should -Invoke Invoke-AiCliProfileCapture -Times 1 -Exactly -ParameterFilter {
                 $ProfileId -eq 'local' -and
                 $ProjectPath -eq 'C:\work' -and

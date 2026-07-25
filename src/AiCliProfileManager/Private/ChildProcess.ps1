@@ -295,6 +295,36 @@ function Get-AiCliPublicThreadId {
     return ''
 }
 
+function ConvertTo-AiCliSafeUsage {
+    param([object]$Usage)
+
+    $safe = [ordered]@{}
+    if ($null -eq $Usage) { return $safe }
+
+    foreach ($name in @('input_tokens','cached_input_tokens','output_tokens')) {
+        $value = Get-AiCliProperty $Usage $name
+        if ($null -eq $value) { continue }
+        $isInteger = (
+            $value -is [sbyte] -or
+            $value -is [byte] -or
+            $value -is [int16] -or
+            $value -is [uint16] -or
+            $value -is [int32] -or
+            $value -is [uint32] -or
+            $value -is [int64] -or
+            $value -is [uint64]
+        )
+        if (-not $isInteger) { continue }
+        try {
+            if ([decimal]$value -lt 0 -or [decimal]$value -gt [long]::MaxValue) {
+                continue
+            }
+            $safe[$name] = [long]$value
+        } catch {}
+    }
+    return $safe
+}
+
 function Write-AiCliMachineEvent {
     param(
         [Parameter(Mandatory)][IO.FileStream]$Stream,
@@ -470,6 +500,12 @@ function Invoke-AiCliChildCapture {
     $stdoutTask = $null
     $stderrTask = $null
     $upstreamFailed = $false
+    $terminalUpstreamFailed = $false
+    $recoverableUpstreamErrorSeen = $false
+    $lastRecoverableErrorEvent = 0
+    $lastCompletedTurnEvent = 0
+    $lastFinalMessageEvent = 0
+    $safeUsage = [ordered]@{}
     $upstreamFailureSummary = 'Codex reported an upstream failure.'
     $termination = [pscustomobject]@{ Attempted = $false; Confirmed = $true; Method = 'none' }
     $knownEventTypes = @(
@@ -618,13 +654,24 @@ function Invoke-AiCliChildCapture {
                     }
                 }
 
-                $isUpstreamFailureEvent = (
+                $isTerminalUpstreamFailureEvent = $eventType -eq 'turn.failed'
+                $isRecoverableUpstreamErrorEvent = (
                     $eventType -eq 'error' -or
-                    $eventType -eq 'turn.failed' -or
                     ($isItemEvent -and $itemType -eq 'error')
                 )
-                if ($isUpstreamFailureEvent) {
-                    $upstreamFailed = $true
+                if ($isTerminalUpstreamFailureEvent) {
+                    $terminalUpstreamFailed = $true
+                } elseif ($isRecoverableUpstreamErrorEvent) {
+                    $recoverableUpstreamErrorSeen = $true
+                    $lastRecoverableErrorEvent = $eventsSeen
+                }
+                if ($eventType -eq 'turn.completed') {
+                    $lastCompletedTurnEvent = $eventsSeen
+                    $safeUsage = ConvertTo-AiCliSafeUsage (
+                        Get-AiCliProperty $event 'usage'
+                    )
+                } elseif ($eventType -eq 'item.completed' -and $itemType -eq 'agent_message') {
+                    $lastFinalMessageEvent = $eventsSeen
                 }
 
                 # Only pass through the public thread identifier and public agent
@@ -649,7 +696,7 @@ function Invoke-AiCliChildCapture {
                         }
                     }
                 }
-                if ($safeEvent -and -not $upstreamFailed) {
+                if ($safeEvent -and -not $terminalUpstreamFailed) {
                     $safeLine = $safeEvent | ConvertTo-Json -Depth 10 -Compress
                     $separatorLength = if ($safeStdOut.Length -gt 0) { 1 } else { 0 }
                     if ($MaxCaptureChars -le 0 -or
@@ -670,7 +717,7 @@ function Invoke-AiCliChildCapture {
                                 thread_id = $publicThreadId
                             }
                         }
-                    } elseif ($isUpstreamFailureEvent) {
+                    } elseif ($isTerminalUpstreamFailureEvent) {
                         $machineEvent = @{
                             Kind = 'run.failed'
                             Data = @{
@@ -682,14 +729,18 @@ function Invoke-AiCliChildCapture {
                             }
                         }
                     } elseif ($eventType -in @('turn.started','turn.completed')) {
+                        $turnData = @{
+                            status = $eventType.Substring(5)
+                            steps = $stepCount
+                            tool_calls = $toolCallCount
+                            events_seen = $eventsSeen
+                        }
+                        if ($eventType -eq 'turn.completed') {
+                            $turnData['usage'] = $safeUsage
+                        }
                         $machineEvent = @{
                             Kind = $eventType
-                            Data = @{
-                                status = $eventType.Substring(5)
-                                steps = $stepCount
-                                tool_calls = $toolCallCount
-                                events_seen = $eventsSeen
-                            }
+                            Data = $turnData
                         }
                     } elseif ($isItemEvent -and $itemType -eq 'reasoning') {
                         $machineEvent = @{
@@ -808,6 +859,16 @@ function Invoke-AiCliChildCapture {
             $proc.WaitForExit()
             $stdout = $stdoutTask.GetAwaiter().GetResult()
         }
+        $recoverableUpstreamErrorResolved = (
+            $recoverableUpstreamErrorSeen -and
+            $proc.ExitCode -eq 0 -and
+            $lastCompletedTurnEvent -gt $lastRecoverableErrorEvent -and
+            $lastFinalMessageEvent -gt $lastRecoverableErrorEvent
+        )
+        $upstreamFailed = (
+            $terminalUpstreamFailed -or
+            ($recoverableUpstreamErrorSeen -and -not $recoverableUpstreamErrorResolved)
+        )
         $stderr = if ($EventProtocol -eq 'codex-jsonl') {
             [void]$stderrTask.GetAwaiter().GetResult()
             if ($upstreamFailed) {
@@ -901,6 +962,7 @@ function Invoke-AiCliChildCapture {
             MachineEventProjection = $machineEventProjection
             MachineEventStatus = $machineEventStatus
             MachineEventCount = $machineEventSequence
+            Usage = $safeUsage
         }
     } catch [System.TimeoutException] {
         if (-not $termination.Attempted -or -not $termination.Confirmed) {
@@ -977,6 +1039,7 @@ function Invoke-AiCliChildCapture {
             MachineEventProjection = $machineEventProjection
             MachineEventStatus = $machineEventStatus
             MachineEventCount = $machineEventSequence
+            Usage = $safeUsage
         }
     } catch {
         if (
