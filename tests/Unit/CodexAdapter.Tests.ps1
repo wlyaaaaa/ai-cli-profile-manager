@@ -110,6 +110,19 @@ Describe 'Codex Ollama reasoning effort' {
             } | Should -Throw '*可选: low, medium, high, max*'
         }
     }
+
+    It 'falls back to Codex defaults when a profile omits effortLevels' {
+        InModuleScope AiCliProfileManager {
+            $profile = [ordered]@{
+                id = 'codex-qwen-paygo'
+                provider = 'qwen'
+                preferences = [ordered]@{ effort = 'high' }
+            }
+
+            Resolve-AiCliCodexEffort -MergedProfile $profile -NativeArgs @() |
+                Should -Be 'high'
+        }
+    }
 }
 
 Describe 'Codex Spark machine profile' {
@@ -163,6 +176,47 @@ Describe 'Codex Spark machine profile' {
             $plan.fileName | Should -Be 'C:\desktop\codex.exe'
             $plan.launcherKind | Should -Be 'desktop-codex'
             Should -Invoke Resolve-AiCliCodexLaunchExecutable -Times 1 -Exactly -ParameterFilter { -not $MachineRun }
+        }
+    }
+}
+
+Describe 'Codex remote Responses machine profile' {
+    It 'keeps provider transport outside the command sandbox' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $profile = [ordered]@{
+                id = 'codex-qwen-paygo'
+                displayName = 'Qwen test'
+                provider = 'qwen'
+                endpoint = 'https://example.invalid/compatible-mode/v1'
+                codexProviderId = 'aicli_qwen_paygo'
+                secretConfigured = $true
+                secretRef = 'test-only'
+                models = [ordered]@{ primary = 'qwen3.7-flash' }
+                preferences = [ordered]@{ effort = 'high' }
+            }
+            Mock Resolve-AiCliCodexLaunchExecutable {
+                [pscustomobject]@{
+                    FileName = 'C:\Program Files\nodejs\node.exe'
+                    PrefixArgs = @('C:\npm\node_modules\@openai\codex\bin\codex.js')
+                    Kind = 'npm-node'
+                }
+            }
+            Mock Write-AiCliCodexManagedProfile {
+                [pscustomobject]@{
+                    CliProfileName = 'aicli-codex-qwen-paygo'
+                    FilePath = (Join-Path $Work 'aicli-codex-qwen-paygo.config.toml')
+                    ContentHash = ('0' * 64)
+                }
+            }
+            Mock Get-AiCliSecret { 'test-secret' }
+
+            $plan = Build-AiCliCodexLaunchPlan -MergedProfile $profile `
+                -ProjectPath $Work -MachineRun
+
+            $plan.machineRuntime.sandboxBoundary | Should -Be 'codex-native'
+            $plan.machineRuntime.workspaceWriteValidated | Should -BeFalse
+            $plan.environmentDelta.AICLI_CODEX_PROVIDER_KEY | Should -Be 'test-secret'
+            $plan.model | Should -Be 'qwen3.7-flash'
         }
     }
 }

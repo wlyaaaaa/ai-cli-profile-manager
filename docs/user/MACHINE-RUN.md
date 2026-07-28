@@ -27,8 +27,9 @@ $task | aicli run codex-ollama-main `
 安全边界：
 
 - 调用接口只从 stdin 接收任务正文，不把正文放入 argv。Codex 原生沙箱路径由可信内部桥直接从 stdin 驱动 app-server；仍使用外层沙箱的路径因沙箱不转发 stdin，父进程才通过带随机名称且只授权父进程身份与隔离沙箱身份的命名管道，把正文交给沙箱内桥接器。任务正文不写入参数、环境变量、工作区或临时文件。返回值是一个 JSON envelope。
-- 官方与本地 Ollama Codex machine run 使用 Codex CLI 原生沙箱：`read-only` 或 `workspace-write` 由 aicli 在 `turn/start` 显式传入；本地 app-server 可访问固定的本机模型网关，但模型生成的文件和命令动作不能越过工作区策略。
-- 第三方 Codex 及其他适用引擎继续使用强制 Windows 外层沙箱，网络关闭；内层 CLI 的自动批准不会扩大到沙箱之外。
+- 官方 Codex machine run 使用 Codex CLI 原生命令沙箱：`read-only` 或 `workspace-write` 由 aicli 在 `turn/start` 显式传入。
+- 远程第三方 Responses Provider 需要模型传输联网。当前 Qwen Cloud 只验收到文本/只读 smoke；真实任务中 `workspace-write` 被原生沙箱策略拒绝，因此 AICLI 会在 Provider 调用前失败关闭，不能作为可写 Agent 使用。
+- 本地 Ollama Codex 及其他适用本地引擎使用强制 Windows 外层沙箱，网络关闭；内层 CLI 的自动批准不会扩大到沙箱之外。Codex app-server 由 npm 包内的原生 `codex.exe` 直接承载，避免短生命周期 Node 启动器破坏进程树清理确认。
 - 官方云端 Codex machine run 同时忽略用户配置和规则。一次性 `CODEX_HOME` 只复制现有 `auth.json`；不会复制 `config.toml`、rules、skills、sessions 或 history。
 - `workspace-write` 允许修改指定工作区。因此应传入隔离 worktree 或暂存目录，canonical raw 数据只读保留在边界外。
 - `read-only` 让 CLI 在一次性运行目录写自身状态，来源工作区只读；任务结束后清理运行目录。

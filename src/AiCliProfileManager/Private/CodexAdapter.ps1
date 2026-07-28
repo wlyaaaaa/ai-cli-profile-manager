@@ -227,7 +227,10 @@ function Resolve-AiCliCodexEffort {
     $e = Get-AiCliProperty $prefs 'effort'
     if (-not $e) { $e = Get-AiCliProperty $MergedProfile 'defaultEffort' }
     if (-not $e) { $e = 'high' }
-    $allowed = @(Get-AiCliProperty $MergedProfile 'effortLevels')
+    $allowed = @(
+        Get-AiCliProperty $MergedProfile 'effortLevels' |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+    )
     if ($allowed.Count -eq 0) { $allowed = @(Get-AiCliCodexEffortLevels) }
     if ($allowed -notcontains $e) {
         throw "Codex 思考等级无效: $e。可选: $($allowed -join ', ')"
@@ -287,6 +290,7 @@ function Build-AiCliCodexLaunchPlan {
     $configFiles = @()
     $authSourceFile = $null
     $sandboxBoundary = 'outer-codex'
+    $workspaceWriteValidated = $true
     $notes = @()
     $effort = Resolve-AiCliCodexEffort -MergedProfile $MergedProfile -NativeArgs $NativeArgs
     $models = Get-AiCliProperty $MergedProfile 'models'
@@ -361,6 +365,17 @@ function Build-AiCliCodexLaunchPlan {
         # Scrub parent hijacks so only profile provider base_url is used
         foreach ($v in $script:AiCliCodexProviderVars) { $removeEnv += $v }
         $removeEnv += @('OPENAI_BASE_URL')
+        if ($MachineRun) {
+            # The Codex process must retain network access to reach the remote
+            # Responses provider. Codex native sandboxing still constrains
+            # model-generated commands and can deny their network access.
+            $sandboxBoundary = 'codex-native'
+            # Live Qwen Cloud tasks on 2026-07-28 proved that Codex 0.145
+            # accepted the turn but rejected every workspace write. Fail before
+            # provider invocation until that contract is independently fixed
+            # and re-accepted.
+            $workspaceWriteValidated = $false
+        }
         $providerId = Get-AiCliProperty $MergedProfile 'codexProviderId'
         if (-not $providerId) { $providerId = 'aicli_' + ($id -replace '-', '_') }
         $toml = New-AiCliCodexProviderToml -MergedProfile $MergedProfile -EnvKeyName 'AICLI_CODEX_PROVIDER_KEY'
@@ -404,6 +419,7 @@ function Build-AiCliCodexLaunchPlan {
             configFiles = @($configFiles)
             authSourceFile = $authSourceFile
             sandboxBoundary = $sandboxBoundary
+            workspaceWriteValidated = $workspaceWriteValidated
         }
     }
 }

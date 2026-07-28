@@ -14,6 +14,15 @@ function Initialize-AiCliMachineRuntime {
     if (-not (Test-Path -LiteralPath $workspace -PathType Container)) {
         throw "Machine runtime workspace does not exist: $workspace"
     }
+    $runtimeConfig = Get-AiCliProperty $Plan 'machineRuntime'
+    $kind = [string](Get-AiCliProperty $runtimeConfig 'kind')
+    if (
+        $kind -eq 'codex' -and
+        $Policy -eq 'workspace-write' -and
+        -not [bool](Get-AiCliProperty $runtimeConfig 'workspaceWriteValidated' $true)
+    ) {
+        throw 'Codex remote workspace-write is disabled: the current provider sandbox rejected all writes during live acceptance.'
+    }
     $base = if ($Policy -eq 'workspace-write') { $workspace } else { [IO.Path]::GetTempPath() }
     $runtimePath = Join-Path $base ('.aicli-runtime-' + [guid]::NewGuid().ToString('N'))
     $tmpPath = Join-Path $runtimePath 'tmp'
@@ -28,8 +37,6 @@ function Initialize-AiCliMachineRuntime {
     $environment['TMP'] = $tmpPath
     $arguments = @((Get-AiCliProperty $Plan 'argumentList') | ForEach-Object { [string]$_ })
     $effectiveStdIn = if ($null -eq $StdInText) { '' } else { [string]$StdInText }
-    $runtimeConfig = Get-AiCliProperty $Plan 'machineRuntime'
-    $kind = [string](Get-AiCliProperty $runtimeConfig 'kind')
     $useOuterSandbox = $true
     $runtimeFileName = [string](Get-AiCliProperty $Plan 'fileName')
     $eventProtocol = $null
@@ -85,6 +92,7 @@ function Initialize-AiCliMachineRuntime {
             $codexEntryFound = $false
             $codexEntryIndex = -1
             $codexPackageSource = $null
+            $codexNativeExecutable = $null
             for ($index = 0; $index -lt $arguments.Count; $index++) {
                 $candidate = [string]$arguments[$index]
                 if ($candidate.EndsWith('codex.js', [StringComparison]::OrdinalIgnoreCase) -and
@@ -98,6 +106,25 @@ function Initialize-AiCliMachineRuntime {
                     if ($nativePackages.Count -eq 0) {
                         throw "Codex npm package is missing its Windows native runtime: $packageSource"
                     }
+                    $architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+                    $preferredPackage = @(
+                        $nativePackages |
+                            Where-Object { $_.Name -eq "codex-win32-$architecture" }
+                    )
+                    $selectedPackage = if ($preferredPackage.Count -eq 1) {
+                        $preferredPackage[0]
+                    } elseif ($nativePackages.Count -eq 1) {
+                        $nativePackages[0]
+                    } else {
+                        throw "Codex npm package has no unambiguous native runtime for $architecture."
+                    }
+                    $nativeExecutables = @(
+                        Get-ChildItem -LiteralPath (Join-Path $selectedPackage.FullName 'vendor') `
+                            -Recurse -File -Filter 'codex.exe' -ErrorAction SilentlyContinue
+                    )
+                    if ($nativeExecutables.Count -ne 1) {
+                        throw "Codex npm package has no unambiguous native executable: $($selectedPackage.FullName)"
+                    }
                     # Keep the installed package at its short canonical path.
                     # The outer sandbox grants this exact package read-only;
                     # mirroring it under a deep workspace can exceed MAX_PATH.
@@ -105,6 +132,7 @@ function Initialize-AiCliMachineRuntime {
                     $codexEntryFound = $true
                     $codexEntryIndex = $index
                     $codexPackageSource = [IO.Path]::GetFullPath($packageSource)
+                    $codexNativeExecutable = [IO.Path]::GetFullPath($nativeExecutables[0].FullName)
                     break
                 }
             }
@@ -152,8 +180,8 @@ function Initialize-AiCliMachineRuntime {
             }
 
             $globalArguments = @(
-                if ($execIndex -gt 0) {
-                    $arguments[0..($execIndex - 1)]
+                if ($execIndex -gt ($codexEntryIndex + 1)) {
+                    $arguments[($codexEntryIndex + 1)..($execIndex - 1)]
                 }
             )
             # Codex 0.145 accepts --profile for interactive/runtime commands,
@@ -175,6 +203,11 @@ function Initialize-AiCliMachineRuntime {
             }
             $appServerArguments = @($appServerGlobalArguments.ToArray()) + $boundedAgentFlags +
                 @('app-server', '--stdio')
+            # Launch the package's native executable directly. Keeping node.exe
+            # as the app-server root creates a short-lived wrapper race: after
+            # a fast turn the wrapper can exit before the bridge can kill and
+            # confirm the complete process tree.
+            $runtimeFileName = $codexNativeExecutable
             $bridgePath = Join-Path (
                 Split-Path -Parent $PSScriptRoot
             ) 'Support\CodexAppServerBridge.ps1'

@@ -2182,6 +2182,7 @@ Start-Sleep -Seconds 2
                 $bridgeConfig.argumentList | Should -Not -Contain 'aicli-local'
                 $bridgeConfig.argumentList | Should -Contain '-c'
                 $bridgeConfig.argumentList | Should -Contain 'model="qwen-main-v1"'
+                $bridgeConfig.fileName | Should -Be ([IO.Path]::GetFullPath($native))
                 $runtime.StdInText | Should -Be 'PRIVATE_TASK_CANARY'
                 $runtime.PrivateTaskPipeName | Should -Match '^aicli-[a-f0-9]{32}$'
                 Test-Path -LiteralPath (Join-Path $runtime.RuntimePath 'task.md') | Should -BeFalse
@@ -2193,7 +2194,7 @@ Start-Sleep -Seconds 2
                         }
                 ) -join "`n"
                 $persistedText | Should -Not -Match 'PRIVATE_TASK_CANARY'
-                $bridgeConfig.argumentList[0] | Should -Be ([IO.Path]::GetFullPath($entry))
+                $bridgeConfig.argumentList | Should -Not -Contain ([IO.Path]::GetFullPath($entry))
                 Test-Path -LiteralPath (Join-Path $runtime.RuntimePath 'codex-package') | Should -BeFalse
                 Test-Path -LiteralPath (Join-Path $runtime.EnvironmentDelta.CODEX_HOME 'aicli-local.config.toml') | Should -BeTrue
             } finally {
@@ -2240,6 +2241,37 @@ Start-Sleep -Seconds 2
                 Get-ChildItem -LiteralPath $Work -Directory `
                     -Filter '.aicli-runtime-*' -Force
             ).Count | Should -Be 0
+        }
+    }
+
+    It 'fails before launch when remote Codex workspace-write is not validated' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $before = @(
+                Get-ChildItem -LiteralPath $Work -Directory `
+                    -Filter '.aicli-runtime-*' -Force
+            ).Count
+            $plan = [pscustomobject]@{
+                engine = 'codex'
+                fileName = 'C:\Program Files\nodejs\node.exe'
+                argumentList = @('C:\npm\node_modules\@openai\codex\bin\codex.js', 'exec', '--json', '-')
+                workingDirectory = $Work
+                environmentDelta = @{}
+                machineRuntime = [ordered]@{
+                    kind = 'codex'
+                    configFiles = @()
+                    sandboxBoundary = 'codex-native'
+                    workspaceWriteValidated = $false
+                }
+            }
+
+            {
+                Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' `
+                    -Policy workspace-write
+            } | Should -Throw '*remote workspace-write is disabled*'
+            @(
+                Get-ChildItem -LiteralPath $Work -Directory `
+                    -Filter '.aicli-runtime-*' -Force
+            ).Count | Should -Be $before
         }
     }
 

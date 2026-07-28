@@ -1130,7 +1130,9 @@ try {
     if ($serverStarted -and $null -ne $script:ServerProcess) {
         # Give an already-terminating server one short scheduling window. If it
         # exits on its own, no live root remains from which descendants can be
-        # authoritatively killed, so cleanup must fail closed.
+        # authoritatively killed, so cleanup must fail closed. MachineRuntime
+        # supplies the native codex.exe as this root rather than a short-lived
+        # Node launcher.
         if ($script:TurnTerminal) {
             try { [Threading.Thread]::Sleep(100) } catch {}
         }
