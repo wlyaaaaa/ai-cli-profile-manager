@@ -1996,7 +1996,12 @@ Start-Sleep -Seconds 2
     It 'wraps a child with the Codex workspace sandbox and disables external network' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             Mock Resolve-AiCliLaunchExecutable {
-                [pscustomobject]@{ FileName = 'C:\codex\codex.exe'; PrefixArgs = @(); Kind = 'native' }
+                [pscustomobject]@{
+                    FileName = 'C:\codex\codex.exe'
+                    PrefixArgs = @()
+                    Kind = 'npm-node'
+                    SandboxHelperPath = (Get-Command pwsh.exe).Source
+                }
             }
             $workspace = Join-Path $Work 'workspace'
             $toolRoot = Join-Path $Work 'tool'
@@ -2014,13 +2019,20 @@ Start-Sleep -Seconds 2
                 '--sandbox-state-disable-network', '--',
                 ([IO.Path]::GetFullPath($agent)), '--flag', 'value with spaces'
             )
+            Should -Invoke Resolve-AiCliLaunchExecutable -Times 1 -Exactly `
+                -ParameterFilter { $Name -eq 'codex' -and $PreferNpmCodex }
         }
     }
 
     It 'grants a Codex npm package read-only without exposing the whole npm root' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             Mock Resolve-AiCliLaunchExecutable {
-                [pscustomobject]@{ FileName = 'C:\codex\codex.exe'; PrefixArgs = @(); Kind = 'native' }
+                [pscustomobject]@{
+                    FileName = 'C:\codex\codex.exe'
+                    PrefixArgs = @()
+                    Kind = 'npm-node'
+                    SandboxHelperPath = (Get-Command pwsh.exe).Source
+                }
             }
             $workspace = Join-Path $Work 'workspace'
             $package = Join-Path $Work 'npm\node_modules\@openai\codex'
@@ -2044,7 +2056,12 @@ Start-Sleep -Seconds 2
     It 'maps a read-only machine policy to the read-only outer sandbox' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             Mock Resolve-AiCliLaunchExecutable {
-                [pscustomobject]@{ FileName = 'C:\codex\codex.exe'; PrefixArgs = @(); Kind = 'native' }
+                [pscustomobject]@{
+                    FileName = 'C:\codex\codex.exe'
+                    PrefixArgs = @()
+                    Kind = 'npm-node'
+                    SandboxHelperPath = (Get-Command pwsh.exe).Source
+                }
             }
 
             $wrapped = ConvertTo-AiCliSandboxedCommand -FileName 'C:\tools\agent.exe' `

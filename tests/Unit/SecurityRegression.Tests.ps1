@@ -104,6 +104,34 @@ Describe 'Verification evidence' {
 }
 
 Describe 'Live text evidence' {
+    It 'binds a preferred Codex sandbox launch to one npm package and its helper' {
+        $npmRoot = Join-Path $TestDrive 'npm'
+        $shim = Join-Path $npmRoot 'codex.cmd'
+        $node = Join-Path $TestDrive 'node.exe'
+        $package = Join-Path $npmRoot 'node_modules\@openai\codex'
+        $launcher = Join-Path $package 'bin\codex.js'
+        $helper = Join-Path $package 'node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\codex-resources\codex-windows-sandbox-setup.exe'
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $launcher), (Split-Path -Parent $helper) | Out-Null
+        Set-Content -LiteralPath $shim -Value '@echo off' -Encoding ascii
+        Set-Content -LiteralPath $node -Value '' -Encoding ascii
+        Set-Content -LiteralPath $launcher -Value '' -Encoding ascii
+        Set-Content -LiteralPath $helper -Value '' -Encoding ascii
+
+        InModuleScope AiCliProfileManager -Parameters @{ Shim = $shim; Node = $node; Package = $package; Helper = $helper } {
+            Mock Find-AiCliCommandPath {
+                if ($Name -eq 'codex') { return $Shim }
+                if ($Name -eq 'node') { return $Node }
+                return $null
+            }
+
+            $resolved = Resolve-AiCliLaunchExecutable -Name 'codex' -PreferNpmCodex
+
+            $resolved.Kind | Should -Be 'npm-node'
+            $resolved.ManagedPackageRoot | Should -Be $Package
+            $resolved.SandboxHelperPath | Should -Be $Helper
+        }
+    }
+
     It 'runs a CMD shim with its launcher prefix when collecting CLI version evidence' {
         $shim = Join-Path $TestDrive 'claude test shim.cmd'
         [IO.File]::WriteAllLines($shim, @('@echo off', 'echo Claude Code 9.8.7-test'))

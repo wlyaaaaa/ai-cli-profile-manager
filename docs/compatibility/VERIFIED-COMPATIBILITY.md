@@ -36,6 +36,8 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 
 另有三条本机用户 Profile 在 2026-07-14（UTC+8）完成文本验收：Codex 0.144.3、Claude Code 2.1.207 和 Rust OI 0.0.21 均连接本机 Ollama `qwen3.6:27b`，目标 CLI exit 0 且最终正文严格等于 `PONG`。这些用户 Profile 使用非公开默认端口，因此证据只说明三套 Ollama 适配路径在该配置下通过，**不能**替代上表三个公共默认 Ollama Profile 的最终验收；三条工具层同样跳过，状态为“可用但有限制”。
 
+2026-07-29（UTC+8）又对本机 `qwen-main-v1` 做了更新后复核：Codex CLI 0.145.0、Claude Code 2.1.220、Qwen Code 0.21.0、OpenCode 1.18.8 均已通过修复后的本地文本 smoke。此前三套非 Codex runner 共同失败的原因是外层沙箱按修改时间选中了缺少配套 helper 的另一版 Desktop `codex.exe`；当前实现固定从同一 npm Codex 包解析启动器与唯一 `codex-windows-sandbox-setup.exe`，不再跨安装来源拼装。完整任务中 Codex 的硬预算/事件协议 3/3；Claude、Qwen Code、OpenCode 仍只能报告 `upstream` 或 `not-enforced`，不能晋升为受管默认。Qwen Code 两个满分产物最终 exit 53，当前 0.21.0 将其定义为会话轮次达到上限，因此状态仍为“可用但有限制”。
+
 ## 3. 验收命令
 
 先静态检查：

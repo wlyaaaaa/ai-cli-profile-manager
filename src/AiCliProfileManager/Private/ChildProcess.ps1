@@ -88,9 +88,22 @@ function ConvertTo-AiCliSandboxedCommand {
     if (-not (Test-Path -LiteralPath $workspacePath -PathType Container)) {
         throw "Sandbox workspace 不存在: $workspacePath"
     }
-    $codex = Resolve-AiCliLaunchExecutable -Name 'codex'
-    if (-not $codex) {
-        throw 'Codex CLI sandbox 不可用；machine run 拒绝无沙箱降级。'
+    # The sandbox binary and codex-resources directory are one atomic runtime.
+    # Do not let an independently updated Desktop binary win by PATH/mtime:
+    # the npm launcher supplies CODEX_MANAGED_PACKAGE_ROOT to its matching
+    # native binary, which is how the setup helper is resolved.
+    $codex = Resolve-AiCliLaunchExecutable -Name 'codex' -PreferNpmCodex
+    if (-not $codex -or (Get-AiCliProperty $codex 'Kind') -ne 'npm-node') {
+        throw 'Codex CLI npm sandbox runtime 不可用；machine run 拒绝切换到未绑定资源目录的 Codex。'
+    }
+    $sandboxHelper = [string](
+        Get-AiCliProperty $codex 'SandboxHelperPath'
+    )
+    if (
+        [string]::IsNullOrWhiteSpace($sandboxHelper) -or
+        -not (Test-Path -LiteralPath $sandboxHelper -PathType Leaf)
+    ) {
+        throw 'Codex CLI npm sandbox runtime 缺少唯一匹配的 codex-windows-sandbox-setup.exe。'
     }
     $args = [System.Collections.Generic.List[string]]::new()
     foreach ($arg in @((Get-AiCliProperty $codex 'PrefixArgs') | ForEach-Object { $_ })) {
@@ -1515,9 +1528,12 @@ function Resolve-AiCliLaunchExecutable {
       Windows npm shims (*.ps1/*.cmd) cannot be started via ProcessStartInfo.FileName.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Name)
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [switch]$PreferNpmCodex
+    )
 
-    if ($Name -eq 'codex') {
+    if ($Name -eq 'codex' -and -not $PreferNpmCodex) {
         $localBin = Join-Path (Get-AiCliKnownFolder LocalAppData) 'OpenAI\Codex\bin'
         if (Test-Path -LiteralPath $localBin) {
             $desktop = Get-ChildItem -LiteralPath $localBin -Recurse -Filter 'codex.exe' -ErrorAction SilentlyContinue |
@@ -1566,7 +1582,23 @@ function Resolve-AiCliLaunchExecutable {
                 $nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue | Select-Object -First 1
                 if ($nodeCmd) { $node = $nodeCmd.Source }
             }
-            return [pscustomobject]@{ FileName = $node; PrefixArgs = @($js); Kind = 'npm-node' }
+            $packageRoot = Split-Path -Parent (Split-Path -Parent $js)
+            $helpers = @(
+                Get-ChildItem -LiteralPath (Join-Path $packageRoot 'node_modules') `
+                    -Recurse -File -Filter 'codex-windows-sandbox-setup.exe' `
+                    -ErrorAction SilentlyContinue
+            )
+            return [pscustomobject]@{
+                FileName = $node
+                PrefixArgs = @($js)
+                Kind = 'npm-node'
+                ManagedPackageRoot = $packageRoot
+                SandboxHelperPath = if ($helpers.Count -eq 1) {
+                    $helpers[0].FullName
+                } else {
+                    $null
+                }
+            }
         }
     }
 

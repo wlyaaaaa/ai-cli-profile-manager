@@ -29,7 +29,7 @@ $task | aicli run codex-ollama-main `
 - 调用接口只从 stdin 接收任务正文，不把正文放入 argv。Codex 原生沙箱路径由可信内部桥直接从 stdin 驱动 app-server；仍使用外层沙箱的路径因沙箱不转发 stdin，父进程才通过带随机名称且只授权父进程身份与隔离沙箱身份的命名管道，把正文交给沙箱内桥接器。任务正文不写入参数、环境变量、工作区或临时文件。返回值是一个 JSON envelope。
 - 官方 Codex machine run 使用 Codex CLI 原生命令沙箱：`read-only` 或 `workspace-write` 由 aicli 在 `turn/start` 显式传入。
 - 远程第三方 Responses Provider 需要模型传输联网。当前 Qwen Cloud 只验收到文本/只读 smoke；真实任务中 `workspace-write` 被原生沙箱策略拒绝，因此 AICLI 会在 Provider 调用前失败关闭，不能作为可写 Agent 使用。
-- 本地 Ollama Codex 及其他适用本地引擎使用强制 Windows 外层沙箱，网络关闭；内层 CLI 的自动批准不会扩大到沙箱之外。Codex app-server 由 npm 包内的原生 `codex.exe` 直接承载，避免短生命周期 Node 启动器破坏进程树清理确认。
+- 本地 Ollama Codex 及其他适用本地引擎使用强制 Windows 外层沙箱，网络关闭；内层 CLI 的自动批准不会扩大到沙箱之外。Codex 外层沙箱固定从同一 npm 安装包解析 Node 启动器、原生 `codex.exe` 与 `codex-windows-sandbox-setup.exe`，并要求 helper 唯一存在；不得按 PATH 或修改时间混用 Desktop Codex 的另一版本。Codex app-server 由该 npm 包内的原生 `codex.exe` 直接承载，避免短生命周期 Node 启动器破坏进程树清理确认。
 - 官方云端 Codex machine run 同时忽略用户配置和规则。一次性 `CODEX_HOME` 只复制现有 `auth.json`；不会复制 `config.toml`、rules、skills、sessions 或 history。
 - `workspace-write` 允许修改指定工作区。因此应传入隔离 worktree 或暂存目录，canonical raw 数据只读保留在边界外。
 - `read-only` 让 CLI 在一次性运行目录写自身状态，来源工作区只读；任务结束后清理运行目录。
@@ -48,5 +48,6 @@ $task | aicli run codex-ollama-main `
 - 最终回执通过 `machineEventProjection`、`machineEventStatus` 与 `machineEventCount` 标明观察级别。事件写入失败时状态为 `degraded`，已完成的模型结果不会被重跑；调用方也不得用失败后的自动重试制造重复副作用。
 - JSONL 事件类型使用封闭 allowlist。未知事件、未知 item、持续输出超过墙钟或无法确认完整进程树终止时，`limitEnforcement` 会失败关闭；回执用 `limitUsage`、`limitHit`、`cleanupConfirmed` 与 `stepDefinition` 说明原因。
 - 其他 CLI 只有在自身回执能证明相同硬边界时才可被上层当作有限预算 runner；`upstream` 或 `not-enforced` 不能冒充 `hard`。
+- CLI 更新不应直接等同于受管 machine runtime 晋升。稳定策略是保留 last-known-good 活跃槽，把新版本放入候选槽，先校验包内可执行文件与资源闭包、版本/协议探测、禁网沙箱和少量本地 smoke，再原子切换；任何失败都继续使用旧槽。当前版本已经实施运行时原子绑定和失败关闭，但尚未提供四套 CLI 通用的自动候选槽安装器，因此在该安装器完成前，更新后仍需按当前版本与 Profile 指纹重新验收。
 
 产品边界：aicli 只启动和约束进程，不判断低级模型是否胜任任务，也不在额度、限流或失败时自动 fallback。上层模型应给出确定性验收器，依据最终文件、exit code、墙钟时间和结果回执裁决；若显式改投本地模型，必须保留原失败回执和新的本地回执，不得把结果冒充为原模型产出。可以持续读取上述安全公共事件，但不要读取、保存或伪装隐藏思考流。
