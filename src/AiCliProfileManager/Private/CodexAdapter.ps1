@@ -59,16 +59,19 @@ function Add-AiCliCodexProviderOverrides {
         [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$ArgumentList,
         [Parameter(Mandatory)]$MergedProfile,
         [Parameter(Mandatory)][string]$ProviderId,
-        [Parameter(Mandatory)][string]$EnvironmentKey
+        [Parameter(Mandatory)][string]$EnvironmentKey,
+        [string]$Model
     )
     $null = Assert-AiCliSafeIdentifier -Id $ProviderId -Kind 'Codex Provider ID'
     $endpoint = [string](Get-AiCliProperty $MergedProfile 'endpoint')
     Assert-AiCliEndpointSafe -Url $endpoint
-    $model = [string](Get-AiCliProperty (Get-AiCliProperty $MergedProfile 'models') 'primary')
-    $null = Assert-AiCliModelId -Model $model
+    if ([string]::IsNullOrWhiteSpace($Model)) {
+        $Model = [string](Get-AiCliProperty (Get-AiCliProperty $MergedProfile 'models') 'primary')
+    }
+    $null = Assert-AiCliModelId -Model $Model
     $name = [string](Get-AiCliProperty $MergedProfile 'displayName')
     $overrides = @(
-        ('model=' + (ConvertTo-AiCliTomlString $model))
+        ('model=' + (ConvertTo-AiCliTomlString $Model))
         ('model_provider=' + (ConvertTo-AiCliTomlString $ProviderId))
         ("model_providers.$ProviderId.name=" + (ConvertTo-AiCliTomlString $name))
         ("model_providers.$ProviderId.base_url=" + (ConvertTo-AiCliTomlString $endpoint))
@@ -238,6 +241,44 @@ function Resolve-AiCliCodexEffort {
     return $e
 }
 
+function Resolve-AiCliCodexModel {
+    param($MergedProfile, [string[]]$NativeArgs)
+    $overrides = [System.Collections.Generic.List[string]]::new()
+    for ($index = 0; $index -lt @($NativeArgs).Count; $index++) {
+        $argument = [string]$NativeArgs[$index]
+        if ($argument -in @('--model', '-m')) {
+            if ($index + 1 -ge @($NativeArgs).Count) {
+                throw "Codex 参数 $argument 缺少模型值。"
+            }
+            $index++
+            $value = [string]$NativeArgs[$index]
+            if ([string]::IsNullOrWhiteSpace($value)) {
+                throw "Codex 参数 $argument 缺少模型值。"
+            }
+            [void]$overrides.Add($value)
+        } elseif ($argument.StartsWith('--model=', [StringComparison]::Ordinal)) {
+            $value = $argument.Substring(8)
+            if ([string]::IsNullOrWhiteSpace($value)) {
+                throw 'Codex 参数 --model 缺少模型值。'
+            }
+            [void]$overrides.Add($value)
+        }
+    }
+    $distinct = @($overrides | Select-Object -Unique)
+    if ($distinct.Count -gt 1) {
+        throw "Codex 原生参数包含冲突的模型覆盖: $($distinct -join ', ')"
+    }
+    $model = if ($distinct.Count -eq 1) {
+        [string]$distinct[0]
+    } else {
+        [string](Get-AiCliProperty (Get-AiCliProperty $MergedProfile 'models') 'primary')
+    }
+    if (-not [string]::IsNullOrWhiteSpace($model)) {
+        $null = Assert-AiCliModelId -Model $model
+    }
+    return $model
+}
+
 function Resolve-AiCliCodexLaunchExecutable {
     param(
         [Parameter(Mandatory)]$MergedProfile,
@@ -293,8 +334,7 @@ function Build-AiCliCodexLaunchPlan {
     $workspaceWriteValidated = $true
     $notes = @()
     $effort = Resolve-AiCliCodexEffort -MergedProfile $MergedProfile -NativeArgs $NativeArgs
-    $models = Get-AiCliProperty $MergedProfile 'models'
-    $model = Get-AiCliProperty $models 'primary'
+    $model = Resolve-AiCliCodexModel -MergedProfile $MergedProfile -NativeArgs $NativeArgs
 
     if ($provider -eq 'openai' -or $id -eq 'codex-official') {
         foreach ($v in $script:AiCliCodexProviderVars) { $removeEnv += $v }
@@ -391,7 +431,8 @@ function Build-AiCliCodexLaunchPlan {
         }
         $cliArgs.Add('-c') | Out-Null
         $cliArgs.Add("model_reasoning_effort=`"$effort`"") | Out-Null
-        Add-AiCliCodexProviderOverrides -ArgumentList $cliArgs -MergedProfile $MergedProfile -ProviderId $providerId -EnvironmentKey 'AICLI_CODEX_PROVIDER_KEY'
+        Add-AiCliCodexProviderOverrides -ArgumentList $cliArgs -MergedProfile $MergedProfile `
+            -ProviderId $providerId -EnvironmentKey 'AICLI_CODEX_PROVIDER_KEY' -Model $model
         $notes += "派生 Profile 文件: $($written.FilePath)"
         $notes += "wire_api = responses；思考等级 $effort（上游若不支持会忽略或报错）。"
         $notes += '已清除父终端 OPENAI_BASE_URL/KEY，避免污染第三方 Profile。'

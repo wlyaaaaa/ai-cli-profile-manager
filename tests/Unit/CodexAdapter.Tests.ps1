@@ -219,4 +219,43 @@ Describe 'Codex remote Responses machine profile' {
             $plan.model | Should -Be 'qwen3.7-flash'
         }
     }
+
+    It 'binds a native model override into the machine plan and provider config' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $profile = [ordered]@{
+                id = 'codex-qwen-paygo'
+                displayName = 'Qwen test'
+                provider = 'qwen'
+                endpoint = 'https://example.invalid/compatible-mode/v1'
+                codexProviderId = 'aicli_qwen_paygo'
+                secretConfigured = $true
+                secretRef = 'test-only'
+                models = [ordered]@{ primary = 'qwen3.7-max-2026-06-08' }
+                preferences = [ordered]@{ effort = 'high' }
+            }
+            Mock Resolve-AiCliCodexLaunchExecutable {
+                [pscustomobject]@{
+                    FileName = 'C:\Program Files\nodejs\node.exe'
+                    PrefixArgs = @('C:\npm\node_modules\@openai\codex\bin\codex.js')
+                    Kind = 'npm-node'
+                }
+            }
+            Mock Write-AiCliCodexManagedProfile {
+                [pscustomobject]@{
+                    CliProfileName = 'aicli-codex-qwen-paygo'
+                    FilePath = (Join-Path $Work 'aicli-codex-qwen-paygo.config.toml')
+                    ContentHash = ('0' * 64)
+                }
+            }
+            Mock Get-AiCliSecret { 'test-secret' }
+
+            $plan = Build-AiCliCodexLaunchPlan -MergedProfile $profile `
+                -ProjectPath $Work -MachineRun `
+                -NativeArgs @('exec', '--json', '--model', 'qwen3.7-flash', '-')
+
+            $plan.model | Should -Be 'qwen3.7-flash'
+            $plan.argumentList | Should -Contain 'model="qwen3.7-flash"'
+            $plan.argumentList | Should -Not -Contain 'model="qwen3.7-max-2026-06-08"'
+        }
+    }
 }

@@ -340,6 +340,7 @@ function Invoke-AiCliProfileCapture {
         return [pscustomobject]@{
             profileId = $ProfileId
             engine = $engine
+            model = [string](Get-AiCliProperty $plan 'model')
             exitCode = [int]$captured.ExitCode
             stdout = [string]$captured.StdOut
             stderr = [string]$captured.StdErr
@@ -397,6 +398,7 @@ function Invoke-AiCliProfileCapture {
         return [pscustomobject]@{
             profileId = $ProfileId
             engine = [string](Get-AiCliProperty $plan 'engine')
+            model = [string](Get-AiCliProperty $plan 'model')
             exitCode = (Get-AiCliExitCode Unavailable)
             stdout = ''
             stderr = 'Child process exceeded the configured wall timeout.'

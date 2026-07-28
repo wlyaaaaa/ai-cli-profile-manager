@@ -18,7 +18,7 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 |----------------|----------|--------------------|----------|
 | `codex-official` | 已实现 | 可用但有限制（本轮按用户要求未做 Live） | 使用上游官方登录；不得由桌面端登录状态推断 CLI 一定可用 |
 | `codex-spark-xhigh` | 已实现 | 只读 machine run 文本/严格 JSON 通过（可用但有限制） | 2026-07-24（UTC+8）：npm Codex CLI → `gpt-5.3-codex-spark` / `xhigh`，合成任务 exit 0，正文严格 `{"status":"SPARK_AICLI_OK"}`；墙钟 15.603 秒，回执显示 1 step、0 tool call，墙钟/step/tool-call均为 hard。未据此宣称图片输入、所有工具或长期额度稳定。 |
-| `codex-qwen-paygo` | 已实现 | 文本/只读 smoke 可用；`workspace-write` 不可用 | 2026-07-28：当前 npm Codex CLI 0.145.0 → `qwen3.7-flash` 连续 3 次、`qwen3.7-plus` 1 次严格 `PONG`，均 exit 0；远程 Provider 禁网边界与原生 `codex.exe` 进程树清理已修。随后真实任务证明两模型的文件写入均被原生沙箱策略拒绝；24 步的 4/30 及 Flash 56 步的 4/30 均为无效能力分。AICLI 现会在远程 `workspace-write` 发起 Provider 调用前失败关闭，上层 Toolkit 也已禁用两款模型的 Agent route。 |
+| `codex-qwen-paygo` | 已实现 | 可用但有限制（模型覆盖已离线修复，未做付费 Live 复验；`workspace-write` 仍禁用） | 2026-07-28 账单控制台与代码复核证明：先前标为 `qwen3.7-flash` / `qwen3.7-plus` 的 Codex machine smoke 和 Agent 记录实际落到 Profile 主模型 `qwen3.7-max-2026-06-08`，旧模型身份声明撤回。根因是 app-server 重建时丢失 `exec --model` 覆盖并改用 `Plan.model=Profile primary`。当前实现已把有效模型绑定到 Provider override、machine plan、`thread/start` 和运行回执；冲突模型由上层失败关闭，本地回归测试通过。没有再次调用付费 API。旧 4/30、56 步记录只证明 Max 在当时链路中被沙箱拒绝写入，不能归因给 Flash 或 Plus。AICLI 继续在远程 `workspace-write` 发起 Provider 调用前失败关闭，上层 Toolkit 继续禁用两款模型的 Agent route。 |
 | `codex-qwen-token-plan` | 已实现 | 可用但有限制（本轮未做 Live） | Key、端点和按量套餐分开 |
 | `codex-ollama` | 已实现，公共默认 `127.0.0.1:11434` | 可用但有限制（公共默认未做 Live） | 需验证本机模型、上下文和工具能力 |
 | `claude-official` | 已实现 | 不可用（本机未登录，401） | 完成 Claude CLI 官方登录后可重新验收；不等于产品安装失败 |

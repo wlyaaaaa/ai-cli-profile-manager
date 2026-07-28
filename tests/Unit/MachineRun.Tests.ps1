@@ -37,6 +37,7 @@ $text = [Console]::In.ReadToEnd()
                     fileName = 'C:\fake\codex.exe'
                     argumentList = @('exec', '--json', '-')
                     workingDirectory = $Work
+                    model = 'qwen-main-v1'
                     environmentDelta = @{ OPENAI_API_KEY = 'CANARY_SECRET' }
                     removeEnvironment = @('ANTHROPIC_API_KEY')
                 }
@@ -71,6 +72,7 @@ $text = [Console]::In.ReadToEnd()
             $result.exitCode | Should -Be 0
             $result.stdout | Should -Match 'agent_message'
             $result.durationMs | Should -Be 123
+            $result.model | Should -Be 'qwen-main-v1'
             $result.limitEnforcement.timeout | Should -Be 'hard'
             $result.limitEnforcement.maxSteps | Should -Be 'hard'
             $result.limitEnforcement.maxToolCalls | Should -Be 'hard'
