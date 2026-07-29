@@ -424,6 +424,81 @@ function Write-AiCliMachineEvent {
     }
 }
 
+function Copy-AiCliMachineParentEnvironment {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.ProcessStartInfo]$StartInfo
+    )
+
+    # Machine children may execute tools and make provider requests. Rebuild
+    # their inherited environment from a small runtime allowlist so unrelated
+    # credentials and parent-only configuration cannot reach Codex/Node logs.
+    $allowedNames = @(
+        'ALLUSERSPROFILE',
+        'APPDATA',
+        'CommonProgramFiles',
+        'CommonProgramFiles(x86)',
+        'CommonProgramW6432',
+        'ComSpec',
+        'DOTNET_ROOT',
+        'DOTNET_ROOT(x86)',
+        'HOMEDRIVE',
+        'HOMEPATH',
+        'LANG',
+        'LC_ALL',
+        'LC_CTYPE',
+        'LOCALAPPDATA',
+        'NODE_EXTRA_CA_CERTS',
+        'NUMBER_OF_PROCESSORS',
+        'OS',
+        'Path',
+        'PATHEXT',
+        'PROCESSOR_ARCHITECTURE',
+        'PROCESSOR_ARCHITEW6432',
+        'ProgramData',
+        'ProgramFiles',
+        'ProgramFiles(x86)',
+        'ProgramW6432',
+        'PSModulePath',
+        'SSL_CERT_DIR',
+        'SSL_CERT_FILE',
+        'SystemDrive',
+        'SystemRoot',
+        'TEMP',
+        'TMP',
+        'USERPROFILE',
+        'windir'
+    )
+    $blockedDebugNames = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($name in @(
+        'CODEX_LOG',
+        'CODEX_LOG_LEVEL',
+        'NODE_DEBUG',
+        'NODE_DEBUG_NATIVE',
+        'NODE_OPTIONS',
+        'RUST_BACKTRACE',
+        'RUST_LIB_BACKTRACE',
+        'RUST_LOG',
+        'RUST_LOG_STYLE'
+    )) {
+        [void]$blockedDebugNames.Add($name)
+    }
+
+    $StartInfo.Environment.Clear()
+    foreach ($name in $allowedNames) {
+        if ($blockedDebugNames.Contains($name)) { continue }
+        $value = [Environment]::GetEnvironmentVariable(
+            $name,
+            [EnvironmentVariableTarget]::Process
+        )
+        if ($null -ne $value) {
+            $StartInfo.Environment[$name] = $value
+        }
+    }
+}
+
 function Invoke-AiCliChildCapture {
     [CmdletBinding()]
     param(
@@ -547,8 +622,15 @@ function Invoke-AiCliChildCapture {
     $psi.StandardOutputEncoding = $utf8NoBom
     $psi.StandardErrorEncoding = $utf8NoBom
     if ($WorkingDirectory) { $psi.WorkingDirectory = $WorkingDirectory }
-    foreach ($entry in [System.Environment]::GetEnvironmentVariables().GetEnumerator()) {
-        try { $psi.Environment[$entry.Key] = [string]$entry.Value } catch {}
+    $isMachineChildCapture = -not [string]::IsNullOrWhiteSpace(
+        $WritableWorkspace
+    )
+    if ($isMachineChildCapture) {
+        Copy-AiCliMachineParentEnvironment -StartInfo $psi
+    } else {
+        foreach ($entry in [System.Environment]::GetEnvironmentVariables().GetEnumerator()) {
+            try { $psi.Environment[$entry.Key] = [string]$entry.Value } catch {}
+        }
     }
     foreach ($name in $RemoveEnvironment) {
         if ($psi.Environment.ContainsKey($name)) { [void]$psi.Environment.Remove($name) }
@@ -669,6 +751,7 @@ function Invoke-AiCliChildCapture {
         'codex_appserver.response_id_invalid',
         'codex_appserver.response_after_turn_unexpected',
         'codex_appserver.version_unsupported',
+        'codex_appserver.workspace_write_unavailable',
         'codex_appserver.notification_unknown',
         'codex_appserver.notification_scope_invalid',
         'codex_appserver.turn_status_invalid',

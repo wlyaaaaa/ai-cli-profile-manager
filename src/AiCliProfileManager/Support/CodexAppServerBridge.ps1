@@ -230,6 +230,7 @@ function Throw-BridgeFailure {
             'codex_appserver.response_id_invalid',
             'codex_appserver.response_after_turn_unexpected',
             'codex_appserver.version_unsupported',
+            'codex_appserver.workspace_write_unavailable',
             'codex_appserver.notification_unknown',
             'codex_appserver.notification_scope_invalid',
             'codex_appserver.turn_status_invalid',
@@ -260,6 +261,7 @@ function Resolve-BridgeFailureCode {
     $resolved = switch ($script:BridgeStage) {
         'initialize' { 'codex_appserver.initialize_failed' }
         'thread_start' { 'codex_appserver.thread_start_failed' }
+        'workspace_write_probe' { 'codex_appserver.workspace_write_unavailable' }
         'turn_start' { 'codex_appserver.turn_start_failed' }
         'turn_stream' { 'codex_appserver.turn_stream_failed' }
         default { 'codex_appserver.setup_failed' }
@@ -831,7 +833,10 @@ function Handle-BridgeNotification {
 }
 
 function Wait-BridgeResponse {
-    param([Parameter(Mandatory)][int]$Id)
+    param(
+        [Parameter(Mandatory)][int]$Id,
+        [string]$RejectedCode = ''
+    )
 
     while ($true) {
         $message = Receive-BridgeMessage
@@ -857,18 +862,182 @@ function Wait-BridgeResponse {
             Throw-BridgeFailure -Code 'codex_appserver.response_id_invalid'
         }
         if ($null -ne (Get-BridgeProperty $message 'error')) {
-            $rejectedCode = switch ($Id) {
-                1 { 'codex_appserver.initialize_rejected' }
-                2 { 'codex_appserver.thread_start_rejected' }
-                3 { 'codex_appserver.turn_start_rejected' }
-                default { $null }
+            $resolvedRejectedCode = if (-not [string]::IsNullOrWhiteSpace($RejectedCode)) {
+                $RejectedCode
+            } else {
+                switch ($Id) {
+                    1 { 'codex_appserver.initialize_rejected' }
+                    2 { 'codex_appserver.thread_start_rejected' }
+                    3 { 'codex_appserver.turn_start_rejected' }
+                    default { $null }
+                }
             }
-            if ($rejectedCode) {
-                Throw-BridgeFailure -Code $rejectedCode
+            if ($resolvedRejectedCode) {
+                Throw-BridgeFailure -Code $resolvedRejectedCode
             }
             throw "Codex app-server request $Id failed."
         }
         return (Get-BridgeProperty $message 'result')
+    }
+}
+
+function Test-BridgePathEqual {
+    param(
+        [string]$Left,
+        [string]$Right
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Left) -or
+        [string]::IsNullOrWhiteSpace($Right)) {
+        return $false
+    }
+    try {
+        $leftPath = [IO.Path]::TrimEndingDirectorySeparator(
+            [IO.Path]::GetFullPath($Left)
+        )
+        $rightPath = [IO.Path]::TrimEndingDirectorySeparator(
+            [IO.Path]::GetFullPath($Right)
+        )
+        return $leftPath.Equals($rightPath, [StringComparison]::OrdinalIgnoreCase)
+    } catch {
+        return $false
+    }
+}
+
+function Assert-BridgeNativeWorkspaceWriteReceipt {
+    param(
+        [Parameter(Mandatory)][object]$ThreadResult,
+        [Parameter(Mandatory)][string]$WorkingDirectory,
+        [string]$RequestedModel = ''
+    )
+
+    $effectiveCwd = [string](Get-BridgeProperty $ThreadResult 'cwd')
+    $effectiveApprovalPolicy = [string](
+        Get-BridgeProperty $ThreadResult 'approvalPolicy'
+    )
+    $effectiveSandbox = Get-BridgeProperty $ThreadResult 'sandbox'
+    $effectiveSandboxType = [string](
+        Get-BridgeProperty $effectiveSandbox 'type'
+    )
+    $effectiveNetworkAccess = Get-BridgeProperty $effectiveSandbox 'networkAccess'
+    $effectiveModel = [string](Get-BridgeProperty $ThreadResult 'model')
+    $activePermissionProfile = Get-BridgeProperty $ThreadResult 'activePermissionProfile'
+    $activePermissionProfileId = [string](
+        Get-BridgeProperty $activePermissionProfile 'id'
+    )
+    $runtimeWorkspaceRoots = @(
+        Get-BridgeProperty $ThreadResult 'runtimeWorkspaceRoots'
+    )
+    $runtimeWorkspaceRootValid = (
+        $runtimeWorkspaceRoots.Count -eq 1 -and
+        (Test-BridgePathEqual `
+            -Left ([string]$runtimeWorkspaceRoots[0]) `
+            -Right $WorkingDirectory)
+    )
+    $networkContractValid = (
+        $null -eq $effectiveNetworkAccess -or
+        ($effectiveNetworkAccess -is [bool] -and -not $effectiveNetworkAccess)
+    )
+    $modelContractValid = (
+        [string]::IsNullOrWhiteSpace($RequestedModel) -or
+        $effectiveModel -eq $RequestedModel
+    )
+    if (-not (Test-BridgePathEqual -Left $effectiveCwd -Right $WorkingDirectory) -or
+        $effectiveApprovalPolicy -ne 'never' -or
+        $effectiveSandboxType -ne 'workspaceWrite' -or
+        $activePermissionProfileId -ne ':workspace' -or
+        -not $runtimeWorkspaceRootValid -or
+        -not $networkContractValid -or
+        -not $modelContractValid) {
+        Throw-BridgeFailure -Code 'codex_appserver.workspace_write_unavailable'
+    }
+}
+
+function Invoke-BridgeWorkspaceWriteProbe {
+    param(
+        [Parameter(Mandatory)][string]$WorkingDirectory,
+        [Parameter(Mandatory)][object]$SandboxPolicy
+    )
+
+    $normalizedWorkingDirectory = [IO.Path]::TrimEndingDirectorySeparator(
+        [IO.Path]::GetFullPath($WorkingDirectory)
+    )
+    $probeNonce = [guid]::NewGuid().ToString('N')
+    $probePath = Join-Path $normalizedWorkingDirectory (
+        '.aicli-write-probe-' + $probeNonce + '.tmp'
+    )
+    if (-not (Test-BridgePathEqual `
+        -Left (Split-Path -Parent $probePath) `
+        -Right $normalizedWorkingDirectory)) {
+        Throw-BridgeFailure -Code 'codex_appserver.workspace_write_unavailable'
+    }
+
+    $probeScript = @'
+$ErrorActionPreference = 'Stop'
+$probePath = [Environment]::GetEnvironmentVariable('AICLI_WRITE_PROBE_PATH', 'Process')
+$probeNonce = [Environment]::GetEnvironmentVariable('AICLI_WRITE_PROBE_NONCE', 'Process')
+if ([string]::IsNullOrWhiteSpace($probePath) -or [string]::IsNullOrWhiteSpace($probeNonce)) {
+    exit 9
+}
+try {
+    [IO.File]::WriteAllText($probePath, $probeNonce, [Text.UTF8Encoding]::new($false))
+    $observed = [IO.File]::ReadAllText($probePath, [Text.UTF8Encoding]::new($false))
+    if ($observed -ne $probeNonce) { exit 10 }
+    [IO.File]::Delete($probePath)
+    if ([IO.File]::Exists($probePath)) { exit 11 }
+    [Console]::Out.Write($probeNonce)
+} finally {
+    if ([IO.File]::Exists($probePath)) {
+        [IO.File]::Delete($probePath)
+    }
+}
+'@
+
+    try {
+        $powerShellPath = Join-Path $PSHOME 'pwsh.exe'
+        if (-not (Test-Path -LiteralPath $powerShellPath -PathType Leaf)) {
+            Throw-BridgeFailure -Code 'codex_appserver.workspace_write_unavailable'
+        }
+        Send-BridgeMessage ([ordered]@{
+            id = 30
+            method = 'command/exec'
+            params = [ordered]@{
+                command = @(
+                    $powerShellPath,
+                    '-NoLogo',
+                    '-NoProfile',
+                    '-NonInteractive',
+                    '-Command',
+                    $probeScript
+                )
+                cwd = $normalizedWorkingDirectory
+                env = [ordered]@{
+                    AICLI_WRITE_PROBE_PATH = $probePath
+                    AICLI_WRITE_PROBE_NONCE = $probeNonce
+                }
+                sandboxPolicy = $SandboxPolicy
+                timeoutMs = 5000
+                outputBytesCap = 4096
+            }
+        })
+        $probeResult = Wait-BridgeResponse -Id 30 `
+            -RejectedCode 'codex_appserver.workspace_write_unavailable'
+        $exitCode = ConvertTo-BridgeInt32 (
+            Get-BridgeProperty $probeResult 'exitCode'
+        )
+        $stdout = [string](Get-BridgeProperty $probeResult 'stdout')
+        $stderr = [string](Get-BridgeProperty $probeResult 'stderr')
+        if ($null -eq $exitCode -or
+            $exitCode -ne 0 -or
+            $stdout -ne $probeNonce -or
+            -not [string]::IsNullOrEmpty($stderr) -or
+            (Test-Path -LiteralPath $probePath)) {
+            Throw-BridgeFailure -Code 'codex_appserver.workspace_write_unavailable'
+        }
+    } finally {
+        if (Test-Path -LiteralPath $probePath -PathType Leaf) {
+            try { Remove-Item -LiteralPath $probePath -Force -ErrorAction Stop } catch {}
+        }
     }
 }
 
@@ -911,6 +1080,16 @@ try {
     if (-not [IO.Path]::IsPathRooted($workingDirectory) -or
         -not (Test-Path -LiteralPath $workingDirectory -PathType Container)) {
         throw 'Codex app-server working directory is unavailable.'
+    }
+    $sandboxBoundary = [string](
+        Get-BridgeProperty $config 'sandboxBoundary' 'outer-codex'
+    )
+    $sandboxPolicy = [string](
+        Get-BridgeProperty $config 'sandboxPolicy' 'read-only'
+    )
+    if ($sandboxBoundary -notin @('outer-codex', 'codex-native') -or
+        $sandboxPolicy -notin @('read-only', 'workspace-write')) {
+        throw 'Codex app-server bridge sandbox contract is invalid.'
     }
     $minimumCliVersion = [string](
         Get-BridgeProperty $config 'minimumCliVersion' '0.145.0'
@@ -996,7 +1175,11 @@ try {
                 version = '0.3.2'
             }
             capabilities = [ordered]@{
-                experimentalApi = $false
+                # Codex 0.145 materializes the :workspace profile only when
+                # runtimeWorkspaceRoots is supplied through its experimental
+                # schema. Without this capability the profile resolves with an
+                # empty project-root set and rejects every model-turn write.
+                experimentalApi = ($sandboxBoundary -eq 'codex-native')
             }
         }
     })
@@ -1004,26 +1187,49 @@ try {
     Send-BridgeMessage ([ordered]@{ method = 'initialized' })
 
     $script:BridgeStage = 'thread_start'
-    $sandboxBoundary = [string](
-        Get-BridgeProperty $config 'sandboxBoundary' 'outer-codex'
-    )
-    $sandboxPolicy = [string](
-        Get-BridgeProperty $config 'sandboxPolicy' 'read-only'
-    )
-    if ($sandboxBoundary -notin @('outer-codex', 'codex-native') -or
-        $sandboxPolicy -notin @('read-only', 'workspace-write')) {
-        throw 'Codex app-server bridge sandbox contract is invalid.'
-    }
-    $threadSandbox = if ($sandboxBoundary -eq 'codex-native') {
-        $sandboxPolicy
+    $turnSandbox = if ($sandboxBoundary -eq 'outer-codex') {
+        # The complete bridge/app-server process tree is already running under
+        # `codex sandbox windows`. Declaring that boundary to app-server avoids
+        # duplicate sandbox approval requests while `approvalPolicy=never`
+        # remains fail-closed. Codex 0.145 names the disabled/restricted network
+        # state `restricted`; the outer launcher additionally enforces
+        # --sandbox-state-disable-network.
+        [ordered]@{
+            type = 'externalSandbox'
+            networkAccess = 'restricted'
+        }
+    } elseif ($sandboxPolicy -eq 'workspace-write') {
+        # Codex app-server 0.145 exposes the stable workspace contract through
+        # the explicit sandboxPolicy object. Keep the same object on the
+        # no-model write probe and the real turn so the probe proves the
+        # boundary actually used by the model.
+        [ordered]@{
+            type = 'workspaceWrite'
+            writableRoots = @($workingDirectory)
+            networkAccess = $false
+            excludeTmpdirEnvVar = $false
+            excludeSlashTmp = $false
+        }
     } else {
-        'danger-full-access'
+        [ordered]@{
+            type = 'readOnly'
+            networkAccess = $false
+        }
     }
     $threadParams = [ordered]@{
         cwd = $workingDirectory
         ephemeral = $true
         approvalPolicy = 'never'
-        sandbox = $threadSandbox
+    }
+    if ($sandboxBoundary -eq 'codex-native') {
+        $threadParams['permissions'] = if ($sandboxPolicy -eq 'workspace-write') {
+            ':workspace'
+        } else {
+            ':read-only'
+        }
+        $threadParams['runtimeWorkspaceRoots'] = @($workingDirectory)
+    } else {
+        $threadParams['sandbox'] = 'danger-full-access'
     }
     $model = [string](Get-BridgeProperty $config 'model')
     if (-not [string]::IsNullOrWhiteSpace($model)) {
@@ -1043,48 +1249,42 @@ try {
         Throw-BridgeFailure -Code 'codex_appserver.version_unsupported'
     }
     $script:CliVersion = $cliVersion
+    if ($sandboxBoundary -eq 'codex-native' -and
+        $sandboxPolicy -eq 'workspace-write') {
+        Assert-BridgeNativeWorkspaceWriteReceipt `
+            -ThreadResult $threadResult `
+            -WorkingDirectory $workingDirectory `
+            -RequestedModel $model
+        $script:BridgeStage = 'workspace_write_probe'
+        Invoke-BridgeWorkspaceWriteProbe `
+            -WorkingDirectory $workingDirectory `
+            -SandboxPolicy $turnSandbox
+    }
     Write-BridgeThreadStarted -Thread $thread
 
     $script:BridgeStage = 'turn_start'
-    $turnSandbox = if ($sandboxBoundary -eq 'codex-native') {
-        if ($sandboxPolicy -eq 'workspace-write') {
-            [ordered]@{
-                type = 'workspaceWrite'
-                writableRoots = @($workingDirectory)
-                networkAccess = $false
-                excludeTmpdirEnvVar = $false
-                excludeSlashTmp = $false
-            }
+    $turnParams = [ordered]@{
+        threadId = $script:ThreadId
+        input = @([ordered]@{
+            type = 'text'
+            text = $task
+        })
+        approvalPolicy = 'never'
+    }
+    if ($sandboxBoundary -eq 'codex-native') {
+        $turnParams['permissions'] = if ($sandboxPolicy -eq 'workspace-write') {
+            ':workspace'
         } else {
-            [ordered]@{
-                type = 'readOnly'
-                networkAccess = $false
-            }
+            ':read-only'
         }
+        $turnParams['runtimeWorkspaceRoots'] = @($workingDirectory)
     } else {
-        # The complete bridge/app-server process tree is already running under
-        # `codex sandbox windows`. Declaring that boundary to app-server avoids
-        # duplicate sandbox approval requests while `approvalPolicy=never`
-        # remains fail-closed. Codex 0.145 names the disabled/restricted network
-        # state `restricted`; the outer launcher additionally enforces
-        # --sandbox-state-disable-network.
-        [ordered]@{
-            type = 'externalSandbox'
-            networkAccess = 'restricted'
-        }
+        $turnParams['sandboxPolicy'] = $turnSandbox
     }
     Send-BridgeMessage ([ordered]@{
         id = 3
         method = 'turn/start'
-        params = [ordered]@{
-            threadId = $script:ThreadId
-            input = @([ordered]@{
-                type = 'text'
-                text = $task
-            })
-            approvalPolicy = 'never'
-            sandboxPolicy = $turnSandbox
-        }
+        params = $turnParams
     })
     $turnResult = Wait-BridgeResponse -Id 3
     Write-BridgeTurnStarted -Turn (Get-BridgeProperty $turnResult 'turn')

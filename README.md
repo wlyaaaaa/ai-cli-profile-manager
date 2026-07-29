@@ -55,9 +55,17 @@ aicli eject <Profile ID> [--output <新目录>]
 aicli help [主题或命令]
 ```
 
-`run` 是供上层 AI/程序使用的非交互入口：调用接口只从 stdin 接收任务正文，不把正文写入 argv、环境变量、工作区或临时文件，并返回一个 JSON envelope。Codex machine run 以当前实装并已验收的 npm `codex-cli 0.145.0` app-server 协议为基线；CLI 更新后默认尝试运行，并用严格的字段、通知、thread/turn、item 生命周期、成功轮次 `completed` 状态和清理门禁判断兼容性，不兼容时明确失败。只有已验证的 `0.145.x` 允许一种窄兼容：一个或多个未完成的公开进度 `agentMessage` 必须全部早于同轮次、已完成且有公开正文的最终 `agentMessage`；更新/未知版本、缺少后续 final、final 之后的新 orphan，或任何非消息 orphan 都不会套用该例外。可选的 `--event-file` 会持续追加 `aicli.machine-event.v1` 公共事件：公开 `agentMessage` 增量按短语聚合为 `output.delta`，进度、粗粒度工具事件和最终结果可见；隐藏推理正文、命令/参数、工具输入输出、压缩 history、文件内容和原始 stderr 不公开。`maxSteps` 只统计不同的非输出 ThreadItem，公开进度与最终消息不会挤占行动预算；墙钟、输出上限和工具调用上限仍是独立硬门。上下文事件只投影 app-server 实际报告的“当前上下文 / 模型上下文上限”与自动压缩完成计数，不做本地 token 或上下文估算。官方 Codex 使用 CLI 原生 `read-only` / `workspace-write` 命令沙箱；本地 Ollama Codex 及其他适用本地引擎使用网络关闭的 Windows 外层沙箱。远程第三方 Responses Provider 必须让模型传输联网；2026-07-28 已修其外层禁网和 Node 根进程清理问题，但真实 Qwen Cloud 任务仍证明原生 `workspace-write` 被策略拒绝，因此远程 `workspace-write` 现在会在 Provider 调用前失败关闭，只读 smoke 不受影响。官方 Codex 的一次性 `CODEX_HOME` 只含登录凭据，不继承用户配置、规则、技能或历史。Qwen Code/OpenCode 不提供绕过边界的交互式 `start`。
+`run` 是供上层 AI/程序使用的非交互入口：调用接口只从 stdin 接收任务正文，不把正文写入 argv、环境变量、工作区或临时文件，并返回一个 JSON envelope。Codex machine run 以当前实装并已验收的 npm `codex-cli 0.145.0` app-server 协议为基线；CLI 更新后默认尝试运行，并用严格的字段、通知、thread/turn、item 生命周期、成功轮次 `completed` 状态和清理门禁判断兼容性，不兼容时明确失败。只有已验证的 `0.145.x` 允许一种窄兼容：一个或多个未完成的公开进度 `agentMessage` 必须全部早于同轮次、已完成且有公开正文的最终 `agentMessage`；更新/未知版本、缺少后续 final、final 之后的新 orphan，或任何非消息 orphan 都不会套用该例外。可选的 `--event-file` 会持续追加 `aicli.machine-event.v1` 公共事件：公开 `agentMessage` 增量按短语聚合为 `output.delta`，进度、粗粒度工具事件和最终结果可见；隐藏推理正文、命令/参数、工具输入输出、压缩 history、文件内容和原始 stderr 不公开。`maxSteps` 只统计不同的非输出 ThreadItem，公开进度与最终消息不会挤占行动预算；墙钟、输出上限和工具调用上限仍是独立硬门。上下文事件只投影 app-server 实际报告的“当前上下文 / 模型上下文上限”与自动压缩完成计数，不做本地 token 或上下文估算。
 
-本机预置本地 Profile：`codex-ollama-main`、`claude-ollama-main`、`qwen-code-ollama-main`、`opencode-ollama-main`，都固定访问 `127.0.0.1:32100` 的 `qwen-main-v1`。另有显式 opt-in 的 `codex-spark-xhigh`，精确选择 `gpt-5.3-codex-spark` 与默认 `xhigh`。新增 Spark 不改变本地默认；所有 Profile 都不自动 fallback，上层调用者仍负责选择、额度失败后的显式重提、隔离工作区和最终验收。
+官方 Codex 的原生 `workspace-write` 在 Codex CLI `0.145.x` 中必须同时使用 `permissions=:workspace` 与唯一的 `runtimeWorkspaceRoots`，且该根必须精确等于请求 `cwd`；AICLI 会在 `thread/start` 和 `turn/start` 传入同一绑定，回读有效权限并在模型调用前执行写探针。空根、根漂移或探针失败都会提前失败。`approvalPolicy` 固定为 `never`，任何审批/用户输入 RPC 均失败关闭。本地 Ollama Codex 及其他适用本地引擎仍使用网络关闭的 Windows 外层沙箱。
+
+machine child 的父环境按运行时 allowlist 重建，不再继承无关凭据或调试设置；受管 `EnvironmentDelta` 仍可显式注入本次 Profile 所需变量。官方 Codex/Spark 使用一次性 `CODEX_HOME` 中的登录 `auth.json` 副本，不使用付费 API Key，也不继承用户配置、规则、技能或历史。Qwen Code/OpenCode 不提供绕过边界的交互式 `start`。
+
+远程 Qwen Cloud Agent route 当前禁用且不做付费复测。2026-07-28 以前标成 Flash/Plus 的 Codex Agent 记录因 bridge 丢失模型覆盖，实际调用了 Profile 主模型 Max；这些旧身份与能力结论已撤回，不能作为 Flash/Plus 证据。
+
+本机预置本地 Profile：`codex-ollama-main`、`claude-ollama-main`、`qwen-code-ollama-main`、`opencode-ollama-main`，都固定访问 `127.0.0.1:32100` 的 `qwen-main-v1`。另有显式 opt-in 的 `codex-spark-xhigh`，精确选择 `gpt-5.3-codex-spark` 与默认 `xhigh`。2026-07-29 的源代码入口真实任务已经证明 Spark 的工作区写权限生效，但 `code_repair` 在硬上限 `80` 步下到达 `81/80`，确定性得分仅 `2/9`；因此当前能力验收不通过，不登记为合格代码 Agent，也不为改变结果重复复测。所有 Profile 都不自动 fallback，上层调用者仍负责选择、额度失败后的显式重提、隔离工作区和最终验收。
+
+仓库当前包含尚未发布的 machine-run 修复，已安装的 `0.3.2` PowerShell 模块不会随工作树自动更新。维护者用仓库源代码入口验收时必须明确记录该入口；在执行正式安装/候选晋升前，不得把 source 验收写成 installed runtime 已更新。
 
 已有 OpenClaw 千问/DeepSeek 配置时，可先安全预览再导入；默认不会写入，详见主手册：
 

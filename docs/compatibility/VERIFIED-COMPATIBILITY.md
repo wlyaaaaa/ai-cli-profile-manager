@@ -1,8 +1,10 @@
 # 兼容性与最终验收状态
 
-文档日期：2026-07-24（UTC+8）
+文档日期：2026-07-29（UTC+8）
 产品版本：`0.3.2`
 状态原则：代码路径存在不等于 Provider 已通过；最终状态必须来自当前版本、当前 Profile 指纹和真实目标 CLI 的验收记录。
+
+当前工作树包含未发布的源代码修复，已安装的 `0.3.2` 模块没有重装或自动晋升。下文明确标注为“源代码入口”的证据不得解释成 installed runtime 已更新。
 
 ## 1. 当前实现基线
 
@@ -17,8 +19,8 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | Profile / 路径 | 实现状态 | 本轮最终 Live 状态 | 发布说明 |
 |----------------|----------|--------------------|----------|
 | `codex-official` | 已实现 | 可用但有限制（本轮按用户要求未做 Live） | 使用上游官方登录；不得由桌面端登录状态推断 CLI 一定可用 |
-| `codex-spark-xhigh` | 已实现 | 只读 machine run 文本/严格 JSON 通过（可用但有限制） | 2026-07-24（UTC+8）：npm Codex CLI → `gpt-5.3-codex-spark` / `xhigh`，合成任务 exit 0，正文严格 `{"status":"SPARK_AICLI_OK"}`；墙钟 15.603 秒，回执显示 1 step、0 tool call，墙钟/step/tool-call均为 hard。未据此宣称图片输入、所有工具或长期额度稳定。 |
-| `codex-qwen-paygo` | 已实现 | 可用但有限制（模型覆盖已离线修复，未做付费 Live 复验；`workspace-write` 仍禁用） | 2026-07-28 账单控制台与代码复核证明：先前标为 `qwen3.7-flash` / `qwen3.7-plus` 的 Codex machine smoke 和 Agent 记录实际落到 Profile 主模型 `qwen3.7-max-2026-06-08`，旧模型身份声明撤回。根因是 app-server 重建时丢失 `exec --model` 覆盖并改用 `Plan.model=Profile primary`。当前实现已把有效模型绑定到 Provider override、machine plan、`thread/start` 和运行回执；冲突模型由上层失败关闭，本地回归测试通过。没有再次调用付费 API。旧 4/30、56 步记录只证明 Max 在当时链路中被沙箱拒绝写入，不能归因给 Flash 或 Plus。AICLI 继续在远程 `workspace-write` 发起 Provider 调用前失败关闭，上层 Toolkit 继续禁用两款模型的 Agent route。 |
+| `codex-spark-xhigh` | 已实现；workspace 修复仅在未发布源码 | 能力验收不通过 | 2026-07-24 的只读严格 JSON smoke 仍只证明文本链路。2026-07-29 使用仓库源代码入口和 `gpt-5.3-codex-spark` / `xhigh` 的真实 `workspace-write` 任务已证明命名权限与工作区写入生效；但 `code_repair` 在硬上限 `maxSteps=80` 下达到 `81/80` 后终止，确定性得分 `2/9`。本轮停止复测，不把权限修复等同于代码 Agent 能力通过。官方 Spark 使用临时 `CODEX_HOME` / `auth.json` 副本，不走付费 API Key。 |
+| `codex-qwen-paygo` | 模型绑定修复仅在未发布源码；付费 route 禁用 | 不可用（不做付费 Live 复验） | 2026-07-28 账单控制台与代码复核证明：先前标为 `qwen3.7-flash` / `qwen3.7-plus` 的 Codex machine smoke 和 Agent 记录实际落到 Profile 主模型 `qwen3.7-max-2026-06-08`，旧模型身份声明撤回。根因是 app-server 重建时丢失 `exec --model` 覆盖并改用 `Plan.model=Profile primary`。仓库源码已把有效模型绑定到 Provider override、machine plan、`thread/start` 和运行回执，冲突模型失败关闭；但没有重装 installed `0.3.2`，也没有再次调用付费 API。旧 4/30、56 步记录只证明 Max 在当时链路中被沙箱拒绝写入，不能归因给 Flash 或 Plus。 |
 | `codex-qwen-token-plan` | 已实现 | 可用但有限制（本轮未做 Live） | Key、端点和按量套餐分开 |
 | `codex-ollama` | 已实现，公共默认 `127.0.0.1:11434` | 可用但有限制（公共默认未做 Live） | 需验证本机模型、上下文和工具能力 |
 | `claude-official` | 已实现 | 不可用（本机未登录，401） | 完成 Claude CLI 官方登录后可重新验收；不等于产品安装失败 |
@@ -63,7 +65,7 @@ aicli test <Profile ID> --live --level text --yes
 - 临时空目录运行，禁用或隔离项目配置、私人规则和普通工具。
 - 记录 CLI 版本、Provider、端点、模型、Profile 指纹和测试时间，不记录提示/回复正文或秘密。
 
-`codex-spark-xhigh` 的 machine run 证据与桌面端“能够创建 Spark 任务”是两条不同事实：前者证明 aicli/工具包可以通过 Codex CLI 程序化调用并取得结构化回执，后者只证明 Codex 产品界面提供该模型选项。额度和限流仍是动态外部状态；aicli 不自动降级，调用方如改投本地模型必须显式重提并保留两份回执。
+`codex-spark-xhigh` 的 machine run 证据与桌面端“能够创建 Spark 任务”是两条不同事实。当前证据进一步拆成三层：旧只读 smoke 证明文本链路，2026-07-29 的写任务证明源码权限修复生效，而同一任务的 `81/80` 与 `2/9` 证明能力验收不通过。额度和限流仍是动态外部状态；aicli 不自动降级，调用方如改投本地模型必须显式重提并保留两份回执。
 
 ## 4. 当前命令事实
 
@@ -78,7 +80,7 @@ aicli test <Profile ID> --live --level text --yes
 
 内置模板当前候选包括：
 
-- 千问主模型：`qwen3.7-max-2026-06-08`；小模型候选：`qwen3.7-plus-2026-05-26`。
+- 千问模板仍可能声明 `qwen3.7-max-2026-06-08` 与其他候选模型，但付费 Qwen Agent route 当前禁用；Flash/Plus 旧记录的模型身份已撤回，模板存在不代表已验收或允许默认调用。
 - DeepSeek 主模型：`deepseek-v4-pro`；小模型：`deepseek-v4-flash`。
 - Ollama 公共模板只使用默认端口和公开模型名；用户必须确认本机已经存在该模型。
 

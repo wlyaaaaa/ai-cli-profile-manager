@@ -21,8 +21,11 @@
 - 第三方代理 Windows artifact 必须匹配产品批准的精确 SHA256，并在安装前通过安全解压与结构验证；启动时还必须通过进程身份、健康响应和 IPv4 loopback 监听验证，才会保存运行状态。`0.1.0` 不执行已安装代理的受管版本切换。
 - Live Tool Test 只允许隔离的单用途 nonce 工具；无法证明隔离时跳过并报告限制。
 - Open Interpreter 只支持官方 Rust `0.0.21+`；默认不启用审批或沙箱绕过。
-- `aicli run` 必须经过 Codex Windows 外层沙箱并禁用外网；内部 CLI 可自动批准的前提是外层已把写权限限制在指定工作区或一次性运行目录。没有可用沙箱时拒绝运行，不无沙箱降级。
-- machine run 的调用接口只从 stdin 接收任务正文，不把正文放入进程参数；Codex 路径会在一次性运行目录暂存正文，参数只含文件路径。临时任务与 Qwen/Codex/Claude/OpenCode 配置在任务结束后删除。
+- 官方或需模型传输联网的 Codex machine run 使用 Codex 原生 app-server 沙箱；本地 Ollama Codex 及其他适用引擎使用禁网的 Windows 外层沙箱。没有可验证的对应边界时拒绝运行，不无沙箱降级。
+- Codex CLI `0.145.x` 的原生 `workspace-write` 必须在 `thread/start` 和 `turn/start` 同时传入 `permissions=:workspace` 与唯一的 `runtimeWorkspaceRoots`，且该根精确等于请求 `cwd`。桥接器回读实际 `workspaceWrite`、`:workspace` 和同一根，并在模型调用前执行写探针；空根、根漂移或探针失败都会提前失败。`approvalPolicy=never` 是固定合同，任何审批或用户输入 RPC 均失败关闭。
+- machine run 的调用接口只从 stdin 接收任务正文，不把正文放入进程参数。Codex 原生路径直接通过内存桥接；外层沙箱路径才使用受限 ACL 的随机命名管道。临时 Qwen/Codex/Claude/OpenCode 配置与运行目录在任务结束后删除。
+- machine child 的继承环境从 Windows、PowerShell、Node/TLS 所需 allowlist 重建，不继承完整父环境或调试变量。调用计划仍可通过 `EnvironmentDelta` 显式注入目标 Profile 必需的 Provider/运行时变量；因此显式注入属于受信任权限边界，维护者必须避免无关变量进入计划和日志。
+- 官方 Codex/Spark 不要求付费 API Key。它使用一次性 `CODEX_HOME` 中的现有 `auth.json` 副本，并且不复制 `config.toml`、rules、skills、sessions 或 history；该副本仍按凭据处理并在运行后清理。
 
 ## 不属于本产品的保证
 

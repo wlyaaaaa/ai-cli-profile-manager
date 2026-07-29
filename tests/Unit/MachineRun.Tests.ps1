@@ -710,6 +710,336 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         }
     }
 
+    It 'rejects native workspace-write when the thread receipt has no runtime workspace root' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-readonly-workspace-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'readonly-workspace-app-server-bridge.json'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{"userAgent":"Codex Desktop/0.145.0 (test)","codexHome":"C:\\fake","platformFamily":"windows","platformOs":"windows"}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            $response = [ordered]@{
+                id = 2
+                result = [ordered]@{
+                    thread = [ordered]@{
+                        id = '019f98ff-110f-7390-8d7b-d85d70bba89f'
+                        cliVersion = '0.145.0'
+                    }
+                    model = 'gpt-test'
+                    cwd = [string]$message.params.cwd
+                    approvalPolicy = 'never'
+                    sandbox = [ordered]@{
+                        type = 'workspaceWrite'
+                        networkAccess = $false
+                    }
+                    activePermissionProfile = [ordered]@{
+                        id = ':workspace'
+                        extends = $null
+                    }
+                    runtimeWorkspaceRoots = @()
+                }
+            }
+            [Console]::Out.WriteLine(($response | ConvertTo-Json -Depth 20 -Compress))
+        }
+        'turn/start' {
+            [IO.File]::WriteAllText(
+                (Join-Path $PSScriptRoot 'MUST_NOT_START_MODEL_TURN'),
+                'bad'
+            )
+            [Console]::Out.WriteLine('{"id":3,"error":{"code":-32602,"message":"turn must not start"}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'workspace-write'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.workspace_write_unavailable'
+            $result.StdErr |
+                Should -Be 'Codex app-server protocol validation failed (codex_appserver.workspace_write_unavailable).'
+            Test-Path -LiteralPath (Join-Path $Work 'MUST_NOT_START_MODEL_TURN') |
+                Should -BeFalse
+            ($result.Usage | ConvertTo-Json -Compress) | Should -Be '{}'
+        }
+    }
+
+    It 'rejects native workspace-write when its local command probe fails before model turn start' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-failed-write-probe-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'failed-write-probe-app-server-bridge.json'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            [Console]::Out.WriteLine('{"id":1,"result":{"userAgent":"Codex Desktop/0.145.0 (test)","codexHome":"C:\\fake","platformFamily":"windows","platformOs":"windows"}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            $response = [ordered]@{
+                id = 2
+                result = [ordered]@{
+                    thread = [ordered]@{
+                        id = '019f98ff-110f-7390-8d7b-d85d70bba89f'
+                        cliVersion = '0.145.0'
+                    }
+                    model = 'gpt-test'
+                    cwd = [string]$message.params.cwd
+                    approvalPolicy = 'never'
+                    sandbox = [ordered]@{
+                        type = 'workspaceWrite'
+                        writableRoots = @()
+                        networkAccess = $false
+                    }
+                    activePermissionProfile = [ordered]@{
+                        id = ':workspace'
+                        extends = $null
+                    }
+                    runtimeWorkspaceRoots = @([string]$message.params.cwd)
+                }
+            }
+            [Console]::Out.WriteLine(($response | ConvertTo-Json -Depth 20 -Compress))
+        }
+        'command/exec' {
+            $response = [ordered]@{
+                id = $message.id
+                result = [ordered]@{
+                    exitCode = 9
+                    stdout = ''
+                    stderr = 'write blocked'
+                }
+            }
+            [Console]::Out.WriteLine(($response | ConvertTo-Json -Depth 20 -Compress))
+        }
+        'turn/start' {
+            [IO.File]::WriteAllText(
+                (Join-Path $PSScriptRoot 'MUST_NOT_START_AFTER_FAILED_PROBE'),
+                'bad'
+            )
+            $response = [ordered]@{
+                id = $message.id
+                error = [ordered]@{ code = -32602; message = 'turn must not start' }
+            }
+            [Console]::Out.WriteLine(($response | ConvertTo-Json -Compress))
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'workspace-write'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.workspace_write_unavailable'
+            Test-Path -LiteralPath (Join-Path $Work 'MUST_NOT_START_AFTER_FAILED_PROBE') |
+                Should -BeFalse
+            ($result.Usage | ConvertTo-Json -Compress) | Should -Be '{}'
+        }
+    }
+
+    It 'preflights native workspace-write before preserving the model turn sandbox contract' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-working-write-probe-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'working-write-probe-app-server-bridge.json'
+            @'
+$probeSeen = $false
+$expectedCwd = ''
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' {
+            if (-not [bool]$message.params.capabilities.experimentalApi) {
+                [Console]::Out.WriteLine('{"id":1,"error":{"code":-32602,"message":"experimental workspace profile unavailable"}}')
+                [Console]::Out.Flush()
+                continue
+            }
+            [Console]::Out.WriteLine('{"id":1,"result":{"userAgent":"Codex Desktop/0.145.0 (test)","codexHome":"C:\\fake","platformFamily":"windows","platformOs":"windows"}}')
+        }
+        'initialized' {}
+        'thread/start' {
+            if (
+                [string]$message.params.permissions -ne ':workspace' -or
+                $null -ne $message.params.sandbox -or
+                @($message.params.runtimeWorkspaceRoots).Count -ne 1 -or
+                [string]$message.params.runtimeWorkspaceRoots[0] -ne
+                    [string]$message.params.cwd
+            ) {
+                [Console]::Out.WriteLine('{"id":2,"error":{"code":-32602,"message":"named workspace root missing"}}')
+                [Console]::Out.Flush()
+                continue
+            }
+            $expectedCwd = [string]$message.params.cwd
+            $response = [ordered]@{
+                id = 2
+                result = [ordered]@{
+                    thread = [ordered]@{
+                        id = '019f98ff-110f-7390-8d7b-d85d70bba89f'
+                        cliVersion = '0.145.0'
+                    }
+                    model = 'gpt-test'
+                    cwd = $expectedCwd
+                    approvalPolicy = 'never'
+                    sandbox = [ordered]@{
+                        type = 'workspaceWrite'
+                        writableRoots = @()
+                        networkAccess = $false
+                    }
+                    activePermissionProfile = [ordered]@{
+                        id = ':workspace'
+                        extends = $null
+                    }
+                    runtimeWorkspaceRoots = @($expectedCwd)
+                }
+            }
+            [Console]::Out.WriteLine(($response | ConvertTo-Json -Depth 20 -Compress))
+        }
+        'command/exec' {
+            $sandbox = $message.params.sandboxPolicy
+            $nonce = [string]$message.params.env.AICLI_WRITE_PROBE_NONCE
+            $probePath = [string]$message.params.env.AICLI_WRITE_PROBE_PATH
+            $valid = (
+                [string]$message.params.cwd -eq $expectedCwd -and
+                $null -eq $message.params.permissionProfile -and
+                [string]$sandbox.type -eq 'workspaceWrite' -and
+                @($sandbox.writableRoots).Count -eq 1 -and
+                [string]$sandbox.writableRoots[0] -eq $expectedCwd -and
+                $sandbox.networkAccess -eq $false -and
+                $sandbox.excludeTmpdirEnvVar -eq $false -and
+                $sandbox.excludeSlashTmp -eq $false -and
+                [long]$message.params.timeoutMs -eq 5000 -and
+                [int]$message.params.outputBytesCap -eq 4096 -and
+                -not [string]::IsNullOrWhiteSpace($nonce) -and
+                $probePath.StartsWith($expectedCwd, [StringComparison]::OrdinalIgnoreCase)
+            )
+            $probeSeen = $valid
+            $response = [ordered]@{
+                id = $message.id
+                result = [ordered]@{
+                    exitCode = $(if ($valid) { 0 } else { 9 })
+                    stdout = $(if ($valid) { $nonce } else { '' })
+                    stderr = $(if ($valid) { '' } else { 'invalid probe contract' })
+                }
+            }
+            [Console]::Out.WriteLine(($response | ConvertTo-Json -Depth 20 -Compress))
+        }
+        'turn/start' {
+            $sandbox = $message.params.sandboxPolicy
+            $validTurn = (
+                $probeSeen -and
+                [string]$message.params.approvalPolicy -eq 'never' -and
+                [string]$message.params.permissions -eq ':workspace' -and
+                $null -eq $message.params.sandboxPolicy -and
+                @($message.params.runtimeWorkspaceRoots).Count -eq 1 -and
+                [string]$message.params.runtimeWorkspaceRoots[0] -eq $expectedCwd
+            )
+            if (-not $validTurn) {
+                $response = [ordered]@{
+                    id = $message.id
+                    error = [ordered]@{ code = -32602; message = 'invalid turn sandbox' }
+                }
+                [Console]::Out.WriteLine(($response | ConvertTo-Json -Compress))
+                [Console]::Out.Flush()
+                continue
+            }
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_WORKSPACE_COMMAND_CANARY","status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_WORKSPACE_COMMAND_CANARY","status":"completed","exitCode":0,"durationMs":4}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":1,"totalTokens":40},"total":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":1,"totalTokens":40},"modelContextWindow":262144}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":""}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":"WRITE_PROBE_PUBLIC"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'workspace-write'
+                model = 'gpt-test'
+                minimumCliVersion = '0.145.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 0
+            $result.ErrorCode | Should -BeNullOrEmpty
+            $result.StdOut | Should -Match 'WRITE_PROBE_PUBLIC'
+            ($result | ConvertTo-Json -Depth 10 -Compress) |
+                Should -Not -Match 'PRIVATE_WORKSPACE_COMMAND_CANARY|declined'
+            Get-ChildItem -LiteralPath $Work -Filter '.aicli-write-probe-*.tmp' |
+                Should -BeNullOrEmpty
+        }
+    }
+
     It 'accepts a newer app-server only when its runtime protocol remains compatible' {
         InModuleScope AiCliProfileManager -Parameters @{
             Work = $TestDrive
@@ -1351,7 +1681,41 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 [Console]::Out.Flush()
                 continue
             }
-            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+            $response = [ordered]@{
+                id = 2
+                result = [ordered]@{
+                    thread = [ordered]@{
+                        id = '019f98ff-110f-7390-8d7b-d85d70bba89f'
+                        cliVersion = '0.145.0'
+                    }
+                    model = 'gpt-test'
+                    cwd = [string]$message.params.cwd
+                    approvalPolicy = 'never'
+                    sandbox = [ordered]@{
+                        type = 'workspaceWrite'
+                        writableRoots = @()
+                        networkAccess = $false
+                    }
+                    activePermissionProfile = [ordered]@{
+                        id = ':workspace'
+                        extends = $null
+                    }
+                    runtimeWorkspaceRoots = @([string]$message.params.cwd)
+                }
+            }
+            [Console]::Out.WriteLine(($response | ConvertTo-Json -Depth 20 -Compress))
+        }
+        'command/exec' {
+            $nonce = [string]$message.params.env.AICLI_WRITE_PROBE_NONCE
+            $response = [ordered]@{
+                id = $message.id
+                result = [ordered]@{
+                    exitCode = 0
+                    stdout = $nonce
+                    stderr = ''
+                }
+            }
+            [Console]::Out.WriteLine(($response | ConvertTo-Json -Depth 20 -Compress))
         }
         'turn/start' {
             if ([string]$message.params.approvalPolicy -ne 'never') {
@@ -2216,6 +2580,9 @@ Start-Sleep -Seconds 2
                 $bridgeConfig.argumentList | Should -Not -Contain ([IO.Path]::GetFullPath($entry))
                 Test-Path -LiteralPath (Join-Path $runtime.RuntimePath 'codex-package') | Should -BeFalse
                 Test-Path -LiteralPath (Join-Path $runtime.EnvironmentDelta.CODEX_HOME 'aicli-local.config.toml') | Should -BeTrue
+                $runtime.EnvironmentDelta.CODEX_MANAGED_PACKAGE_ROOT |
+                    Should -Be ([IO.Path]::GetFullPath($package))
+                $runtime.EnvironmentDelta.CODEX_MANAGED_BY_NPM | Should -Be '1'
             } finally {
                 Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath -Workspace $Work
             }

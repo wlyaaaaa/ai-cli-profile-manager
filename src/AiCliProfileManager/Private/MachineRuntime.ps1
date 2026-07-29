@@ -163,6 +163,12 @@ function Initialize-AiCliMachineRuntime {
                 Copy-Item -LiteralPath $authSourceFile -Destination (Join-Path $codexHome 'auth.json') -Force
             }
             $environment['CODEX_HOME'] = $codexHome
+            # The Node launcher normally supplies these bindings before it
+            # starts the native executable. Machine runs launch codex.exe
+            # directly so the exact npm package, command runner, and Windows
+            # sandbox helper remain one versioned closure.
+            $environment['CODEX_MANAGED_PACKAGE_ROOT'] = $codexPackageSource
+            $environment['CODEX_MANAGED_BY_NPM'] = '1'
 
             $boundedAgentFlags = @('--disable', 'multi_agent', '--disable', 'multi_agent_v2')
             $sandboxBoundary = [string](Get-AiCliProperty $runtimeConfig 'sandboxBoundary' 'outer-codex')

@@ -2,6 +2,22 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
+## [Unreleased]
+
+本节只描述仓库源代码入口的未发布状态；已经安装的 `0.3.2` 模块不会因仓库修改而自动更新，未经过安装/晋升流程时不得宣称 installed runtime 已包含这些修复。
+
+### 修正
+
+- Codex CLI `0.145.x` 的原生 app-server `workspace-write` 改用实验协议中的命名权限：`thread/start` 与 `turn/start` 都传入 `permissions=:workspace`，并用唯一的 `runtimeWorkspaceRoots` 精确绑定请求 `cwd`。桥接器回读 `workspaceWrite`、`:workspace` 和同一根路径，并在模型轮次前执行受限写探针；根目录为空、漂移或探针失败时，不启动模型调用。
+- 原生 Codex machine run 继续固定 `approvalPolicy=never`；app-server 发起任何审批或用户输入 RPC 时均失败关闭，不自动批准。
+- machine child 不再继承完整父进程环境，而是从 Windows、PowerShell、Node/TLS 运行所需的小型 allowlist 重建环境，并屏蔽调试类变量。受管运行时仍可通过 `EnvironmentDelta` 显式注入本次任务所需的 Provider 或运行时变量；该显式注入是权限边界，不能被表述成“子进程永远看不到秘密”。
+- 官方 Codex/Spark machine run 继续使用一次性 `CODEX_HOME` 中的 `auth.json` 副本，不要求也不注入付费 API Key；运行目录在结束时清理。
+- 修复 app-server 重建时丢失原生 `--model` / `-m` 覆盖的问题。先前标成 Qwen Flash/Plus 的云端 Agent 记录实际使用了 Profile 主模型 Max，旧身份与能力结论已经撤回；付费 Qwen Agent route 保持禁用，本轮不做付费复测。
+
+### 验收
+
+- 通过仓库源代码入口执行的 Spark `workspace-write` 真实任务已证明工作区写权限生效；但 `code_repair` 在硬上限 `maxSteps=80` 下到达 `81/80` 并终止，确定性得分为 `2/9`。该结果属于能力验收不通过，不因写权限修复而晋升为合格代码 Agent，也不重复复测。
+
 ## [0.3.2] - 2026-07-25
 
 ### 新增
