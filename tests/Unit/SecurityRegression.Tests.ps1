@@ -258,7 +258,10 @@ Describe 'Installer safety' {
         try {
             $env:PSModulePath = $moduleRoot
             & (Join-Path $script:SecurityRepoRoot 'scripts\Install.ps1') -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration
-            $installedManifest = Join-Path $moduleRoot 'AiCliProfileManager\0.3.2\AiCliProfileManager.psd1'
+            $version = [string](Import-PowerShellDataFile -LiteralPath (
+                Join-Path $script:SecurityRepoRoot 'src\AiCliProfileManager\AiCliProfileManager.psd1'
+            )).ModuleVersion
+            $installedManifest = Join-Path $moduleRoot "AiCliProfileManager\$version\AiCliProfileManager.psd1"
             Test-Path -LiteralPath $installedManifest | Should -BeTrue
             $before = (Get-FileHash -LiteralPath $installedManifest -Algorithm SHA256).Hash
 

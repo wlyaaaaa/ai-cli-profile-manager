@@ -83,7 +83,7 @@ $leaks = @(Get-ChildItem -LiteralPath $stage -Recurse -File |
     Select-String -Pattern $secretPatterns -ErrorAction SilentlyContinue)
 if ($leaks.Count -gt 0) { throw "发行候选秘密扫描失败：$($leaks[0].Path)" }
 
-$privatePatterns = '(?i)(C:\\Users\\[^\\/\s]+(?:\\|/)|[D-Z]:\\(?:Users|Projects|\.agents|PCConfig|Documents)(?:\\|/)|127\.0\.0\.1:(?!(?:11434|43197|43198|18765|8317)\b)\d{2,5})'
+$privatePatterns = '(?i)(C:\\Users\\[^\\/\s]+(?:\\|/)|[D-Z]:\\(?:Users|Projects|\.agents|PCConfig|Documents)(?:\\|/)|127\.0\.0\.1:(?!(?:11434|32100|43197|43198|18765|8317)\b)\d{2,5})'
 $privateHits = @(Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object { $_.Extension -in @('.md','.ps1','.psm1','.psd1','.cmd','.json','.toml','.yaml','.yml','.txt') } |
     Select-String -Pattern $privatePatterns -ErrorAction SilentlyContinue)

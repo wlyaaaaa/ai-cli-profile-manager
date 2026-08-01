@@ -1,14 +1,14 @@
 # 兼容性与最终验收状态
 
-文档日期：2026-07-29（UTC+8）
-产品版本：`0.3.2`
+文档日期：2026-08-01（UTC+8）
+产品版本：`0.3.3`（本地/源码目标，未发布 Release）
 状态原则：代码路径存在不等于 Provider 已通过；最终状态必须来自当前版本、当前 Profile 指纹和真实目标 CLI 的验收记录。
 
-当前工作树包含未发布的源代码修复，已安装的 `0.3.2` 模块没有重装或自动晋升。下文明确标注为“源代码入口”的证据不得解释成 installed runtime 已更新。
+当前工作树包含未发布的 DeepSeek 与 machine-run 源代码变更。下文明确标注为“源代码入口”的证据不得解释成 GitHub Release 已发布，也不得跨 Profile 指纹复用旧 Live 记录。
 
 ## 1. 当前实现基线
 
-开发环境曾检测到：Windows 11、PowerShell 7.6.3、Codex CLI 0.144.3、Claude Code 2.1.207、Ollama 0.31.1。它们只是实现时的版本基线，不是所有用户机器的保证，也不代替最终发布验收。
+开发环境曾检测到：Windows 11、PowerShell 7.6.3、Codex CLI 0.146.0、Claude Code 2.1.220、Qwen Code 0.21.0、OpenCode 1.18.8、Open Interpreter 0.0.21。它们只是当前实现环境，不是所有用户机器的保证，也不代替逐 Profile Live 验收。`codex-deepseek` 的上游最低要求为 Codex CLI `0.144.0`。
 
 Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形如 `Open Interpreter 0.4.x` 的旧 Python 产品不在支持范围。
 
@@ -19,19 +19,20 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | Profile / 路径 | 实现状态 | 本轮最终 Live 状态 | 发布说明 |
 |----------------|----------|--------------------|----------|
 | `codex-official` | 已实现 | 可用但有限制（本轮按用户要求未做 Live） | 使用上游官方登录；不得由桌面端登录状态推断 CLI 一定可用 |
+| `codex-deepseek` | `0.3.3` 源码已实现；DeepSeek Codex public beta | 可用但有限制（尚未做当前 Flash Live） | 固定 `deepseek-v4-flash`、Responses、1M context、默认 `high`，支持 `low` / `high` / `max`；`deepseek-v4-pro` 仅 reserved 且不可选。Key 由 DPAPI 保存，Codex 配置只引用 `env_key`。machine route 当前仅 `read-only`；`workspace-write` 在请求前失败关闭。 |
 | `codex-spark-xhigh` | 已实现；workspace 修复仅在未发布源码 | 能力验收不通过 | 2026-07-24 的只读严格 JSON smoke 仍只证明文本链路。2026-07-29 使用仓库源代码入口和 `gpt-5.3-codex-spark` / `xhigh` 的真实 `workspace-write` 任务已证明命名权限与工作区写入生效；但 `code_repair` 在硬上限 `maxSteps=80` 下达到 `81/80` 后终止，确定性得分 `2/9`。本轮停止复测，不把权限修复等同于代码 Agent 能力通过。官方 Spark 使用临时 `CODEX_HOME` / `auth.json` 副本，不走付费 API Key。 |
 | `codex-qwen-paygo` | 模型绑定修复仅在未发布源码；付费 route 禁用 | 不可用（不做付费 Live 复验） | 2026-07-28 账单控制台与代码复核证明：先前标为 `qwen3.7-flash` / `qwen3.7-plus` 的 Codex machine smoke 和 Agent 记录实际落到 Profile 主模型 `qwen3.7-max-2026-06-08`，旧模型身份声明撤回。根因是 app-server 重建时丢失 `exec --model` 覆盖并改用 `Plan.model=Profile primary`。仓库源码已把有效模型绑定到 Provider override、machine plan、`thread/start` 和运行回执，冲突模型失败关闭；但没有重装 installed `0.3.2`，也没有再次调用付费 API。旧 4/30、56 步记录只证明 Max 在当时链路中被沙箱拒绝写入，不能归因给 Flash 或 Plus。 |
 | `codex-qwen-token-plan` | 已实现 | 可用但有限制（本轮未做 Live） | Key、端点和按量套餐分开 |
 | `codex-ollama` | 已实现，公共默认 `127.0.0.1:11434` | 可用但有限制（公共默认未做 Live） | 需验证本机模型、上下文和工具能力 |
 | `claude-official` | 已实现 | 不可用（本机未登录，401） | 完成 Claude CLI 官方登录后可重新验收；不等于产品安装失败 |
-| `claude-deepseek` | 已实现 | 文本通过；工具层跳过（可用但有限制） | 2026-07-14（UTC+8）：Claude Code 2.1.207 → `deepseek-v4-pro`，exit 0，最终正文严格 `PONG` |
+| `claude-deepseek` | Flash-only 模板已实现 | 可用但有限制（尚未做当前 Flash Live） | 2026-07-14 的 `deepseek-v4-pro` 文本通过记录属于旧 Profile 指纹；不能作为当前 `deepseek-v4-flash` 证据。 |
 | `claude-qwen-paygo` | 已实现 | 文本通过；工具层跳过（可用但有限制） | 2026-07-14（UTC+8）：Claude Code 2.1.207 → `qwen3.7-max-2026-06-08`，exit 0，最终正文严格 `PONG` |
 | `claude-qwen-coding-plan` | 已实现 | 可用但有限制（本轮未做 Live） | 套餐能力与模型候选必须匹配 |
 | `claude-qwen-token-plan` | 已实现 | 可用但有限制（本轮未做 Live） | 与按量/Coding Plan 分开 |
 | `claude-ollama` | 已实现，公共默认 `127.0.0.1:11434` | 可用但有限制（公共默认未做 Live） | 本机服务和模型为前置条件 |
 | `claude-custom` | 已实现 | 可用但有限制（按用户端点分别验收） | 只接受 HTTPS 或 localhost HTTP 的 Anthropic Messages 兼容端点 |
 | `oi-qwen-paygo` | Rust 0.0.21+ 适配已实现 | 文本通过；工具层跳过（可用但有限制） | 2026-07-14（UTC+8）：Rust OI 0.0.21 → `qwen3.7-max-2026-06-08`，exit 0，最终正文严格 `PONG` |
-| `oi-deepseek` | Rust 0.0.21+ 适配已实现 | 文本通过；工具层跳过（可用但有限制） | 2026-07-14（UTC+8）：Rust OI 0.0.21 → `deepseek-v4-pro`，exit 0，最终正文严格 `PONG` |
+| `oi-deepseek` | Rust 0.0.21+ Flash-only 模板已实现 | 可用但有限制（尚未做当前 Flash Live） | 2026-07-14 的 `deepseek-v4-pro` 文本通过记录属于旧 Profile 指纹；不能作为当前 `deepseek-v4-flash` 证据。 |
 | `oi-ollama` | Rust 0.0.21+ 适配已实现 | 可用但有限制（公共默认未做 Live） | 公共默认 `127.0.0.1:11434/v1` |
 | `claude-chatgpt-ccp` | 代理运维与 Profile 已实现 | 可用但有限制（本轮未做 OAuth/端到端 Live） | 可选第三方通道，不标成完全“可用” |
 | `claude-chatgpt-cliproxy` | 代理运维与 Profile 已实现 | 可用但有限制（本轮未做 OAuth/端到端 Live） | 可选第三方通道，不标成完全“可用” |
@@ -39,6 +40,8 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 另有三条本机用户 Profile 在 2026-07-14（UTC+8）完成文本验收：Codex 0.144.3、Claude Code 2.1.207 和 Rust OI 0.0.21 均连接本机 Ollama `qwen3.6:27b`，目标 CLI exit 0 且最终正文严格等于 `PONG`。这些用户 Profile 使用非公开默认端口，因此证据只说明三套 Ollama 适配路径在该配置下通过，**不能**替代上表三个公共默认 Ollama Profile 的最终验收；三条工具层同样跳过，状态为“可用但有限制”。
 
 2026-07-29（UTC+8）又对本机 `qwen-main-v1` 做了更新后复核：Codex CLI 0.145.0、Claude Code 2.1.220、Qwen Code 0.21.0、OpenCode 1.18.8 均已通过修复后的本地文本 smoke。此前三套非 Codex runner 共同失败的原因是外层沙箱按修改时间选中了缺少配套 helper 的另一版 Desktop `codex.exe`；当前实现固定从同一 npm Codex 包解析启动器与唯一 `codex-windows-sandbox-setup.exe`，不再跨安装来源拼装。完整任务中 Codex 的硬预算/事件协议 3/3；Claude、Qwen Code、OpenCode 仍只能报告 `upstream` 或 `not-enforced`，不能晋升为受管默认。Qwen Code 两个满分产物最终 exit 53，当前 0.21.0 将其定义为会话轮次达到上限，因此状态仍为“可用但有限制”。
+
+Qwen Code 0.21.0 与 OpenCode 1.18.8 的上游原生能力不能自动变成 AICLI 公开 DeepSeek 路径。当前这两套 runner 仅允许 machine-only 禁网沙箱；若直接接远程 DeepSeek，真实 Key 会进入可执行 Shell 的子进程环境，同时缺少受控远程 egress relay。边界未补齐前状态为“不可用（未开放）”，不创建假 Profile。
 
 ## 3. 验收命令
 
@@ -81,7 +84,7 @@ aicli test <Profile ID> --live --level text --yes
 内置模板当前候选包括：
 
 - 千问模板仍可能声明 `qwen3.7-max-2026-06-08` 与其他候选模型，但付费 Qwen Agent route 当前禁用；Flash/Plus 旧记录的模型身份已撤回，模板存在不代表已验收或允许默认调用。
-- DeepSeek 主模型：`deepseek-v4-pro`；小模型：`deepseek-v4-flash`。
+- DeepSeek 当前公开模板唯一可选模型：`deepseek-v4-flash`。Codex 使用 Responses public beta、1M context、默认 `high`；`deepseek-v4-pro` 只保留 `reserved` 元数据，官方支持前不可选。
 - Ollama 公共模板只使用默认端口和公开模型名；用户必须确认本机已经存在该模型。
 
 模型名、地域、套餐和端点属于动态事实。`0.1.0` 发布时已按官方来源和真实目标 CLI 证据核对；后续版本仍须重新核对。“模板中存在”不等于账号有权调用。
@@ -103,6 +106,6 @@ aicli proxy cliproxy update-check
 - Claude Code：[Commands](https://code.claude.com/docs/en/commands)、[Permissions](https://code.claude.com/docs/en/permissions)、[Model configuration](https://code.claude.com/docs/en/model-config)
 - Open Interpreter：[Install](https://www.openinterpreter.com/docs/terminal/install)、[CLI Reference](https://www.openinterpreter.com/docs/terminal/cli-reference)、[Providers](https://www.openinterpreter.com/docs/terminal/providers)
 - 千问百炼：[Codex](https://help.aliyun.com/zh/model-studio/codex)、[Claude Code](https://help.aliyun.com/zh/model-studio/claude-code)
-- DeepSeek：[Claude Code integration](https://api-docs.deepseek.com/guides/agent_integrations/claude_code)
+- DeepSeek：[Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/)、[Responses API](https://api-docs.deepseek.com/guides/responses_api/)、[Claude Code integration](https://api-docs.deepseek.com/quick_start/agent_integrations/claude_code/)、[Change Log](https://api-docs.deepseek.com/updates)
 - Ollama：[Codex](https://docs.ollama.com/integrations/codex)、[Claude Code](https://docs.ollama.com/integrations/claude-code)
 - 第三方代理：[raine/claude-code-proxy](https://github.com/raine/claude-code-proxy)、[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)

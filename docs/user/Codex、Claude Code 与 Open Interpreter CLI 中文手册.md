@@ -1,6 +1,6 @@
 # Codex、Claude Code 与 Open Interpreter CLI 中文手册
 
-适用版本：AI CLI Profile Manager `0.1.0`
+适用版本：AI CLI Profile Manager `0.3.3`（本地/源码目标，未发布 Release）
 用途：帮助中文用户直接使用原生 Codex CLI、Claude Code 和当前官方 Rust Open Interpreter。
 
 > aicli 只负责选择 Profile 并启动原生 CLI。本手册保留上游英文命令，便于复制和搜索。上游版本会变化；某条命令不在当前 CLI 的 `/help` 或斜杠菜单中时，以当前官方界面为准。
@@ -56,6 +56,8 @@ aicli start codex-official -- --model gpt-5.6-sol
 ```
 
 第三方 Codex Profile 的 Provider 配置由 aicli 管理。不要透传 `-c`、`--config` 或 `--profile` 覆盖 Provider；这些参数与启动计划冲突，会被拒绝。
+
+DeepSeek Codex public beta 使用 `codex-deepseek`：固定 `deepseek-v4-flash`、Responses 与 1M context，要求 Codex CLI `0.144.0+`，默认 `high`，支持 `low` / `high` / `max`。`deepseek-v4-pro` 当前仅预留且不可选。AICLI 用 DPAPI 保存 Key，受管配置只写 `env_key`；不要照抄官方示例里的明文 `experimental_bearer_token`。
 
 ### 2.2 权限、沙箱和计划模式
 

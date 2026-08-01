@@ -1,5 +1,22 @@
 ﻿# Build launch plan, native view, eject scripts.
 
+function Assert-AiCliLockedModelArgs {
+    param(
+        [Parameter(Mandatory)]$MergedProfile,
+        [string[]]$NativeArgs
+    )
+    if ([bool](Get-AiCliProperty $MergedProfile 'flexible' $true)) { return }
+    foreach ($argument in @($NativeArgs)) {
+        $value = [string]$argument
+        if ($value -in @('--model', '-m', '--fallback-model') -or
+            $value.StartsWith('--model=') -or
+            ($value.Length -gt 2 -and $value.StartsWith('-m')) -or
+            $value.StartsWith('--fallback-model=')) {
+            throw "参数 $value 不可用：模型由 Profile 固定。"
+        }
+    }
+}
+
 function Build-AiCliLaunchPlan {
     param(
         [Parameter(Mandatory)][string]$ProfileId,
@@ -13,6 +30,7 @@ function Build-AiCliLaunchPlan {
         if (-not $tid) { $tid = $ProfileId }
         throw "Profile 未配置完成。下一步：aicli profile configure $tid"
     }
+    Assert-AiCliLockedModelArgs -MergedProfile $merged -NativeArgs $NativeArgs
     $project = Resolve-AiCliProjectPath -Project $ProjectPath
     $engine = Get-AiCliProperty $merged 'engine'
     $proxyPort = 0

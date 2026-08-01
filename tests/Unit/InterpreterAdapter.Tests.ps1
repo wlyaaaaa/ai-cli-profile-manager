@@ -90,7 +90,7 @@ Describe 'Rust Open Interpreter adapter' {
                 id = 'oi-deepseek'; displayName = 'DeepSeek'; engine = 'interpreter'; provider = 'deepseek'
                 endpoint = 'https://api.deepseek.com/v1'; wireApi = 'chat'
                 interpreterProviderId = 'aicli_deepseek'
-                models = [ordered]@{ primary = 'deepseek-v4-pro' }
+                models = [ordered]@{ primary = 'deepseek-v4-flash' }
                 requiresSecret = $true; secretConfigured = $true; secretRef = 'secret-ref'
             }
 
@@ -98,7 +98,7 @@ Describe 'Rust Open Interpreter adapter' {
             $argv = $plan.argumentList -join ' '
 
             $argv | Should -Match 'wire_api="chat"'
-            $argv | Should -Match 'model="deepseek-v4-pro"'
+            $argv | Should -Match 'model="deepseek-v4-flash"'
             $argv | Should -Not -Match 'CANARY_OI_SECRET_654321'
         }
 

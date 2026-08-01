@@ -1740,3 +1740,71 @@ function Get-AiCliResolvedCliVersionEvidence {
         return $null
     }
 }
+
+function Get-AiCliSemanticVersionEvidence {
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $null }
+    $match = [regex]::Match(
+        $Text,
+        '(?<!\d)(?<core>\d+\.\d+\.\d+)(?<prerelease>-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?(?![0-9A-Za-z.-])'
+    )
+    if (-not $match.Success) { return $null }
+    try {
+        return [pscustomobject]@{
+            Text = $match.Value
+            Version = [version]$match.Groups['core'].Value
+            IsPrerelease = $match.Groups['prerelease'].Success
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Test-AiCliProfileMinimumCliVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$MergedProfile,
+        $VersionEvidence
+    )
+    $compatibility = Get-AiCliProperty $MergedProfile 'compatibility'
+    $minimumText = [string](Get-AiCliProperty $compatibility 'minCliVersion')
+    if ([string]::IsNullOrWhiteSpace($minimumText)) {
+        return [pscustomobject]@{ Required = $false; Supported = $true; Minimum = $null; Actual = $null }
+    }
+    if ($minimumText -notmatch '^\d+\.\d+\.\d+$') {
+        return [pscustomobject]@{ Required = $true; Supported = $false; Minimum = $minimumText; Actual = $null; Reason = 'minimum-invalid' }
+    }
+    $actualText = if ($VersionEvidence) { [string](Get-AiCliProperty $VersionEvidence 'Version') } else { '' }
+    $actual = Get-AiCliSemanticVersionEvidence -Text $actualText
+    if (-not $actual) {
+        return [pscustomobject]@{ Required = $true; Supported = $false; Minimum = $minimumText; Actual = $actualText; Reason = 'actual-unavailable' }
+    }
+    $minimum = [version]$minimumText
+    $supported = $actual.Version -gt $minimum -or
+        ($actual.Version -eq $minimum -and -not $actual.IsPrerelease)
+    return [pscustomobject]@{
+        Required = $true
+        Supported = $supported
+        Minimum = $minimumText
+        Actual = $actual.Text
+        Reason = $(if ($supported) { 'supported' } else { 'below-minimum' })
+    }
+}
+
+function Assert-AiCliProfileMinimumCliVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$MergedProfile,
+        [Parameter(Mandatory)]$Resolved
+    )
+    $compatibility = Get-AiCliProperty $MergedProfile 'compatibility'
+    $minimumText = [string](Get-AiCliProperty $compatibility 'minCliVersion')
+    if ([string]::IsNullOrWhiteSpace($minimumText)) { return }
+    $evidence = Get-AiCliResolvedCliVersionEvidence -Resolved $Resolved
+    $result = Test-AiCliProfileMinimumCliVersion -MergedProfile $MergedProfile -VersionEvidence $evidence
+    if (-not $result.Supported) {
+        $actualLabel = if ($result.Actual) { $result.Actual } else { '无法取得版本' }
+        throw "当前 CLI 版本不支持此 Profile：需要 $($result.Minimum)+，实际 $actualLabel。"
+    }
+}

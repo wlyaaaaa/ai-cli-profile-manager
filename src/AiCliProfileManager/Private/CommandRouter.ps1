@@ -569,16 +569,18 @@ function Invoke-AiCliSetup {
     Write-Host '  5) 可选 Live:   aicli test <id> --live --yes'
     $idx = Show-AiCliMenu -Title '选择要配置的方向' -Choices @(
         '仅查看说明（稍后手动）',
+        '配置 Codex DeepSeek V4 Flash 0731',
         '配置 Claude DeepSeek',
         '配置 Claude 千问按量',
         '配置 Codex 千问按量',
         '查看全部模板'
     )
     switch ($idx) {
-        1 { Invoke-AiCliProfileConfigure -TemplateId 'claude-deepseek' | Out-Null }
-        2 { Invoke-AiCliProfileConfigure -TemplateId 'claude-qwen-paygo' | Out-Null }
-        3 { Invoke-AiCliProfileConfigure -TemplateId 'codex-qwen-paygo' | Out-Null }
-        4 { Invoke-AiCliRouter -Tokens @('profile','list','--available') | Out-Null }
+        1 { Invoke-AiCliProfileConfigure -TemplateId 'codex-deepseek' | Out-Null }
+        2 { Invoke-AiCliProfileConfigure -TemplateId 'claude-deepseek' | Out-Null }
+        3 { Invoke-AiCliProfileConfigure -TemplateId 'claude-qwen-paygo' | Out-Null }
+        4 { Invoke-AiCliProfileConfigure -TemplateId 'codex-qwen-paygo' | Out-Null }
+        5 { Invoke-AiCliRouter -Tokens @('profile','list','--available') | Out-Null }
         default { Write-AiCliInfo '已结束 setup。' }
     }
     return (Get-AiCliExitCode Success)

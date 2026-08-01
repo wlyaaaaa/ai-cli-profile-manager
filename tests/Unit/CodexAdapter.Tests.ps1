@@ -259,3 +259,121 @@ Describe 'Codex remote Responses machine profile' {
         }
     }
 }
+
+Describe 'Codex DeepSeek V4 Flash catalog' {
+    BeforeAll {
+        $script:DeepSeekProfile = Get-Content -LiteralPath (
+            Join-Path $script:CodexAdapterRepoRoot 'data\providers\codex-deepseek.json'
+        ) -Raw -Encoding utf8 | ConvertFrom-Json
+    }
+
+    It 'publishes an immutable content-addressed catalog without a UTF-8 BOM' {
+        $sourceCatalog = Join-Path $script:CodexAdapterRepoRoot 'data\model-catalogs\deepseek-v4-flash.json'
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            Profile = $script:DeepSeekProfile
+            SourceCatalog = $sourceCatalog
+        } {
+            Mock Get-AiCliCodexHome { $Work }
+
+            $first = Publish-AiCliCodexModelCatalog -MergedProfile $Profile
+            $second = Publish-AiCliCodexModelCatalog -MergedProfile $Profile
+
+            $first | Should -Be $second
+            $first | Should -Match 'aicli-model-catalogs[\\/]+deepseek-v4-flash-[a-f0-9]{12}\.json$'
+            (Get-FileHash -LiteralPath $first -Algorithm SHA256).Hash |
+                Should -Be (Get-FileHash -LiteralPath $SourceCatalog -Algorithm SHA256).Hash
+            $bytes = [IO.File]::ReadAllBytes($first)
+            @($bytes[0], $bytes[1], $bytes[2]) | Should -Not -Be @(0xEF, 0xBB, 0xBF)
+        }
+    }
+
+    It 'adds the catalog to both the managed profile and effective provider overrides' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Profile = $script:DeepSeekProfile } {
+            $catalogPath = Join-Path $Work 'deepseek-v4-flash-0123456789ab.json'
+            Mock Publish-AiCliCodexModelCatalog { $catalogPath }
+            Mock Resolve-AiCliCodexLaunchExecutable {
+                [pscustomobject]@{
+                    FileName = 'C:\Program Files\nodejs\node.exe'
+                    PrefixArgs = @('C:\npm\node_modules\@openai\codex\bin\codex.js')
+                    Kind = 'npm-node'
+                }
+            }
+            Mock Get-AiCliResolvedCliVersionEvidence {
+                [pscustomobject]@{ Version = 'codex-cli 0.146.0'; FileName = 'C:\Program Files\nodejs\node.exe' }
+            }
+            Mock Write-AiCliCodexManagedProfile {
+                param($MergedProfile, $TomlBody)
+                $TomlBody | Should -Match 'model_catalog_json\s*='
+                $TomlBody | Should -Match 'env_key\s*=\s*"AICLI_CODEX_PROVIDER_KEY"'
+                $TomlBody | Should -Not -Match 'experimental_bearer_token'
+                [pscustomobject]@{
+                    CliProfileName = 'aicli-codex-deepseek'
+                    FilePath = (Join-Path $Work 'aicli-codex-deepseek.config.toml')
+                    ContentHash = ('0' * 64)
+                }
+            }
+            Mock Get-AiCliSecret { 'test-secret-never-serialize' }
+
+            $profile = $Profile | ConvertTo-Json -Depth 50 | ConvertFrom-Json -AsHashtable
+            $profile.secretConfigured = $true
+            $profile.secretRef = 'test-only'
+            $plan = Build-AiCliCodexLaunchPlan -MergedProfile $profile -ProjectPath $Work
+
+            $plan.model | Should -Be 'deepseek-v4-flash'
+            $plan.argumentList | Should -Contain ('model_catalog_json=' + (ConvertTo-AiCliTomlString $catalogPath))
+            $plan.argumentList | Should -Contain 'model_providers.aicli_deepseek.wire_api="responses"'
+            $plan.environmentDelta.AICLI_CODEX_PROVIDER_KEY | Should -Be 'test-secret-never-serialize'
+            ($plan.argumentList -join "`n") | Should -Not -Match 'test-secret-never-serialize'
+        }
+    }
+
+    It 'fails closed before launch when Codex is below the official DeepSeek minimum' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Profile = $script:DeepSeekProfile } {
+            Mock Resolve-AiCliCodexLaunchExecutable {
+                [pscustomobject]@{ FileName = 'C:\codex.exe'; PrefixArgs = @(); Kind = 'test' }
+            }
+            Mock Get-AiCliResolvedCliVersionEvidence {
+                [pscustomobject]@{ Version = 'codex-cli 0.143.9'; FileName = 'C:\codex.exe' }
+            }
+            {
+                Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work
+            } | Should -Throw '*需要 0.144.0+*0.143.9*'
+        }
+    }
+
+    It 'rejects the reserved Pro model until it is present in the active catalog' {
+        InModuleScope AiCliProfileManager -Parameters @{ Profile = $script:DeepSeekProfile } {
+            {
+                Resolve-AiCliCodexModel -MergedProfile $Profile -NativeArgs @('--model', 'deepseek-v4-pro')
+            } | Should -Throw '*当前目录未启用*deepseek-v4-pro*'
+        }
+    }
+
+    It 'rejects native Provider-routing flags that could bypass the managed DeepSeek Provider' {
+        InModuleScope AiCliProfileManager {
+            $cases = [System.Collections.Generic.List[object]]::new()
+            $cases.Add([string[]]@('-p', 'other'))
+            $cases.Add([string[]]@('-pother'))
+            $cases.Add([string[]]@('--profile=other'))
+            $cases.Add([string[]]@('-cmodel_provider="openai"'))
+            $cases.Add([string[]]@('--oss'))
+            $cases.Add([string[]]@('--local-provider', 'ollama'))
+            $cases.Add([string[]]@('--local-provider=lmstudio'))
+            foreach ($nativeCase in $cases) {
+                { Assert-AiCliCodexNativeArgs -NativeArgList $nativeCase } |
+                    Should -Throw '*启动计划冲突*'
+            }
+        }
+    }
+
+    It 'parses attached short model values into the effective plan identity' {
+        InModuleScope AiCliProfileManager {
+            $profile = [ordered]@{ models = [ordered]@{ primary = 'default-model' } }
+            Resolve-AiCliCodexModel -MergedProfile $profile -NativeArgs @('-mselected-model') |
+                Should -Be 'selected-model'
+            Resolve-AiCliCodexModel -MergedProfile $profile -NativeArgs @('-m=selected-model') |
+                Should -Be 'selected-model'
+        }
+    }
+}

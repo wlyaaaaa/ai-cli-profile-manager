@@ -149,6 +149,18 @@ function Invoke-AiCliDoctor {
             $profileCliEvidence = Get-AiCliProfileCliIdentityEvidence -MergedProfile $merged
             $enginePath = if ($profileCliEvidence) { $profileCliEvidence.FileName } else { $null }
             $checks.Add((New-AiCliCheck -Id 'profile.engine_cli' -Status $(if ($enginePath) { '通过' } else { '不可用' }) -Summary $(if ($enginePath) { "目标 CLI 已找到: $engine" } else { "目标 CLI 未安装: $engine" }))) | Out-Null
+            $minimumVersion = Test-AiCliProfileMinimumCliVersion -MergedProfile $merged -VersionEvidence $profileCliEvidence
+            if ($minimumVersion.Required) {
+                $versionSummary = if ($minimumVersion.Supported) {
+                    "CLI $($minimumVersion.Actual) 满足最低版本 $($minimumVersion.Minimum)"
+                } else {
+                    "CLI 版本不满足要求：需要 $($minimumVersion.Minimum)+，实际 $($minimumVersion.Actual)"
+                }
+                $checks.Add((New-AiCliCheck -Id 'profile.engine_cli.minimum' `
+                    -Status $(if ($minimumVersion.Supported) { '通过' } else { '不可用' }) `
+                    -Summary $versionSummary `
+                    -NextStep $(if (-not $minimumVersion.Supported) { "请将 $engine 更新到 $($minimumVersion.Minimum)+" }))) | Out-Null
+            }
             if ($engine -eq 'codex' -and $transport -ne 'responses' -and (Get-AiCliProperty $merged 'provider') -ne 'openai' -and (Get-AiCliProperty $merged 'provider') -ne 'ollama') {
                 # ollama uses --oss; third party must be responses
                 if ($transport -ne 'responses') {

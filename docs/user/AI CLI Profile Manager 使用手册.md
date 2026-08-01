@@ -1,6 +1,6 @@
 # AI CLI Profile Manager 使用手册
 
-适用版本：`0.2.0`
+适用版本：`0.3.3`（本地/源码目标，未发布 Release）
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
@@ -19,10 +19,10 @@ AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter �
 
 ### 1.2 安装本工具
 
-从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
+`0.3.3` 当前尚未发布 Release；从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
 
 ```powershell
-$version = '0.2.0'
+$version = '<从 Releases 页面选择的已发布版本>'
 $base = "https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/download/v$version"
 $download = Join-Path $HOME "Downloads\ai-cli-profile-manager-$version"
 New-Item -ItemType Directory -Force -Path $download | Out-Null
@@ -192,18 +192,21 @@ aicli profile remove qwen-work
 | Codex | ChatGPT/OpenAI 官方登录 | `codex-official` |
 | Codex | 千问按量 Responses | `codex-qwen-paygo` |
 | Codex | 千问 Token Plan Responses | `codex-qwen-token-plan` |
+| Codex | DeepSeek V4 Flash Responses（public beta） | `codex-deepseek` |
 | Codex | 本机 Ollama | `codex-ollama` |
 | Claude Code | Claude 官方登录 | `claude-official` |
-| Claude Code | DeepSeek | `claude-deepseek` |
+| Claude Code | DeepSeek V4 Flash | `claude-deepseek` |
 | Claude Code | 千问按量、Coding Plan、Token Plan | `claude-qwen-paygo`、`claude-qwen-coding-plan`、`claude-qwen-token-plan` |
 | Claude Code | 本机 Ollama | `claude-ollama` |
 | Claude Code | 自定义 Anthropic Messages 兼容端点 | `claude-custom` |
 | Claude Code | ChatGPT 第三方本地代理 | `claude-chatgpt-ccp`、`claude-chatgpt-cliproxy` |
 | Open Interpreter | 千问 Responses | `oi-qwen-paygo` |
-| Open Interpreter | DeepSeek Chat | `oi-deepseek` |
+| Open Interpreter | DeepSeek V4 Flash Chat | `oi-deepseek` |
 | Open Interpreter | 本机 Ollama | `oi-ollama` |
 
-Codex 首版不提供 DeepSeek、千问 Coding Plan 或纯 Chat Completions 直连。千问按量、Token Plan 与 Coding Plan 的 Key、端点和能力不同，不能混用。
+`codex-deepseek` 固定 DeepSeek 官方 2026-07-31 [Codex public beta](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 与 [Responses API](https://api-docs.deepseek.com/guides/responses_api/) 路径：模型 `deepseek-v4-flash`、Responses、1M context、Codex CLI `0.144.0+`，默认 reasoning effort 为 `high`，可选 `low` / `high` / `max`。`deepseek-v4-pro` 仅作未来扩展的 `reserved` 元数据，当前不可选；官方支持后再接入。动态变化以 [DeepSeek Change Log](https://api-docs.deepseek.com/updates) 为准。千问 Coding Plan 与纯 Chat Completions 仍不属于 Codex 路径。
+
+Codex 的 DeepSeek Key 与其他云端 Profile 一样由 Windows CurrentUser DPAPI 保存。受管 Codex TOML 只写 `env_key`，不会复制官方手工示例中的明文 `experimental_bearer_token` 或 `preferred_auth_method`。Qwen Code 0.21 与 OpenCode 1.18.8 虽有上游原生 DeepSeek 接入，但 AICLI 当前只为它们提供禁网的 machine-only 沙箱，且尚无隔离真实 Key 的远程 egress relay；因此不提供这两类 DeepSeek Profile。
 
 Ollama 公共模板使用默认地址 `127.0.0.1:11434`，不再包含某台机器的私有端口或模型别名。使用前先确认服务和模板所列模型实际存在：
 
@@ -219,6 +222,7 @@ aicli doctor codex-ollama
 ```powershell
 aicli profile configure claude-qwen-paygo
 aicli profile configure codex-qwen-paygo
+aicli profile configure codex-deepseek
 aicli profile configure claude-deepseek
 aicli profile configure oi-deepseek
 ```
@@ -273,7 +277,7 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply -Force
 ```
 
-脚本只接受能由 HTTPS 主机名证明身份的配置：千问必须指向阿里云百炼域名，DeepSeek 必须指向 `api.deepseek.com`。未知/OpenAI Base URL 会被拒绝，避免把某家的 Key 误送到另一家。导入的 Key 立即使用 Windows CurrentUser DPAPI 保存；输出、Profile JSON 和日志中都不出现明文。导入后运行 `aicli doctor <Profile ID>`，需要真实连通证据时再显式执行 Live Test。
+脚本只接受能由 HTTPS 主机名证明身份的配置：千问必须指向阿里云百炼域名，DeepSeek 必须指向 `api.deepseek.com`。DeepSeek 导入会生成 `codex-deepseek`、`claude-deepseek`、`oi-deepseek` 三个 Flash-only Profile；不会创建 Pro、Qwen Code 或 OpenCode 路径。未知/OpenAI Base URL 会被拒绝，避免把某家的 Key 误送到另一家。导入的 Key 立即使用 Windows CurrentUser DPAPI 保存；输出、Profile JSON 和日志中都不出现明文。导入后运行 `aicli doctor <Profile ID>`，需要真实连通证据时再显式执行 Live Test。
 
 ## 4. Doctor 与 Live Test
 
@@ -299,6 +303,7 @@ Doctor 检查 CLI、Profile、秘密引用、端点、有效配置层、代理�
 ### 4.2 Live Test：真实请求，可能消耗额度
 
 ```powershell
+aicli test codex-deepseek --live --level text
 aicli test claude-deepseek --live --level text
 aicli test claude-deepseek --live --level text --yes
 aicli test claude-deepseek --live --level all --yes --json

@@ -120,7 +120,7 @@ if ($deepseek) {
     } elseif ([string]::IsNullOrWhiteSpace($dsKey)) {
         Write-Host 'SKIP DeepSeek — 无 API Key'
     } else {
-        foreach ($templateId in @('claude-deepseek','oi-deepseek')) {
+        foreach ($templateId in @('codex-deepseek','claude-deepseek','oi-deepseek')) {
             try {
                 Import-RecognizedProfile -TemplateId $templateId -Key $dsKey -SourceProviderId 'deepseek'
                 $planned++

@@ -1,7 +1,7 @@
 ﻿# Codex CLI adapter: official + Responses providers via managed profile files in real CODEX_HOME.
 
 function Get-AiCliCodexReservedArgs {
-    return @('--profile', '-c', '--config')
+    return @('--profile', '-p', '-c', '--config', '--oss', '--local-provider')
 }
 
 function Assert-AiCliCodexNativeArgs {
@@ -10,7 +10,9 @@ function Assert-AiCliCodexNativeArgs {
     for ($i = 0; $i -lt @($NativeArgList).Count; $i++) {
         $a = $NativeArgList[$i]
         foreach ($r in $reserved) {
-            if ($a -eq $r -or $a.StartsWith("$r=")) {
+            $shortAttached = $r.Length -eq 2 -and $r.StartsWith('-') -and
+                $a.Length -gt 2 -and $a.StartsWith($r, [StringComparison]::Ordinal)
+            if ($a -eq $r -or $a.StartsWith("$r=") -or $shortAttached) {
                 throw "参数 $a 与 aicli 启动计划冲突。请使用 aicli native / aicli eject 查看原生配置，不要通过 -- 覆盖 --profile 或 Provider 配置入口。"
             }
         }
@@ -60,7 +62,8 @@ function Add-AiCliCodexProviderOverrides {
         [Parameter(Mandatory)]$MergedProfile,
         [Parameter(Mandatory)][string]$ProviderId,
         [Parameter(Mandatory)][string]$EnvironmentKey,
-        [string]$Model
+        [string]$Model,
+        [string]$ModelCatalogPath
     )
     $null = Assert-AiCliSafeIdentifier -Id $ProviderId -Kind 'Codex Provider ID'
     $endpoint = [string](Get-AiCliProperty $MergedProfile 'endpoint')
@@ -80,6 +83,10 @@ function Add-AiCliCodexProviderOverrides {
         'shell_environment_policy.ignore_default_excludes=false'
         "shell_environment_policy.exclude=[`"$EnvironmentKey`",`"OPENAI_API_KEY`",`"CODEX_API_KEY`"]"
     )
+    if (-not [string]::IsNullOrWhiteSpace($ModelCatalogPath)) {
+        $fullCatalogPath = [IO.Path]::GetFullPath($ModelCatalogPath)
+        $overrides += 'model_catalog_json=' + (ConvertTo-AiCliTomlString $fullCatalogPath)
+    }
     foreach ($override in $overrides) {
         [void]$ArgumentList.Add('-c')
         [void]$ArgumentList.Add($override)
@@ -103,7 +110,8 @@ function Save-AiCliCodexManagedState {
 function New-AiCliCodexProviderToml {
     param(
         $MergedProfile,
-        [string]$EnvKeyName = 'OPENAI_API_KEY'
+        [string]$EnvKeyName = 'OPENAI_API_KEY',
+        [string]$ModelCatalogPath
     )
     $providerId = Get-AiCliProperty $MergedProfile 'codexProviderId'
     if (-not $providerId) { $providerId = 'aicli_' + ((Get-AiCliProperty $MergedProfile 'id') -replace '-', '_') }
@@ -123,10 +131,17 @@ function New-AiCliCodexProviderToml {
     $nameToml = ConvertTo-AiCliTomlString $name
     $baseToml = ConvertTo-AiCliTomlString $base
     $envToml = ConvertTo-AiCliTomlString $EnvKeyName
+    $catalogToml = if ([string]::IsNullOrWhiteSpace($ModelCatalogPath)) {
+        $null
+    } else {
+        ConvertTo-AiCliTomlString ([IO.Path]::GetFullPath($ModelCatalogPath))
+    }
+    $catalogLine = if ($catalogToml) { "model_catalog_json = $catalogToml`n" } else { '' }
 
     $body = @"
 model = $modelToml
 model_provider = $providerToml
+$catalogLine
 
 [model_providers.$providerId]
 name = $nameToml
@@ -139,6 +154,104 @@ ignore_default_excludes = false
 exclude = ["$EnvKeyName", "OPENAI_API_KEY", "CODEX_API_KEY"]
 "@
     return $body.Trim() + "`n"
+}
+
+function Publish-AiCliCodexModelCatalog {
+    param([Parameter(Mandatory)]$MergedProfile)
+
+    $catalogName = [string](Get-AiCliProperty $MergedProfile 'codexModelCatalog')
+    if ([string]::IsNullOrWhiteSpace($catalogName)) { return $null }
+    if ($catalogName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,126}\.json$' -or
+        [IO.Path]::GetFileName($catalogName) -ne $catalogName) {
+        throw "Codex model catalog 名称非法: $catalogName"
+    }
+
+    $sourcePath = Get-AiCliDataPath -Relative (Join-Path 'model-catalogs' $catalogName)
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw "Codex model catalog 不存在: $catalogName"
+    }
+    $sourceItem = Get-Item -LiteralPath $sourcePath -Force
+    if (($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Codex model catalog 源文件不能是重解析点: $catalogName"
+    }
+    $sourceBytes = [IO.File]::ReadAllBytes($sourcePath)
+    try {
+        $utf8Strict = [Text.UTF8Encoding]::new($false, $true)
+        $catalog = $utf8Strict.GetString($sourceBytes) | ConvertFrom-Json -Depth 100
+    } catch {
+        throw "Codex model catalog JSON 无效: $catalogName"
+    }
+    if (@($catalog.models).Count -eq 0) {
+        throw "Codex model catalog 为空: $catalogName"
+    }
+
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $sourceHash = [Convert]::ToHexString($sha.ComputeHash($sourceBytes)).ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+    $catalogRoot = Join-Path (Get-AiCliCodexHome) 'aicli-model-catalogs'
+    if (Test-Path -LiteralPath $catalogRoot) {
+        $rootItem = Get-Item -LiteralPath $catalogRoot -Force
+        if (-not $rootItem.PSIsContainer -or
+            ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Codex model catalog 目录不能是重解析点: $catalogRoot"
+        }
+    } else {
+        New-Item -ItemType Directory -Path $catalogRoot -Force | Out-Null
+    }
+    $stem = [IO.Path]::GetFileNameWithoutExtension($catalogName)
+    $destination = Join-Path $catalogRoot ("{0}-{1}.json" -f $stem, $sourceHash.Substring(0, 12))
+    if (Test-Path -LiteralPath $destination) {
+        $destinationItem = Get-Item -LiteralPath $destination -Force
+        if ($destinationItem.PSIsContainer -or
+            ($destinationItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Codex model catalog 目标必须是普通文件: $destination"
+        }
+        $destinationBytes = [IO.File]::ReadAllBytes($destination)
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            $existingHash = [Convert]::ToHexString($sha.ComputeHash($destinationBytes)).ToLowerInvariant()
+        } finally {
+            $sha.Dispose()
+        }
+        if ($existingHash -ne $sourceHash) {
+            throw "Codex model catalog 内容寻址冲突: $destination"
+        }
+        return [IO.Path]::GetFullPath($destination)
+    }
+
+    $tempPath = Join-Path $catalogRoot ('.aicli-catalog-' + [guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        [IO.File]::WriteAllBytes($tempPath, $sourceBytes)
+        $rootItem = Get-Item -LiteralPath $catalogRoot -Force
+        if (-not $rootItem.PSIsContainer -or
+            ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Codex model catalog 目录在发布期间发生变化: $catalogRoot"
+        }
+        [IO.File]::Move($tempPath, $destination, $false)
+        $destinationItem = Get-Item -LiteralPath $destination -Force
+        if ($destinationItem.PSIsContainer -or
+            ($destinationItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Codex model catalog 发布结果不是普通文件: $destination"
+        }
+        $publishedBytes = [IO.File]::ReadAllBytes($destination)
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            $publishedHash = [Convert]::ToHexString($sha.ComputeHash($publishedBytes)).ToLowerInvariant()
+        } finally {
+            $sha.Dispose()
+        }
+        if ($publishedHash -ne $sourceHash) {
+            throw "Codex model catalog 发布后哈希不一致: $destination"
+        }
+    } finally {
+        if (Test-Path -LiteralPath $tempPath) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    return [IO.Path]::GetFullPath($destination)
 }
 
 function Write-AiCliCodexManagedProfile {
@@ -262,6 +375,13 @@ function Resolve-AiCliCodexModel {
                 throw 'Codex 参数 --model 缺少模型值。'
             }
             [void]$overrides.Add($value)
+        } elseif ($argument.Length -gt 2 -and $argument.StartsWith('-m', [StringComparison]::Ordinal)) {
+            $value = $argument.Substring(2)
+            if ($value.StartsWith('=')) { $value = $value.Substring(1) }
+            if ([string]::IsNullOrWhiteSpace($value)) {
+                throw 'Codex 参数 -m 缺少模型值。'
+            }
+            [void]$overrides.Add($value)
         }
     }
     $distinct = @($overrides | Select-Object -Unique)
@@ -275,6 +395,14 @@ function Resolve-AiCliCodexModel {
     }
     if (-not [string]::IsNullOrWhiteSpace($model)) {
         $null = Assert-AiCliModelId -Model $model
+    }
+    $catalogName = [string](Get-AiCliProperty $MergedProfile 'codexModelCatalog')
+    if ($catalogName) {
+        $models = Get-AiCliProperty $MergedProfile 'models'
+        $allowed = @((Get-AiCliProperty $models 'candidates') | Where-Object { $_ } | ForEach-Object { [string]$_ })
+        if ($allowed -notcontains $model) {
+            throw "Codex 模型当前目录未启用: $model。可选: $($allowed -join ', ')"
+        }
     }
     return $model
 }
@@ -324,6 +452,7 @@ function Build-AiCliCodexLaunchPlan {
     $provider = Get-AiCliProperty $MergedProfile 'provider'
     $id = Get-AiCliProperty $MergedProfile 'id'
     $resolved = Resolve-AiCliCodexLaunchExecutable -MergedProfile $MergedProfile -MachineRun:$MachineRun
+    Assert-AiCliProfileMinimumCliVersion -MergedProfile $MergedProfile -Resolved $resolved
     $envDelta = @{}
     $removeEnv = @()
     $cliArgs = [System.Collections.Generic.List[string]]::new()
@@ -418,7 +547,9 @@ function Build-AiCliCodexLaunchPlan {
         }
         $providerId = Get-AiCliProperty $MergedProfile 'codexProviderId'
         if (-not $providerId) { $providerId = 'aicli_' + ($id -replace '-', '_') }
-        $toml = New-AiCliCodexProviderToml -MergedProfile $MergedProfile -EnvKeyName 'AICLI_CODEX_PROVIDER_KEY'
+        $modelCatalogPath = Publish-AiCliCodexModelCatalog -MergedProfile $MergedProfile
+        $toml = New-AiCliCodexProviderToml -MergedProfile $MergedProfile `
+            -EnvKeyName 'AICLI_CODEX_PROVIDER_KEY' -ModelCatalogPath $modelCatalogPath
         $written = Write-AiCliCodexManagedProfile -MergedProfile $MergedProfile -TomlBody $toml
         $cliArgs.Add('--profile') | Out-Null
         $cliArgs.Add($written.CliProfileName) | Out-Null
@@ -432,7 +563,9 @@ function Build-AiCliCodexLaunchPlan {
         $cliArgs.Add('-c') | Out-Null
         $cliArgs.Add("model_reasoning_effort=`"$effort`"") | Out-Null
         Add-AiCliCodexProviderOverrides -ArgumentList $cliArgs -MergedProfile $MergedProfile `
-            -ProviderId $providerId -EnvironmentKey 'AICLI_CODEX_PROVIDER_KEY' -Model $model
+            -ProviderId $providerId -EnvironmentKey 'AICLI_CODEX_PROVIDER_KEY' -Model $model `
+            -ModelCatalogPath $modelCatalogPath
+        if ($modelCatalogPath) { $configFiles += $modelCatalogPath }
         $notes += "派生 Profile 文件: $($written.FilePath)"
         $notes += "wire_api = responses；思考等级 $effort（上游若不支持会忽略或报错）。"
         $notes += '已清除父终端 OPENAI_BASE_URL/KEY，避免污染第三方 Profile。'

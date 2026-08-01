@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-deepseek",
+  "displayName": "Codex + DeepSeek V4 Flash 0731",
+  "engine": "codex",
+  "provider": "deepseek",
+  "plan": "paygo",
+  "region": "global",
+  "transport": "responses",
+  "endpoint": "https://api.deepseek.com",
+  "codexProviderId": "aicli_deepseek",
+  "codexModelCatalog": "deepseek-v4-flash.json",
+  "requiresSecret": true,
+  "virtualReady": false,
+  "auth": {
+    "type": "api-key",
+    "envKey": "AICLI_CODEX_PROVIDER_KEY"
+  },
+  "models": {
+    "primary": "deepseek-v4-flash",
+    "small": "deepseek-v4-flash",
+    "candidates": [
+      "deepseek-v4-flash"
+    ],
+    "reserved": [
+      "deepseek-v4-pro"
+    ]
+  },
+  "defaultEffort": "high",
+  "effortLevels": [
+    "low",
+    "high",
+    "max"
+  ],
+  "flexible": false,
+  "capabilities": {
+    "tools": true,
+    "contextStats": true,
+    "images": false,
+    "streaming": true,
+    "effort": true
+  },
+  "compatibility": {
+    "minCliVersion": "0.144.0",
+    "modelVersion": "0731",
+    "apiStatus": "public-beta"
+  },
+  "dataDestination": "DeepSeek API",
+  "notes": "当前仅启用官方已支持 Codex Responses 的 deepseek-v4-flash（0731）；deepseek-v4-pro 仅保留标识，未进入可选目录。",
+  "sources": [
+    "https://api-docs.deepseek.com/updates/",
+    "https://api-docs.deepseek.com/quick_start/agent_integrations/codex/",
+    "https://api-docs.deepseek.com/guides/responses_api/"
+  ]
+}

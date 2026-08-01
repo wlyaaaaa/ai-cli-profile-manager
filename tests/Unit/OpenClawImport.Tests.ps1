@@ -34,6 +34,7 @@ Describe 'OpenClaw import helper' {
         $LASTEXITCODE | Should -Be 0
         $output | Should -Match 'PREVIEW claude-qwen-paygo'
         $output | Should -Match 'PREVIEW claude-deepseek'
+        $output | Should -Match 'PREVIEW codex-deepseek'
         $output | Should -Not -Match 'CANARY_OPENCLAW_(QWEN|DEEPSEEK)_SECRET'
         @(Get-ChildItem -LiteralPath $script:DataRoot -Recurse -File -Filter '*.json' -ErrorAction SilentlyContinue |
             Where-Object { $_.DirectoryName -match 'Profiles' }).Count | Should -Be 0
@@ -47,7 +48,7 @@ Describe 'OpenClaw import helper' {
         $output | Should -Not -Match 'CANARY_OPENCLAW_(QWEN|DEEPSEEK)_SECRET'
         $profiles = @(Get-ChildItem -LiteralPath $script:DataRoot -Recurse -File -Filter '*.json' |
             Where-Object { $_.DirectoryName -match 'Profiles' })
-        $profiles.Count | Should -Be 5
+        $profiles.Count | Should -Be 6
         foreach ($profileFile in $profiles) {
             $profile = Get-Content -LiteralPath $profileFile.FullName -Raw | ConvertFrom-Json
             $profile.secretRef | Should -Match '^[a-f0-9]{32}$'
@@ -55,7 +56,7 @@ Describe 'OpenClaw import helper' {
         }
         $secretFiles = @(Get-ChildItem -LiteralPath $script:DataRoot -Recurse -File |
             Where-Object { $_.DirectoryName -match 'secrets' })
-        $secretFiles.Count | Should -Be 5
+        $secretFiles.Count | Should -Be 6
         # Secret files are deliberately ACL-restricted and covered by the
         # dedicated SecretStore tests. Scan every non-secret artifact here.
         $allBytesAsText = @(Get-ChildItem -LiteralPath $script:DataRoot -Recurse -File |

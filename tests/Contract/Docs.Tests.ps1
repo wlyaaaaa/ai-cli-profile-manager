@@ -16,10 +16,10 @@ Describe 'Docs contract' {
         }
     }
 
-    It 'README mentions aicli and 0.3.2' {
+    It 'README mentions aicli and 0.3.3' {
         $readme = Get-Content (Join-Path $script:Root 'README.md') -Raw
         $readme | Should -Match 'aicli'
-        $readme | Should -Match '0\.3\.2'
+        $readme | Should -Match '0\.3\.3'
     }
 
     It 'no TODO placeholders in user docs' {
@@ -27,5 +27,11 @@ Describe 'Docs contract' {
             $t = Get-Content $_.FullName -Raw
             $t | Should -Not -Match 'TODO\(implement\)'
         }
+    }
+
+    It 'binds generated handbook PDFs to the current 0.3.3 main documentation' {
+        $builder = Get-Content (Join-Path $script:Root 'scripts\Build-Pdfs.py') -Raw
+        $builder | Should -Match 'VERSION\s*=\s*"0\.3\.3"'
+        $builder | Should -Match 'REPOSITORY_BLOB\s*=\s*"https://github\.com/wlyaaaaa/ai-cli-profile-manager/blob/main"'
     }
 }

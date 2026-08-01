@@ -4,7 +4,19 @@
 
 ## [Unreleased]
 
-本节只描述仓库源代码入口的未发布状态；已经安装的 `0.3.2` 模块不会因仓库修改而自动更新，未经过安装/晋升流程时不得宣称 installed runtime 已包含这些修复。
+本节描述 `0.3.3` 本地/源码目标，尚未发布 GitHub Release。未经过安装/晋升流程时不得宣称 installed runtime 已包含这些修复。
+
+### 新增
+
+- 新增 DeepSeek 官方 Codex public beta 模板 `codex-deepseek`：固定 `deepseek-v4-flash`、Responses、1M context、Codex CLI `0.144.0+`，默认 reasoning effort 为 `high`，支持 `low` / `high` / `max`。
+- DeepSeek 模型目录使用 AICLI 受管的内容寻址副本；API Key 继续由 CurrentUser DPAPI 保存，Codex 配置只引用 `env_key`。不复制官方示例的明文 `experimental_bearer_token`，也不写入 `preferred_auth_method`。
+- OpenClaw DeepSeek 导入可生成 `codex-deepseek`、`claude-deepseek`、`oi-deepseek` 三个 Profile。
+
+### 变更
+
+- Codex、Claude Code 与 Rust Open Interpreter 的公开 DeepSeek 模板统一收敛为 `deepseek-v4-flash`。`deepseek-v4-pro` 只保留不可选的 `reserved` 元数据，待上游正式支持 Codex Responses 后再接入。
+- Qwen Code `0.21` 与 OpenCode `1.18.8` 暂不开放 DeepSeek 远程 Profile：当前 AICLI machine-only 外层沙箱断网，且没有隔离真实 Key 的远程 egress relay；不以假 Profile 代替缺失的安全执行路径。
+- 2026-07-14 的 Claude/OI `deepseek-v4-pro` Live 记录仅保留为历史证据；Flash-only Profile 指纹变化后，该记录不再证明当前模板可用。
 
 ### 修正
 

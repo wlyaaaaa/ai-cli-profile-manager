@@ -22,7 +22,7 @@ function Assert-AiCliManifestCore {
         'schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi',
         'endpoint','models','auth','proxyRef','capabilities','compatibility','sources','codexProviderId',
         'interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden',
-        'defaultEffort','effortLevels','flexible','autoRun','modelPrefix'
+        'defaultEffort','effortLevels','flexible','autoRun','modelPrefix','codexModelCatalog'
     )
     foreach ($key in $M.Keys) {
         if ($allowed -notcontains [string]$key) { throw "Manifest 未知字段: $key ($($M.id))" }
@@ -63,6 +63,14 @@ function Assert-AiCliManifestCore {
     }
     foreach ($modelId in @((Get-AiCliProperty $models 'candidates') | Where-Object { $_ })) {
         $null = Assert-AiCliModelId -Model ([string]$modelId)
+    }
+    foreach ($modelId in @((Get-AiCliProperty $models 'reserved') | Where-Object { $_ })) {
+        $null = Assert-AiCliModelId -Model ([string]$modelId)
+    }
+    $compatibility = Get-AiCliProperty $M 'compatibility'
+    $minimumCliVersion = [string](Get-AiCliProperty $compatibility 'minCliVersion')
+    if ($minimumCliVersion -and $minimumCliVersion -notmatch '^\d+\.\d+\.\d+$') {
+        throw "compatibility.minCliVersion 必须是三段数字版本: $minimumCliVersion ($id)"
     }
     # Do not route this collection through Get-AiCliProperty: PowerShell
     # enumerates a one-item array at a function boundary and would turn a
@@ -128,6 +136,57 @@ function Assert-AiCliManifestCore {
             throw "Codex Provider ID 保留不可用: $providerId"
         }
         if ($providerId) { $null = Assert-AiCliSafeIdentifier -Id ([string]$providerId) -Kind 'Codex Provider ID' }
+
+        $catalogName = [string](Get-AiCliProperty $M 'codexModelCatalog')
+        if ($catalogName) {
+            if ($catalogName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,126}\.json$' -or
+                [IO.Path]::GetFileName($catalogName) -ne $catalogName) {
+                throw "Codex model catalog 名称非法: $catalogName ($id)"
+            }
+            $catalogPath = Get-AiCliDataPath -Relative (Join-Path 'model-catalogs' $catalogName)
+            if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) {
+                throw "Codex model catalog 不存在: $catalogName ($id)"
+            }
+            $catalog = Read-AiCliJsonFile -Path $catalogPath
+            $catalogModels = if ($catalog -is [System.Collections.IDictionary]) {
+                @($catalog['models'])
+            } else {
+                @($catalog.models)
+            }
+            if ($catalogModels.Count -eq 0) {
+                throw "Codex model catalog 必须至少包含一个模型: $catalogName ($id)"
+            }
+            $catalogSlugs = @($catalogModels | ForEach-Object {
+                $slug = [string](Get-AiCliProperty $_ 'slug')
+                $null = Assert-AiCliModelId -Model $slug
+                $slug
+            })
+            $candidateModels = @((Get-AiCliProperty $models 'candidates') | Where-Object { $_ } | ForEach-Object { [string]$_ })
+            if ($candidateModels.Count -eq 0) {
+                throw "带 model catalog 的 Codex Manifest 必须声明 models.candidates ($id)"
+            }
+            foreach ($candidate in $candidateModels) {
+                if ($catalogSlugs -notcontains $candidate) {
+                    throw "Codex 候选模型不在目录中: $candidate ($id)"
+                }
+            }
+            foreach ($catalogSlug in $catalogSlugs) {
+                if ($candidateModels -notcontains $catalogSlug) {
+                    throw "Codex 目录模型未进入候选列表: $catalogSlug ($id)"
+                }
+            }
+            $primary = [string](Get-AiCliProperty $models 'primary')
+            if ($catalogSlugs -notcontains $primary) {
+                throw "Codex 主模型不在目录中: $primary ($id)"
+            }
+            foreach ($reserved in @((Get-AiCliProperty $models 'reserved') | Where-Object { $_ })) {
+                if ($catalogSlugs -contains [string]$reserved -or $candidateModels -contains [string]$reserved) {
+                    throw "Codex 预留模型不得进入活动目录或候选列表: $reserved ($id)"
+                }
+            }
+        }
+    } elseif (Get-AiCliProperty $M 'codexModelCatalog') {
+        throw "仅 Codex Manifest 可以声明 codexModelCatalog ($id)"
     }
     if ($engine -eq 'interpreter') {
         $providerId = [string](Get-AiCliProperty $M 'interpreterProviderId')

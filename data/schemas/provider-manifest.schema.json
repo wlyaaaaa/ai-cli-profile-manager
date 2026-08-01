@@ -25,6 +25,7 @@
     "compatibility": { "type": "object" },
     "sources": { "type": "array", "items": { "type": "string", "format": "uri" } },
     "codexProviderId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
+    "codexModelCatalog": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,126}\\.json$" },
     "interpreterProviderId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
     "requiresSecret": { "type": "boolean" },
     "virtualReady": { "type": "boolean" },

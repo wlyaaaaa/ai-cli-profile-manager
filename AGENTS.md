@@ -13,8 +13,8 @@
 - 只做 Windows 11、PowerShell 7。
 - 这是原生 Codex CLI / Claude Code 的 Profile、启动、代理运维、Doctor、自检和中文手册层；不做 GUI、TUI、PTY 外壳、自研 Agent、会话历史或协议转换器。
 - 不汉化或修改上游 CLI 本体；原生终端交互、权限、上下文和会话由上游负责。
-- Codex 首版只做官方、Ollama、千问 Responses；不得加入 DeepSeek 或纯 Chat Completions 直连。
-- Claude Code 首版只做产品设计列出的官方、DeepSeek、千问、Ollama、双代理和 Anthropic Messages 自定义档。
+- Codex 公开第三方路径只接受上游已明确支持的 Responses Provider。DeepSeek 当前仅开放 `deepseek-v4-flash`；`deepseek-v4-pro` 只保留不可选的 `reserved` 元数据，待官方宣布支持后再接入。不得把 Chat Completions 端点伪装成 Codex Responses。
+- Claude Code 与 Open Interpreter 的公开 DeepSeek 模板同样收敛为 `deepseek-v4-flash`；旧 Pro 验收记录不得跨当前 Profile 指纹复用。
 - 未完成当期 Windows 11 真实验证的 Provider 不得标成 `可用`。
 
 ## 3. 安全与隔离

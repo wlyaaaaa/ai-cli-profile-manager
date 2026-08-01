@@ -96,7 +96,7 @@ function Merge-AiCliProfile {
         $UserProfile
     )
     $merged = [ordered]@{}
-    foreach ($k in @('schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi','endpoint','models','auth','proxyRef','capabilities','compatibility','sources','deprecation','codexProviderId','interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','env','defaultModel','modelPrefix','defaultEffort','effortLevels','flexible')) {
+    foreach ($k in @('schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi','endpoint','models','auth','proxyRef','capabilities','compatibility','sources','deprecation','codexProviderId','codexModelCatalog','interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','env','defaultModel','modelPrefix','defaultEffort','effortLevels','flexible')) {
         $v = Get-AiCliProperty $Template $k
         if ($null -ne $v) { $merged[$k] = $v }
     }
@@ -111,9 +111,18 @@ function Merge-AiCliProfile {
         $merged['id'] = Get-AiCliProperty $UserProfile 'id'
         $dn = Get-AiCliProperty $UserProfile 'displayName'
         if ($dn) { $merged['displayName'] = $dn }
-        foreach ($k in @('region','plan','models','endpoint','preferences','notes')) {
+        foreach ($k in @('preferences','notes')) {
             $uv = Get-AiCliProperty $UserProfile $k
             if ($null -ne $uv) { $merged[$k] = $uv }
+        }
+        $templateFlexible = [bool](Get-AiCliProperty $Template 'flexible' $true)
+        if ($templateFlexible) {
+            foreach ($k in @('region','plan','endpoint')) {
+                $uv = Get-AiCliProperty $UserProfile $k
+                if ($null -ne $uv) { $merged[$k] = $uv }
+            }
+            $userModels = Get-AiCliProperty $UserProfile 'models'
+            if ($null -ne $userModels) { $merged['models'] = $userModels }
         }
         $sr = Get-AiCliProperty $UserProfile 'secretRef'
         $merged['secretRef'] = $sr
@@ -198,9 +207,17 @@ function Resolve-AiCliProfileStatus {
 function Get-AiCliProfileFingerprint {
     param([Parameter(Mandatory)]$Profile)
     $stable = [ordered]@{}
-    foreach ($key in @('schemaVersion','id','templateId','engine','provider','plan','region','transport','endpoint','models','codexProviderId','proxyRef','preferences','secretRef')) {
+    foreach ($key in @('schemaVersion','id','templateId','engine','provider','plan','region','transport','endpoint','models','codexProviderId','codexModelCatalog','compatibility','proxyRef','preferences','secretRef')) {
         $value = Get-AiCliProperty $Profile $key
         if ($null -ne $value) { $stable[$key] = $value }
+    }
+    $catalogName = [string](Get-AiCliProperty $Profile 'codexModelCatalog')
+    if ($catalogName) {
+        $catalogPath = Get-AiCliDataPath -Relative (Join-Path 'model-catalogs' $catalogName)
+        if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) {
+            throw "Codex model catalog 不存在，无法计算 Profile 指纹: $catalogName"
+        }
+        $stable['codexModelCatalogSha256'] = (Get-FileHash -LiteralPath $catalogPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     $json = $stable | ConvertTo-Json -Depth 30 -Compress
     $bytes = [Text.Encoding]::UTF8.GetBytes($json)
@@ -352,7 +369,9 @@ function Invoke-AiCliProfileConfigure {
             $null = Assert-AiCliModelId -Model $model
             $models = [ordered]@{ primary = $model; small = (Get-AiCliProperty $models 'small') }
         }
-    } elseif ((Get-AiCliProperty $template 'engine') -in @('claude', 'interpreter') -and (Get-AiCliProperty $template 'provider') -notin @('anthropic','chatgpt-proxy')) {
+    } elseif ([bool](Get-AiCliProperty $template 'flexible' $true) -and
+        (Get-AiCliProperty $template 'engine') -in @('claude', 'interpreter') -and
+        (Get-AiCliProperty $template 'provider') -notin @('anthropic','chatgpt-proxy')) {
         $model = Read-Host ("主模型（默认 {0}，回车保留）" -f (Get-AiCliProperty $models 'primary'))
         if (-not [string]::IsNullOrWhiteSpace($model)) {
             $null = Assert-AiCliModelId -Model $model
