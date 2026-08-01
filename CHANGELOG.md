@@ -4,7 +4,7 @@
 
 ## [Unreleased]
 
-本节描述 `0.3.3` 本地/源码目标，尚未发布 GitHub Release。未经过安装/晋升流程时不得宣称 installed runtime 已包含这些修复。
+本节描述 `0.3.3` 未发布版本；本机已从目标提交的干净快照安装并完成 DeepSeek 静态验收，但尚未发布 GitHub Release，也未执行当前 Flash Live/API 请求。其他机器不得把这项本机证据解释成公开发行或 Provider 能力通过。
 
 ### 新增
 

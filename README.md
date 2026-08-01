@@ -2,7 +2,7 @@
 
 面向 Windows 11 x64 的中文 PowerShell 工具：用统一 Profile 启动原生 Codex CLI、Claude Code、Qwen Code、OpenCode 和当前官方 Rust Open Interpreter，并提供 Provider 隔离、Doctor、显式 Live Test、沙箱化 machine run 与可选的第三方代理运维。
 
-命令：`aicli`　版本：`0.3.3`（本地/源码目标，未发布 Release）　许可证：MIT
+命令：`aicli`　版本：`0.3.3`（本机已安装并完成静态验收，未发布 Release）　许可证：MIT
 
 它不是新的 Agent 或聊天外壳，不接管历史会话，也不汉化上游 CLI。本工具只负责“选哪条连接、怎样安全启动、出了问题如何验证”。
 
@@ -28,7 +28,7 @@ pwsh -File .\bin\aicli.ps1 doctor
 
 | 引擎 | 已实现的公开路径 | 验收口径 |
 |------|------------------|----------|
-| Codex CLI | 官方登录、DeepSeek V4 Flash Responses、千问 Responses 按量/Token Plan、本机 Ollama | DeepSeek 路径为 public beta；当前真实 Live 前状态为“可用但有限制” |
+| Codex CLI | 官方登录、DeepSeek V4 Flash Responses、千问 Responses 按量/Token Plan、本机 Ollama | DeepSeek 路径为 public beta；本机 `0.3.3` 静态验收通过，当前 Flash Live 前状态仍为“可用但有限制” |
 | Claude Code | 官方登录、DeepSeek V4 Flash、千问三套餐、Ollama、自定义 Anthropic Messages | 同上 |
 | Qwen Code | 本机 Ollama `qwen-main-v1` machine run | 仅机器入口；必须经过外层沙箱 |
 | OpenCode | 本机 Ollama `qwen-main-v1` machine run | 仅机器入口；必须经过外层沙箱 |
@@ -67,7 +67,7 @@ machine child 的父环境按运行时 allowlist 重建，不再继承无关凭�
 
 本机预置本地 Profile：`codex-ollama-main`、`claude-ollama-main`、`qwen-code-ollama-main`、`opencode-ollama-main`，都固定访问 `127.0.0.1:32100` 的 `qwen-main-v1`。另有显式 opt-in 的 `codex-spark-xhigh`，精确选择 `gpt-5.3-codex-spark` 与默认 `xhigh`。2026-07-29 的源代码入口真实任务已经证明 Spark 的工作区写权限生效，但 `code_repair` 在硬上限 `80` 步下到达 `81/80`，确定性得分仅 `2/9`；因此当前能力验收不通过，不登记为合格代码 Agent，也不为改变结果重复复测。所有 Profile 都不自动 fallback，上层调用者仍负责选择、额度失败后的显式重提、隔离工作区和最终验收。
 
-`0.3.3` 是当前本地/源码目标，包含 DeepSeek Flash-only 与尚未发布的 machine-run 修复；它不是 GitHub Release。维护者用仓库源代码入口验收时必须明确记录该入口；在执行正式安装/候选晋升前，不得把 source 验收写成 installed runtime 已更新。
+`0.3.3` 已从目标提交的干净快照安装到本机，并完成 `codex-deepseek` 的 Profile 脱敏、最低 CLI 版本、受管 TOML、内容寻址模型目录和 Codex 本地解析静态验收；未执行 DeepSeek Live/API 请求。它仍不是 GitHub Release，其他机器不得把本机 installed 证据解释成公开发行。
 
 已有 OpenClaw 千问/DeepSeek 配置时，可先安全预览再导入；DeepSeek 可生成 `codex-deepseek`、`claude-deepseek`、`oi-deepseek` 三个 Flash-only Profile，默认不会写入，详见主手册：
 
