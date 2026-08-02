@@ -206,6 +206,12 @@ aicli profile remove qwen-work
 
 `codex-deepseek` 固定 DeepSeek 官方 2026-07-31 [Codex public beta](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 与 [Responses API](https://api-docs.deepseek.com/guides/responses_api/) 路径：模型 `deepseek-v4-flash`、Responses、1M context、Codex CLI `0.144.0+`，默认 reasoning effort 为 `high`，可选 `low` / `high` / `max`。`deepseek-v4-pro` 仅作未来扩展的 `reserved` 元数据，当前不可选；官方支持后再接入。动态变化以 [DeepSeek Change Log](https://api-docs.deepseek.com/updates) 为准。千问 Coding Plan 与纯 Chat Completions 仍不属于 Codex 路径。
 
+`codex-qwen-paygo` 与 `codex-qwen-token-plan` 现在共用非空基础指令的受管千问目录：现有六个候选都声明 `context_window=max_context_window=983616`、95% 有效窗口，Codex 自动在约 90%（约 885K）触发客户端保护；不再使用未知模型的 272K 回退。默认模型、套餐和付费选择没有改变，`ultra` 不再被误列为千问 effort。
+
+Claude Code `2.1.193+` 的 DeepSeek/千问 Profile 按最终 `--model` 精确注入模型窗口。DeepSeek Flash 为 `1000000`；千问按量常用 1M、Token Plan 按官方示例为 `983616`，Coding Plan 中 262K 模型单独保守声明。AICLI 不设置会提前压缩的 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`，也不默认禁用自动/手动压缩；未知或自定义模型不猜测。
+
+本机 `claude-ollama-main` 同样按 `qwen-main-v1=262144` 注入 MAX/AUTO；`codex-ollama-main` 使用独立的 262144 受管目录，不再采用 Codex 未知模型 272K 回退。任何第三方 Claude 模型未命中受管元数据时，AICLI 会清除父进程遗留的 MAX/AUTO、提前压缩百分比和两个禁压缩变量，再交给 Claude Code 的保守默认，避免把上一模型的窗口误套到未来模型。
+
 Codex 的 DeepSeek Key 与其他云端 Profile 一样由 Windows CurrentUser DPAPI 保存。受管 Codex TOML 只写 `env_key`，不会复制官方手工示例中的明文 `experimental_bearer_token` 或 `preferred_auth_method`。Qwen Code 0.21 与 OpenCode 1.18.8 虽有上游原生 DeepSeek 接入，但 AICLI 当前只为它们提供禁网的 machine-only 沙箱，且尚无隔离真实 Key 的远程 egress relay；因此不提供这两类 DeepSeek Profile。
 
 Ollama 公共模板使用默认地址 `127.0.0.1:11434`，不再包含某台机器的私有端口或模型别名。使用前先确认服务和模板所列模型实际存在：
@@ -392,6 +398,12 @@ pwsh -NoProfile -File <安装目录>\bin\aicli.ps1 --% start claude-qwen-paygo -
 `bypassPermissions` 必须在新进程启动时启用。第三方模型通常不满足 Claude `auto` 模式的模型或账号条件；这不是 aicli 的故障。
 
 Claude 官方登录与 `ANTHROPIC_API_KEY` 同时存在时，上游可能显示双认证或 connectors disabled 提示。使用第三方 API Profile 时以该 Profile 显示的数据去向为准；使用 `claude-official` 时，先运行 Doctor 检查会抢占官方路径的设置层。
+
+### 6.1 第三方模型的上下文连续性
+
+原生 ChatGPT + Codex 是基准，保持上游默认。DeepSeek/千问经 Codex 或 Claude Code 时，客户端压缩是可能丢文件细节、数字和未完成分支的摘要；不要为了“省上下文”主动 `/compact`。一个会话只做一个内聚里程碑，在自然边界把目标、约束、已改文件、决定、测试、阻塞和下一步写入项目已有 plan/progress；接近窗口时优先 fresh session 或拆任务。压缩后重新读取适用的 `AGENTS.md` / `CLAUDE.md`、当前 `SKILL.md`、状态文档以及 `git status` / `git diff`。
+
+本机 `qwen-main-v1` 在 Codex、Claude Code 与 OpenCode 中统一声明 262144 context。`opencode-ollama-main` 的一次性配置另固定 8192 output、20000 reserved，关闭 tool-output pruning 并保留最近 4 轮/16384 token；`agent.build.steps` 只算上游软收尾，不冒充 AICLI 硬工具调用门。OpenCode checkpoint 随 run 清理，跨 run 连续性必须靠项目状态文件。远程 DeepSeek/千问 OpenCode 仍因 key-isolated egress relay 缺口不开放。
 
 第三方模型（如千问）下，Claude 会话结束页的 **Total cost: $… (costs may be inaccurate due to usage of unknown models)** **不是** 阿里云百炼账单。token 量级可能接近真实调用；美元金额多半按 Claude 内置未知模型单价估算，**往往偏高**。真费用以百炼「模型监控 / 账单」为准（调用后约一小时可查）。详见《CLI 中文手册》用量说明。
 

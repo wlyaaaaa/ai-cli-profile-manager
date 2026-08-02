@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 
 BeforeAll {
     $script:CodexAdapterRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -21,12 +21,18 @@ Describe 'Codex Ollama reasoning effort' {
                     Kind = 'npm-node'
                 }
             }
+            Mock Get-AiCliResolvedCliVersionEvidence {
+                [pscustomobject]@{ Version = 'codex-cli 0.146.0'; FileName = 'C:\Program Files\nodejs\node.exe' }
+            }
             Mock Write-AiCliCodexManagedProfile {
                 [pscustomobject]@{
                     CliProfileName = 'aicli-codex-ollama-main'
                     FilePath = (Join-Path $Work 'aicli-codex-ollama-main.config.toml')
                     ContentHash = ('0' * 64)
                 }
+            }
+            Mock Publish-AiCliCodexModelCatalog {
+                Join-Path $Work 'qwen-main-v1-codex.json'
             }
 
             $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile `
@@ -49,12 +55,18 @@ Describe 'Codex Ollama reasoning effort' {
                     Kind = 'test'
                 }
             }
+            Mock Get-AiCliResolvedCliVersionEvidence {
+                [pscustomobject]@{ Version = 'codex-cli 0.146.0'; FileName = 'C:\fake\codex.exe' }
+            }
             Mock Write-AiCliCodexManagedProfile {
                 [pscustomobject]@{
                     CliProfileName = 'aicli-codex-ollama-main'
                     FilePath = (Join-Path $Work 'aicli-codex-ollama-main.config.toml')
                     ContentHash = ('0' * 64)
                 }
+            }
+            Mock Publish-AiCliCodexModelCatalog {
+                Join-Path $Work 'qwen-main-v1-codex.json'
             }
 
             $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work
@@ -66,7 +78,7 @@ Describe 'Codex Ollama reasoning effort' {
             @($launchArgs | Where-Object { $_ -match '^model_reasoning_effort=' }).Count | Should -Be 1
             $reasoningIndex | Should -BeGreaterThan 0
             $launchArgs[$reasoningIndex - 1] | Should -Be '-c'
-            @($launchArgs | Where-Object { $_ -eq '-c' }).Count | Should -Be 9
+            @($launchArgs | Where-Object { $_ -eq '-c' }).Count | Should -Be 10
 
             $expectedProviderOverrides = @(
                 'model="qwen-main-v1"'
@@ -77,10 +89,12 @@ Describe 'Codex Ollama reasoning effort' {
                 'model_providers.aicli_ollama_main.wire_api="responses"'
                 'shell_environment_policy.ignore_default_excludes=false'
                 'shell_environment_policy.exclude=["AICLI_CODEX_PROVIDER_KEY","OPENAI_API_KEY","CODEX_API_KEY"]'
+                ('model_catalog_json=' + (ConvertTo-AiCliTomlString (Join-Path $Work 'qwen-main-v1-codex.json')))
             )
             foreach ($expected in $expectedProviderOverrides) {
                 $launchArgs | Should -Contain $expected
             }
+            @($plan.configFiles) | Should -Contain (Join-Path $Work 'qwen-main-v1-codex.json')
             $plan.effort | Should -Be 'max'
         }
     }

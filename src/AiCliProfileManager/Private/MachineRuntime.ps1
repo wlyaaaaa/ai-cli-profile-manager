@@ -267,14 +267,50 @@ function Initialize-AiCliMachineRuntime {
         elseif ($kind -eq 'opencode') {
             $endpoint = ([string](Get-AiCliProperty $runtimeConfig 'endpoint')).TrimEnd('/')
             $model = [string](Get-AiCliProperty $runtimeConfig 'model')
+            $modelMetadata = Get-AiCliProperty $runtimeConfig 'modelMetadata'
+            if ($null -eq $modelMetadata) {
+                throw "OpenCode model metadata is missing: $model"
+            }
+            $contextWindow = [int](Get-AiCliProperty $modelMetadata 'contextWindowTokens')
+            $inputWindow = [int](Get-AiCliProperty $modelMetadata 'inputWindowTokens')
+            $outputWindow = [int](Get-AiCliProperty $modelMetadata 'outputWindowTokens')
+            $compactionReserve = [int](Get-AiCliProperty $modelMetadata 'compactionReserveTokens')
+            $preserveRecent = [int](Get-AiCliProperty $modelMetadata 'preserveRecentTokens')
+            $tailTurns = [int](Get-AiCliProperty $modelMetadata 'tailTurns')
+            $modelRef = "aicli_ollama/$model"
             $config = [ordered]@{
                 '$schema' = 'https://opencode.ai/config.json'
+                model = $modelRef
+                small_model = $modelRef
+                default_agent = 'build'
+                enabled_providers = @('aicli_ollama')
+                share = 'disabled'
+                compaction = [ordered]@{
+                    auto = $true
+                    prune = $false
+                    tail_turns = $tailTurns
+                    preserve_recent_tokens = $preserveRecent
+                    reserved = $compactionReserve
+                }
+                agent = [ordered]@{
+                    build = [ordered]@{ steps = $MaxSteps }
+                    compaction = [ordered]@{ model = $modelRef }
+                }
                 provider = [ordered]@{
                     aicli_ollama = [ordered]@{
                         npm = '@ai-sdk/openai-compatible'
                         name = 'AICLI local Ollama'
                         options = [ordered]@{ baseURL = $endpoint; apiKey = 'ollama' }
-                        models = [ordered]@{ $model = [ordered]@{ name = $model } }
+                        models = [ordered]@{
+                            $model = [ordered]@{
+                                name = $model
+                                limit = [ordered]@{
+                                    context = $contextWindow
+                                    input = $inputWindow
+                                    output = $outputWindow
+                                }
+                            }
+                        }
                     }
                 }
             }

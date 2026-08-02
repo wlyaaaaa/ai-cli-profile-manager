@@ -42,6 +42,16 @@
       "deepseek-v4-pro"
     ]
   },
+  "modelMetadata": {
+    "deepseek-v4-flash": {
+      "contextWindowTokens": 1000000,
+      "autoCompactWindowTokens": 1000000
+    }
+  },
+  "compatibility": {
+    "minCliVersion": "2.1.193",
+    "modelVersion": "0731"
+  },
   "dataDestination": "DeepSeek API",
   "virtualReady": false
 }

@@ -20,10 +20,10 @@ $task | aicli run codex-ollama-main `
 | --- | --- | --- |
 | `codex-spark-xhigh` | Codex CLI（官方登录） | OpenAI / `gpt-5.3-codex-spark` / 默认 `xhigh` |
 | `codex-deepseek` | Codex CLI（DeepSeek public beta；machine 仅 `read-only`） | Responses / `deepseek-v4-flash` / 1M context / 默认 `high` |
-| `codex-ollama-main` | Codex CLI | `127.0.0.1:32100` / `qwen-main-v1` |
-| `claude-ollama-main` | Claude Code | 同上 |
+| `codex-ollama-main` | Codex CLI | `127.0.0.1:32100` / `qwen-main-v1` / 262144 受管目录 |
+| `claude-ollama-main` | Claude Code | 同上；MAX/AUTO 262144（Claude Code 2.1.193+） |
 | `qwen-code-ollama-main` | Qwen Code | 同上 |
-| `opencode-ollama-main` | OpenCode | 同上 |
+| `opencode-ollama-main` | OpenCode | 同上；262144 context / 8192 output / 20000 compaction reserve |
 
 安全边界：
 
@@ -39,6 +39,8 @@ $task | aicli run codex-ollama-main `
 - `read-only` 让 CLI 在一次性运行目录写自身状态，来源工作区只读；任务结束后清理运行目录。
 - 无法建立对应沙箱时直接失败，不切换到无沙箱执行，也不改用另一个 Profile。
 - Qwen Code/OpenCode 是 machine-only；交互式 `start` 会拒绝这两个 Profile。
+- OpenCode 的 inline 配置只启用 `aicli_ollama`，主/小/压缩模型都固定为 `qwen-main-v1`；显式 `auto=true`、`prune=false`、最近 4 轮/16384 token 原样保留，约在 242144/262144（92.4%）才压缩。`agent.build.steps=maxSteps` 只是上游软收尾，`maxToolCalls` 仍未获得硬映射，不能标成 AICLI `hard`。
+- OpenCode 的 XDG config/data/cache/state 位于一次性 `.aicli-runtime-*` 并在结束时清理，所以 session summary/checkpoint 不能跨 run 继承。一个 run 只做一个里程碑；先把目标、约束、改动、测试和下一步写入项目状态，再开新 run。自动压缩后重读 `AGENTS.md`、当前 `SKILL.md`、状态文件和 `git status` / `git diff`。
 - Codex machine run 以已实测的 npm `codex-cli 0.145.0` 为最低协议基线，由内部桥使用 app-server JSON-RPC v2 的 `thread/start`、`turn/start` 与通知流；`0.146.0-alpha.3.1` 已通过同一真实兼容验收。CLI 更新后默认尝试运行，但每次仍严格验证初始化、必要字段、通知 allowlist、thread/turn 归属、item 生命周期、成功轮次 `status=completed` 和清理结果；兼容则直接工作，必要协议缺失、结构漂移、歧义事件或清理不可靠就返回明确错误。低于基线的版本直接拒绝，不回退到估算值或旧式解析。
 - Codex 的 `max-steps` 采用 `distinct-non-output-thread-item-v2`：统计不同的推理、计划、工具、压缩等非输出 ThreadItem；公开 `agentMessage` 增量和最终消息不占用行动步骤，避免“一边汇报”挤掉实际执行预算。`max-tool-calls` 仍统计命令、文件、MCP、collab、web 等工具项；墙钟、输出上限和事件安全门也保持独立。machine run 逐行解析桥接后的安全事件并硬执行，越限会终止桥、app-server 和全部后代进程。
 - 有界 machine run 显式关闭 Codex `multi_agent` / `multi_agent_v2`，避免一次 collab 调用在事件边界后隐藏未计数的子智能体工具循环；若仍出现 collab 事件，会先计为一次工具调用，再按配置不变量失效而失败关闭。
@@ -59,3 +61,5 @@ $task | aicli run codex-ollama-main `
 2026-07-29 的 Spark 源代码入口真实任务证明工作区写权限已生效；但 `code_repair` 在硬上限 `maxSteps=80` 下到达 `81/80` 并终止，确定性得分为 `2/9`。这属于模型/Agent 能力验收不通过，不是权限链仍然只读，也不应通过重复复测改变结论。
 
 产品边界：aicli 只启动和约束进程，不判断低级模型是否胜任任务，也不在额度、限流或失败时自动 fallback。上层模型应给出确定性验收器，依据最终文件、exit code、墙钟时间和结果回执裁决；若显式改投本地模型，必须保留原失败回执和新的本地回执，不得把结果冒充为原模型产出。可以持续读取上述安全公共事件，但不要读取、保存或伪装隐藏思考流。
+
+上下文边界：原生 ChatGPT + Codex 保持上游默认。DeepSeek/千问/本地 Qwen 的第三方 Codex/Claude 路径不要主动压缩；受管目录或逐模型元数据只负责声明真实窗口和保留溢出保护，不把客户端摘要变成无损或远程压缩。未知第三方 Claude 模型会清除继承的上下文控制变量，避免沿用上一模型容量。

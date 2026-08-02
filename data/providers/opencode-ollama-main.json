@@ -9,6 +9,17 @@
   "transport": "openai-compatible",
   "endpoint": "http://127.0.0.1:32100/v1",
   "models": { "primary": "qwen-main-v1", "small": "qwen-main-v1" },
+  "modelMetadata": {
+    "qwen-main-v1": {
+      "contextWindowTokens": 262144,
+      "inputWindowTokens": 262144,
+      "outputWindowTokens": 8192,
+      "compactionReserveTokens": 20000,
+      "preserveRecentTokens": 16384,
+      "tailTurns": 4
+    }
+  },
+  "compatibility": { "minCliVersion": "1.18.8" },
   "auth": { "type": "none" },
   "capabilities": { "tools": true, "streaming": true, "images": true, "machineRun": true },
   "sources": [

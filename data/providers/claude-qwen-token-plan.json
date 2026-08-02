@@ -34,10 +34,18 @@
       "qwen3.7-max",
       "qwen3.7-plus",
       "qwen3.7-max-2026-05-20",
-      "qwen3.7-plus-2026-05-26",
       "qwen3.7-max-preview"
     ]
   },
+  "modelMetadata": {
+    "qwen3.7-max-2026-06-08": { "contextWindowTokens": 983616, "autoCompactWindowTokens": 983616 },
+    "qwen3.7-plus-2026-05-26": { "contextWindowTokens": 983616, "autoCompactWindowTokens": 983616 },
+    "qwen3.7-max": { "contextWindowTokens": 983616, "autoCompactWindowTokens": 983616 },
+    "qwen3.7-plus": { "contextWindowTokens": 983616, "autoCompactWindowTokens": 983616 },
+    "qwen3.7-max-2026-05-20": { "contextWindowTokens": 983616, "autoCompactWindowTokens": 983616 },
+    "qwen3.7-max-preview": { "contextWindowTokens": 983616, "autoCompactWindowTokens": 983616 }
+  },
+  "compatibility": { "minCliVersion": "2.1.193" },
   "dataDestination": "阿里云 Token Plan 专属 Key",
   "virtualReady": false
 }

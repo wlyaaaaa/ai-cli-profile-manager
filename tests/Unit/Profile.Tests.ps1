@@ -63,7 +63,7 @@ Describe 'Profile' {
         }
     }
 
-    It 'binds fingerprints to compatibility and model catalog content' {
+    It 'binds fingerprints to compatibility, model metadata, and model catalog content' {
         InModuleScope AiCliProfileManager {
             $profile = [ordered]@{
                 schemaVersion = 1
@@ -82,9 +82,17 @@ Describe 'Profile' {
             $second = Get-AiCliProfileFingerprint -Profile $profile
             $profile.compatibility.minCliVersion = '0.145.0'
             $third = Get-AiCliProfileFingerprint -Profile $profile
+            $profile.modelMetadata = [ordered]@{
+                'deepseek-v4-flash' = [ordered]@{
+                    contextWindowTokens = 1000000
+                    autoCompactWindowTokens = 1000000
+                }
+            }
+            $fourth = Get-AiCliProfileFingerprint -Profile $profile
 
             $first | Should -Not -Be $second
             $second | Should -Not -Be $third
+            $third | Should -Not -Be $fourth
         }
     }
 }

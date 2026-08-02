@@ -2,7 +2,15 @@
   "schemaVersion": 1,
   "displayName": "Codex 千问 3.7 (Responses)",
   "defaultEffort": "high",
+  "effortLevels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ],
   "codexProviderId": "aicli_qwen_paygo",
+  "codexModelCatalog": "qwen3.7-codex.json",
   "plan": "paygo",
   "capabilities": {
     "tools": true,
@@ -36,10 +44,10 @@
       "qwen3.7-max",
       "qwen3.7-plus",
       "qwen3.7-max-2026-05-20",
-      "qwen3.7-plus-2026-05-26",
       "qwen3.7-max-preview"
     ]
   },
+  "compatibility": { "minCliVersion": "0.144.0" },
   "dataDestination": "阿里云百炼（按量 Responses）",
   "virtualReady": false
 }

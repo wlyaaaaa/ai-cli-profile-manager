@@ -59,7 +59,9 @@ function Show-AiCliHelpCompact {
 
 生效：当前会话立即。
 
-注意：压缩不可完美还原细节；重要结论请先让模型写到文件。
+注意：压缩不可完美还原细节。原生 ChatGPT + Codex 保持上游默认；DeepSeek、千问及本地模型的第三方 CLI 路由不要为了省上下文主动 compact。
+
+建议：一个会话只做一个内聚里程碑。确需压缩前先写下目标、约束、改动文件、测试和下一步；压缩后重读项目规则、当前 Skill、状态文档和 git diff/status。
 
 对照：二者都有 compact，语义相近但实现不等价。
 '@

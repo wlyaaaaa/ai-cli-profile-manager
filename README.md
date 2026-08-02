@@ -39,6 +39,8 @@ DeepSeek 在 2026-07-31 开放 [Codex public beta](https://api-docs.deepseek.com
 
 DeepSeek API Key 仍由 Windows CurrentUser DPAPI 保存，Codex 受管配置只写 `env_key` 引用；不复制官方示例中的明文 `experimental_bearer_token`，也不写入 `preferred_auth_method`。Qwen Code `0.21` 与 OpenCode `1.18.8` 虽有上游 DeepSeek 原生接入方式，但 AICLI 当前 machine-only 外层沙箱断网，且尚无把真实 Key 与远程 egress 隔离开的 relay；因此不开放这两条远程模板，也不生成看似可用的假 Profile。
 
+本轮上下文优化不改变原生 ChatGPT + Codex：千问 Codex 按量/Token Plan 新增受管 983616/95% model catalog，避免未知模型 272K 回退；本地 Codex 的 `qwen-main-v1` 使用独立 262144 目录；DeepSeek/千问及本地 Qwen 的 Claude Profile 在 2.1.193+ 按最终模型注入真实 MAX/AUTO 窗口；本地 OpenCode 明确 262144/8192 limit 与约 92.4% 晚压缩保护。第三方客户端摘要仍是有损的，长任务应先把状态写入项目文档，压缩后重读规则、Skill 和 diff。
+
 2026-07-14（UTC+8）曾完成 Claude Code / Rust Open Interpreter → `deepseek-v4-pro` 的文本验收；当前公开模板已切换为 Flash-only，旧 Profile 指纹已经失效，不能作为 `deepseek-v4-flash` 或 `codex-deepseek` 的当前证据。逐项状态见兼容性页。
 
 Claude 官方路径在未登录机器上出现 `401`，通常表示需要先完成 Claude Code 自己的官方登录，不代表本工具安装失败。
@@ -66,6 +68,8 @@ machine child 的父环境按运行时 allowlist 重建，不再继承无关凭�
 远程 Qwen Cloud Agent route 当前禁用且不做付费复测。2026-07-28 以前标成 Flash/Plus 的 Codex Agent 记录因 bridge 丢失模型覆盖，实际调用了 Profile 主模型 Max；这些旧身份与能力结论已撤回，不能作为 Flash/Plus 证据。
 
 本机预置本地 Profile：`codex-ollama-main`、`claude-ollama-main`、`qwen-code-ollama-main`、`opencode-ollama-main`，都固定访问 `127.0.0.1:32100` 的 `qwen-main-v1`。另有显式 opt-in 的 `codex-spark-xhigh`，精确选择 `gpt-5.3-codex-spark` 与默认 `xhigh`。2026-07-29 的源代码入口真实任务已经证明 Spark 的工作区写权限生效，但 `code_repair` 在硬上限 `80` 步下到达 `81/80`，确定性得分仅 `2/9`；因此当前能力验收不通过，不登记为合格代码 Agent，也不为改变结果重复复测。所有 Profile 都不自动 fallback，上层调用者仍负责选择、额度失败后的显式重提、隔离工作区和最终验收。
+
+上层若考虑免费本地模型或订阅内 Spark，唯一收益口径是减少边际付费 token/API 成本；简单、低风险、可验证且净节省为正时才值得委派。疑难任务、授权、高风险动作和最终判断保留给顶级模型，亲自完成不是故障。
 
 `0.3.3` 已从目标提交的干净快照安装到本机，并完成 `codex-deepseek` 的 Profile 脱敏、最低 CLI 版本、受管 TOML、内容寻址模型目录和 Codex 本地解析静态验收；未执行 DeepSeek Live/API 请求。它仍不是 GitHub Release，其他机器不得把本机 installed 证据解释成公开发行。
 

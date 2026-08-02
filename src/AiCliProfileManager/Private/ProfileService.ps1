@@ -96,7 +96,7 @@ function Merge-AiCliProfile {
         $UserProfile
     )
     $merged = [ordered]@{}
-    foreach ($k in @('schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi','endpoint','models','auth','proxyRef','capabilities','compatibility','sources','deprecation','codexProviderId','codexModelCatalog','interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','env','defaultModel','modelPrefix','defaultEffort','effortLevels','flexible')) {
+    foreach ($k in @('schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','proxyRef','capabilities','compatibility','sources','deprecation','codexProviderId','codexModelCatalog','interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','env','defaultModel','modelPrefix','defaultEffort','effortLevels','flexible')) {
         $v = Get-AiCliProperty $Template $k
         if ($null -ne $v) { $merged[$k] = $v }
     }
@@ -207,7 +207,7 @@ function Resolve-AiCliProfileStatus {
 function Get-AiCliProfileFingerprint {
     param([Parameter(Mandatory)]$Profile)
     $stable = [ordered]@{}
-    foreach ($key in @('schemaVersion','id','templateId','engine','provider','plan','region','transport','endpoint','models','codexProviderId','codexModelCatalog','compatibility','proxyRef','preferences','secretRef')) {
+    foreach ($key in @('schemaVersion','id','templateId','engine','provider','plan','region','transport','endpoint','models','modelMetadata','codexProviderId','codexModelCatalog','compatibility','proxyRef','preferences','secretRef')) {
         $value = Get-AiCliProperty $Profile $key
         if ($null -ne $value) { $stable[$key] = $value }
     }

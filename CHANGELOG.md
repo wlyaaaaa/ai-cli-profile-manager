@@ -9,17 +9,23 @@
 ### 新增
 
 - 新增 DeepSeek 官方 Codex public beta 模板 `codex-deepseek`：固定 `deepseek-v4-flash`、Responses、1M context、Codex CLI `0.144.0+`，默认 reasoning effort 为 `high`，支持 `low` / `high` / `max`。
+- 新增千问 Codex 受管 `qwen3.7-codex.json`：六个现有候选固定 983616/95% 窗口、非空 Codex 基础指令和受限 effort，避免未知模型 272K 回退。
+- 新增本地 `qwen-main-v1-codex.json`：Codex、Claude Code 与 OpenCode 对同一免费本地模型统一使用 262144 context，不再分别回退为未知容量。
+- 新增 Claude/OpenCode 的逐模型 `modelMetadata`，模型窗口变化会进入 Profile 指纹并使旧验收失效。
 - DeepSeek 模型目录使用 AICLI 受管的内容寻址副本；API Key 继续由 CurrentUser DPAPI 保存，Codex 配置只引用 `env_key`。不复制官方示例的明文 `experimental_bearer_token`，也不写入 `preferred_auth_method`。
 - OpenClaw DeepSeek 导入可生成 `codex-deepseek`、`claude-deepseek`、`oi-deepseek` 三个 Profile。
 
 ### 变更
 
 - Codex、Claude Code 与 Rust Open Interpreter 的公开 DeepSeek 模板统一收敛为 `deepseek-v4-flash`。`deepseek-v4-pro` 只保留不可选的 `reserved` 元数据，待上游正式支持 Codex Responses 后再接入。
+- DeepSeek/千问/本地 Qwen Claude Profile 仅在命中已知最终模型时设置真实 MAX/AUTO 窗口；原生 Claude 与原生 ChatGPT + Codex 不变。未知第三方模型不猜容量，并清除父进程遗留的窗口、提前压缩和禁压缩变量。
+- 本地 OpenCode 固定主/小/压缩模型与唯一 local provider，使用 262144 context、8192 output、20000 reserve、4 轮/16384 token 保留并关闭 tool-output pruning；checkpoint 仍是一次性。
 - Qwen Code `0.21` 与 OpenCode `1.18.8` 暂不开放 DeepSeek 远程 Profile：当前 AICLI machine-only 外层沙箱断网，且没有隔离真实 Key 的远程 egress relay；不以假 Profile 代替缺失的安全执行路径。
 - 2026-07-14 的 Claude/OI `deepseek-v4-pro` Live 记录仅保留为历史证据；Flash-only Profile 指纹变化后，该记录不再证明当前模板可用。
 
 ### 修正
 
+- PDF 构建优先复用本机已有的 Playwright 与已安装 Edge，避免 Edge 命令行打印受既有浏览器单例影响而无限等待；仍保留有界超时的 Edge CLI 后备路径。两本 canonical Markdown 会写入源 SHA256，并在生成后做文本与逐页渲染验收。
 - Codex CLI `0.145.x` 的原生 app-server `workspace-write` 改用实验协议中的命名权限：`thread/start` 与 `turn/start` 都传入 `permissions=:workspace`，并用唯一的 `runtimeWorkspaceRoots` 精确绑定请求 `cwd`。桥接器回读 `workspaceWrite`、`:workspace` 和同一根路径，并在模型轮次前执行受限写探针；根目录为空、漂移或探针失败时，不启动模型调用。
 - 原生 Codex machine run 继续固定 `approvalPolicy=never`；app-server 发起任何审批或用户输入 RPC 时均失败关闭，不自动批准。
 - machine child 不再继承完整父进程环境，而是从 Windows、PowerShell、Node/TLS 运行所需的小型 allowlist 重建环境，并屏蔽调试类变量。受管运行时仍可通过 `EnvironmentDelta` 显式注入本次任务所需的 Provider 或运行时变量；该显式注入是权限边界，不能被表述成“子进程永远看不到秘密”。

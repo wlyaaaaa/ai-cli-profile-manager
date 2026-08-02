@@ -37,6 +37,15 @@
       "qwen3-coder-plus"
     ]
   },
+  "modelMetadata": {
+    "qwen3.7-plus": { "contextWindowTokens": 1000000, "autoCompactWindowTokens": 1000000 },
+    "qwen3.6-plus": { "contextWindowTokens": 1000000, "autoCompactWindowTokens": 1000000 },
+    "qwen3.5-plus": { "contextWindowTokens": 1000000, "autoCompactWindowTokens": 1000000 },
+    "qwen3-max-2026-01-23": { "contextWindowTokens": 262144, "autoCompactWindowTokens": 262144 },
+    "qwen3-coder-next": { "contextWindowTokens": 262144, "autoCompactWindowTokens": 262144 },
+    "qwen3-coder-plus": { "contextWindowTokens": 1000000, "autoCompactWindowTokens": 1000000 }
+  },
+  "compatibility": { "minCliVersion": "2.1.193" },
   "dataDestination": "阿里云 Coding Plan 专属 Key",
   "virtualReady": false
 }

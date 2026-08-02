@@ -19,6 +19,25 @@
     "wireApi": { "enum": ["responses", "chat"] },
     "endpoint": { "type": ["string", "null"] },
     "models": { "type": "object" },
+    "modelMetadata": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["contextWindowTokens"],
+        "properties": {
+          "contextWindowTokens": { "type": "integer", "minimum": 32768, "maximum": 4194304 },
+          "autoCompactWindowTokens": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+          "inputWindowTokens": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+          "outputWindowTokens": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+          "compactionReserveTokens": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+          "preserveRecentTokens": { "type": "integer", "minimum": 1, "maximum": 4194304 },
+          "tailTurns": { "type": "integer", "minimum": 1, "maximum": 256 }
+        }
+      }
+    },
     "auth": { "type": "object" },
     "proxyRef": { "type": ["string", "null"] },
     "capabilities": { "type": "object" },

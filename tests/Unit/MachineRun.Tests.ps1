@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 
 Describe 'Machine-facing profile runs' {
     It 'preserves Chinese text across redirected stdin and stdout' {
@@ -2503,6 +2503,14 @@ Start-Sleep -Seconds 2
                     kind = 'opencode'
                     endpoint = 'http://127.0.0.1:32100/v1'
                     model = 'qwen-main-v1'
+                    modelMetadata = [ordered]@{
+                        contextWindowTokens = 262144
+                        inputWindowTokens = 262144
+                        outputWindowTokens = 8192
+                        compactionReserveTokens = 20000
+                        preserveRecentTokens = 16384
+                        tailTurns = 4
+                    }
                 }
             }
             $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'PRIVATE_TASK_CANARY' `
@@ -2510,7 +2518,22 @@ Start-Sleep -Seconds 2
             try {
                 ($runtime.ArgumentList -join ' ') | Should -Not -Match 'PRIVATE_TASK_CANARY'
                 $runtime.StdInText | Should -Be ''
-                $runtime.EnvironmentDelta.OPENCODE_CONFIG_CONTENT | Should -Match 'qwen-main-v1'
+                $openCodeConfig = $runtime.EnvironmentDelta.OPENCODE_CONFIG_CONTENT | ConvertFrom-Json -Depth 30
+                $openCodeConfig.model | Should -Be 'aicli_ollama/qwen-main-v1'
+                $openCodeConfig.small_model | Should -Be 'aicli_ollama/qwen-main-v1'
+                @($openCodeConfig.enabled_providers) | Should -Be @('aicli_ollama')
+                $openCodeConfig.share | Should -Be 'disabled'
+                $openCodeConfig.provider.aicli_ollama.models.'qwen-main-v1'.limit.context | Should -Be 262144
+                $openCodeConfig.provider.aicli_ollama.models.'qwen-main-v1'.limit.input | Should -Be 262144
+                $openCodeConfig.provider.aicli_ollama.models.'qwen-main-v1'.limit.output | Should -Be 8192
+                $openCodeConfig.compaction.auto | Should -BeTrue
+                $openCodeConfig.compaction.prune | Should -BeFalse
+                $openCodeConfig.compaction.reserved | Should -Be 20000
+                $openCodeConfig.compaction.tail_turns | Should -Be 4
+                $openCodeConfig.compaction.preserve_recent_tokens | Should -Be 16384
+                $openCodeConfig.agent.compaction.model | Should -Be 'aicli_ollama/qwen-main-v1'
+                $openCodeConfig.agent.build.steps | Should -Be 30
+                ($runtime.EnvironmentDelta.OPENCODE_CONFIG_CONTENT) | Should -Not -Match 'dashscope|deepseek|api\.openai'
                 Get-Content -Raw -LiteralPath (Join-Path $runtime.RuntimePath 'task.md') | Should -Be 'PRIVATE_TASK_CANARY'
             } finally {
                 Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath -Workspace $Work

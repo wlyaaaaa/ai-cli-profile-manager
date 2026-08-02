@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 Describe 'Docs contract' {
     BeforeAll {
         $script:Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -31,7 +31,23 @@ Describe 'Docs contract' {
 
     It 'binds generated handbook PDFs to the current 0.3.3 main documentation' {
         $builder = Get-Content (Join-Path $script:Root 'scripts\Build-Pdfs.py') -Raw
+        $playwrightHelper = Join-Path $script:Root 'scripts\Print-HtmlPdfPlaywright.js'
         $builder | Should -Match 'VERSION\s*=\s*"0\.3\.3"'
         $builder | Should -Match 'REPOSITORY_BLOB\s*=\s*"https://github\.com/wlyaaaaa/ai-cli-profile-manager/blob/main"'
+        $builder | Should -Match 'render_with_playwright'
+        Test-Path -LiteralPath $playwrightHelper -PathType Leaf | Should -BeTrue
+        (Get-Content -LiteralPath $playwrightHelper -Raw) | Should -Match 'page\.pdf'
+    }
+
+    It 'documents loss-aware third-party continuity without changing the native baseline' {
+        $main = Get-Content (Join-Path $script:UserDocs 'AI CLI Profile Manager 使用手册.md') -Raw
+        $cli = Get-Content (Join-Path $script:UserDocs 'Codex、Claude Code 与 Open Interpreter CLI 中文手册.md') -Raw
+        foreach ($text in @($main, $cli)) {
+            $text | Should -Match '原生 ChatGPT\s*\+\s*Codex'
+            $text | Should -Match '不要.*主动.*compact'
+            $text | Should -Match 'AGENTS\.md'
+            $text | Should -Match 'SKILL\.md'
+            $text | Should -Match 'git (status|diff)'
+        }
     }
 }

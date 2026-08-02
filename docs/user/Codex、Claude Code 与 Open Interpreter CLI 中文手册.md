@@ -59,6 +59,8 @@ aicli start codex-official -- --model gpt-5.6-sol
 
 DeepSeek Codex public beta 使用 `codex-deepseek`：固定 `deepseek-v4-flash`、Responses 与 1M context，要求 Codex CLI `0.144.0+`，默认 `high`，支持 `low` / `high` / `max`。`deepseek-v4-pro` 当前仅预留且不可选。AICLI 用 DPAPI 保存 Key，受管配置只写 `env_key`；不要照抄官方示例里的明文 `experimental_bearer_token`。
 
+千问 Codex 按量与 Token Plan 共用受管 `qwen3.7-codex.json`：六个现有候选都声明 `983616` token 输入窗口、95% 有效窗口与客户端派生的晚压缩阈值，默认模型仍是 `qwen3.7-max-2026-06-08`。这修复了 Codex 把未知 slug 回退为 272K、约 244.8K 就压缩的问题；当前目录约在 885K 才触发保护。现代 Codex 路径仍只接 Responses；Coding Plan 的旧 Chat 路线没有伪装成 Responses Profile。
+
 ### 2.2 权限、沙箱和计划模式
 
 ```text
@@ -78,7 +80,7 @@ DeepSeek Codex public beta 使用 `codex-deepseek`：固定 `deepseek-v4-flash`�
 /usage
 ```
 
-- `/compact` 总结已有对话以腾出上下文空间，可能丢失细节。
+- `/compact` 总结已有对话以腾出上下文空间，可能丢失细节。原生 ChatGPT + Codex 保持上游默认；DeepSeek/千问自定义 Provider 通常由客户端本地摘要，不等价于 OpenAI 原生远程压缩，因此不要为了省上下文主动执行 `/compact`。
 - `/status` 显示当前模型、权限、可写范围和剩余上下文等会话状态。
 - `/usage` 或会话结束页的用量汇总显示上游或客户端统计到的 token / 费用信息；它不是 aicli 的费用计算器，也**不一定**等于云厂商账单。
 
@@ -318,7 +320,14 @@ Usage by model:
 
 ### 6.6 压缩为什么会丢细节
 
-`/compact` 会把长历史总结成较短内容。它能腾出上下文，但摘要无法无损保存所有数字、文件细节和未完成分支。重要结论先写入项目文档，再压缩。
+`/compact` 会把长历史总结成较短内容。它能腾出上下文，但摘要无法无损保存所有数字、文件细节、授权边界和未完成分支。
+
+- **原生 ChatGPT + Codex**：作为基准，使用上游默认机制，AICLI 不附加压缩限制。
+- **Codex + DeepSeek/千问**：自定义 Provider 没有 OpenAI 原生 remote compact；受管 model catalog 负责给出真实窗口，云千问为 983616，本地 `qwen-main-v1` 为 262144，摘要仍由当前客户端/模型完成。
+- **Claude Code + DeepSeek/千问/本地 Qwen**：AICLI 按最终有效模型设置 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 与 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`。不设置只能提前压缩的百分比覆盖，也不关闭自动溢出保护。未知模型不猜窗口，并清除父进程遗留的窗口/禁压缩变量。
+- **OpenCode + 本地千问**：声明 262144 context、8192 output、20000 reserved；约 92.4% 才自动压缩，保留最近 4 轮/16384 token，并关闭有损 tool-output pruning。一次 `aicli run` 的 checkpoint 不跨 run 持久。
+
+聪明用法是一个会话/run 只做一个内聚里程碑；在自然边界把目标、约束、改动文件、既有脏改动、决定、测试证据、阻塞项和下一步写入项目已有 plan/progress。接近真实窗口时优先拆任务或开 fresh session；确需压缩时先落盘。压缩后把摘要当线索，重新读取适用的 `AGENTS.md` / `CLAUDE.md`、当前 `SKILL.md`、状态文档以及 `git status` / `git diff`，再继续编辑。
 
 ### 6.7 Profile、配置、环境变量和官方登录
 

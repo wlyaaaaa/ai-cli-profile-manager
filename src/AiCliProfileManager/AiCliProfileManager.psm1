@@ -24,6 +24,7 @@ $privateOrder = @(
     'QwenCodeAdapter.ps1',
     'OpenCodeAdapter.ps1',
     'InterpreterAdapter.ps1',
+    'ContextManagement.ps1',
     'ProxyService.ps1',
     'LaunchPlan.ps1',
     'DoctorService.ps1',

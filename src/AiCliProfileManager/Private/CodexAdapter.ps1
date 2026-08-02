@@ -515,7 +515,9 @@ function Build-AiCliCodexLaunchPlan {
             codexProviderId= $providerId
             models         = [ordered]@{ primary = $model }
         }
-        $toml = New-AiCliCodexProviderToml -MergedProfile $merged2 -EnvKeyName 'AICLI_CODEX_PROVIDER_KEY'
+        $modelCatalogPath = Publish-AiCliCodexModelCatalog -MergedProfile $MergedProfile
+        $toml = New-AiCliCodexProviderToml -MergedProfile $merged2 `
+            -EnvKeyName 'AICLI_CODEX_PROVIDER_KEY' -ModelCatalogPath $modelCatalogPath
         $written = Write-AiCliCodexManagedProfile -MergedProfile $merged2 -TomlBody $toml
         $cliArgs.Add('--profile') | Out-Null
         $cliArgs.Add($written.CliProfileName) | Out-Null
@@ -525,7 +527,10 @@ function Build-AiCliCodexLaunchPlan {
         $envDelta['AICLI_CODEX_PROVIDER_KEY'] = 'ollama'
         $cliArgs.Add('-c') | Out-Null
         $cliArgs.Add("model_reasoning_effort=`"$effort`"") | Out-Null
-        Add-AiCliCodexProviderOverrides -ArgumentList $cliArgs -MergedProfile $merged2 -ProviderId $providerId -EnvironmentKey 'AICLI_CODEX_PROVIDER_KEY'
+        Add-AiCliCodexProviderOverrides -ArgumentList $cliArgs -MergedProfile $merged2 `
+            -ProviderId $providerId -EnvironmentKey 'AICLI_CODEX_PROVIDER_KEY' `
+            -ModelCatalogPath $modelCatalogPath
+        if ($modelCatalogPath) { $configFiles += $modelCatalogPath }
         $notes += "本机 Ollama 兼容网关: $endpoint"
         $notes += "模型: $model；wire_api=responses；思考等级 $effort"
         $notes += '公开模板使用 Ollama 默认 11434；其他本机网关请配置独立用户 Profile。'

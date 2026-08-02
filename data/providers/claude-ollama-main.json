@@ -9,6 +9,13 @@
   "transport": "anthropic-messages",
   "endpoint": "http://127.0.0.1:32100",
   "models": { "primary": "qwen-main-v1", "small": "qwen-main-v1" },
+  "modelMetadata": {
+    "qwen-main-v1": {
+      "contextWindowTokens": 262144,
+      "autoCompactWindowTokens": 262144
+    }
+  },
+  "compatibility": { "minCliVersion": "2.1.193" },
   "auth": { "type": "none" },
   "capabilities": { "tools": true, "streaming": true, "images": true, "machineRun": true },
   "sources": ["https://docs.ollama.com/integrations/claude-code"],

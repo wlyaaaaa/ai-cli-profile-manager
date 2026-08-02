@@ -51,22 +51,15 @@ function Build-AiCliLaunchPlan {
         }
     }
 
-    if ($engine -eq 'codex') {
-        return (Build-AiCliCodexLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs -MachineRun:$MachineRun)
+    $plan = switch ($engine) {
+        'codex' { Build-AiCliCodexLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs -MachineRun:$MachineRun; break }
+        'claude' { Build-AiCliClaudeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs -ProxyPort $proxyPort; break }
+        'interpreter' { Build-AiCliInterpreterLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs; break }
+        'qwen-code' { Build-AiCliQwenCodeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs; break }
+        'opencode' { Build-AiCliOpenCodeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs; break }
+        default { throw "未知引擎: $engine" }
     }
-    if ($engine -eq 'claude') {
-        return (Build-AiCliClaudeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs -ProxyPort $proxyPort)
-    }
-    if ($engine -eq 'interpreter') {
-        return (Build-AiCliInterpreterLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs)
-    }
-    if ($engine -eq 'qwen-code') {
-        return (Build-AiCliQwenCodeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs)
-    }
-    if ($engine -eq 'opencode') {
-        return (Build-AiCliOpenCodeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs)
-    }
-    throw "未知引擎: $engine"
+    return (Apply-AiCliContextManagementPolicy -Plan $plan -MergedProfile $merged)
 }
 
 function Show-AiCliNative {

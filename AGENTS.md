@@ -15,6 +15,7 @@
 - 不汉化或修改上游 CLI 本体；原生终端交互、权限、上下文和会话由上游负责。
 - Codex 公开第三方路径只接受上游已明确支持的 Responses Provider。DeepSeek 当前仅开放 `deepseek-v4-flash`；`deepseek-v4-pro` 只保留不可选的 `reserved` 元数据，待官方宣布支持后再接入。不得把 Chat Completions 端点伪装成 Codex Responses。
 - Claude Code 与 Open Interpreter 的公开 DeepSeek 模板同样收敛为 `deepseek-v4-flash`；旧 Pro 验收记录不得跨当前 Profile 指纹复用。
+- 原生 ChatGPT/Codex 与官方 Claude Profile 是连续性基准，不附加第三方模型目录或压缩策略。第三方 Claude/OpenCode 只按最终有效模型的受管元数据修正真实窗口；未知第三方 Claude 模型不猜容量，并清除继承的窗口、提前压缩与禁压缩变量。不得关闭溢出保护。文档和帮助必须提醒 AI：有损压缩前先落盘状态，压缩后重读项目规则、当前 Skill 与 diff。
 - 未完成当期 Windows 11 真实验证的 Provider 不得标成 `可用`。
 
 ## 3. 安全与隔离

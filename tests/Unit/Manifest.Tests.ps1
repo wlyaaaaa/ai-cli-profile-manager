@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 Describe 'Manifest' {
     BeforeAll {
         $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -45,6 +45,8 @@ Describe 'Manifest' {
         $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json
         @($catalog.models).Count | Should -Be 1
         $catalog.models[0].slug | Should -Be 'deepseek-v4-flash'
+        $catalog.models[0].context_window | Should -Be 1000000
+        $catalog.models[0].max_context_window | Should -Be 1000000
         $catalog.models[0].minimal_client_version | Should -Be '0.144.0'
         @($catalog.models[0].supported_reasoning_levels.effort) | Should -Be @('low', 'high', 'max')
         (Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8) | Should -Not -Match 'deepseek-v4-pro'
@@ -59,6 +61,78 @@ Describe 'Manifest' {
             @($manifest.models.candidates) | Should -Be @('deepseek-v4-flash') -Because $id
             @($manifest.models.reserved) | Should -Contain 'deepseek-v4-pro' -Because $id
         }
+    }
+
+    It 'binds third-party Claude and OpenCode profiles to exact model context metadata' {
+        $all = Import-AiCliProviderManifests
+        $all['claude-deepseek'].compatibility.minCliVersion | Should -Be '2.1.193'
+        $all['claude-deepseek'].modelMetadata.'deepseek-v4-flash'.contextWindowTokens | Should -Be 1000000
+        $all['claude-deepseek'].modelMetadata.'deepseek-v4-flash'.autoCompactWindowTokens | Should -Be 1000000
+        $all['claude-qwen-token-plan'].modelMetadata.'qwen3.7-max-2026-06-08'.contextWindowTokens | Should -Be 983616
+        $all['claude-qwen-coding-plan'].modelMetadata.'qwen3-coder-next'.contextWindowTokens | Should -Be 262144
+        $all['claude-ollama-main'].compatibility.minCliVersion | Should -Be '2.1.193'
+        $all['claude-ollama-main'].modelMetadata.'qwen-main-v1'.contextWindowTokens | Should -Be 262144
+        $all['claude-ollama-main'].modelMetadata.'qwen-main-v1'.autoCompactWindowTokens | Should -Be 262144
+        $all['opencode-ollama-main'].modelMetadata.'qwen-main-v1'.contextWindowTokens | Should -Be 262144
+        $all['opencode-ollama-main'].modelMetadata.'qwen-main-v1'.compactionReserveTokens | Should -Be 20000
+    }
+
+    It 'uses one complete non-empty Qwen Codex model catalog without changing the default model' {
+        $all = Import-AiCliProviderManifests
+        $paygo = $all['codex-qwen-paygo']
+        $tokenPlan = $all['codex-qwen-token-plan']
+        $paygo.codexModelCatalog | Should -Be 'qwen3.7-codex.json'
+        $tokenPlan.codexModelCatalog | Should -Be 'qwen3.7-codex.json'
+        $paygo.models.primary | Should -Be 'qwen3.7-max-2026-06-08'
+        @($paygo.effortLevels) | Should -Be @('low', 'medium', 'high', 'xhigh', 'max')
+        @($paygo.effortLevels) | Should -Not -Contain 'ultra'
+
+        $catalogPath = Join-Path $root 'data\model-catalogs\qwen3.7-codex.json'
+        $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100
+        $candidateSlugs = @($paygo.models.candidates | Select-Object -Unique | Sort-Object)
+        $catalogSlugs = @($catalog.models.slug | Sort-Object)
+        $catalogSlugs | Should -Be $candidateSlugs
+        foreach ($model in @($catalog.models)) {
+            $model.context_window | Should -Be 983616
+            $model.max_context_window | Should -Be 983616
+            $model.effective_context_window_percent | Should -Be 95
+            $model.auto_compact_token_limit | Should -BeNullOrEmpty
+            $model.base_instructions | Should -Not -BeNullOrEmpty
+            $model.base_instructions | Should -Match 'Codex'
+            $model.supports_parallel_tool_calls | Should -BeFalse
+            @($model.input_modalities) | Should -Be @('text')
+        }
+    }
+
+    It 'rebuilds the Qwen Codex catalog deterministically from the checked-in baseline' {
+        $generated = Join-Path $TestDrive 'qwen3.7-codex.json'
+        & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') -OutputCatalog $generated | Out-Null
+
+        (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath (Join-Path $root 'data\model-catalogs\qwen3.7-codex.json') -Algorithm SHA256).Hash
+    }
+
+    It 'binds local Codex Qwen to an exact deterministic 262144 catalog' {
+        $all = Import-AiCliProviderManifests
+        $profile = $all['codex-ollama-main']
+        $profile.codexModelCatalog | Should -Be 'qwen-main-v1-codex.json'
+        $profile.compatibility.minCliVersion | Should -Be '0.144.0'
+
+        $catalogPath = Join-Path $root 'data\model-catalogs\qwen-main-v1-codex.json'
+        $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100
+        @($catalog.models).Count | Should -Be 1
+        $catalog.models[0].slug | Should -Be 'qwen-main-v1'
+        $catalog.models[0].context_window | Should -Be 262144
+        $catalog.models[0].max_context_window | Should -Be 262144
+        $catalog.models[0].effective_context_window_percent | Should -Be 95
+        $catalog.models[0].default_reasoning_level | Should -Be 'max'
+        @($catalog.models[0].supported_reasoning_levels.effort) | Should -Be @('low', 'medium', 'high', 'max')
+        $catalog.models[0].base_instructions | Should -Not -BeNullOrEmpty
+
+        $generated = Join-Path $TestDrive 'qwen-main-v1-codex.json'
+        & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') -CatalogKind local -OutputCatalog $generated | Out-Null
+        (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath $catalogPath -Algorithm SHA256).Hash
     }
 
     It 'rejects a native model override for a locked DeepSeek profile' {

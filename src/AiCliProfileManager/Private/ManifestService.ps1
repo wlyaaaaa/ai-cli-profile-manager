@@ -21,7 +21,7 @@ function Assert-AiCliManifestCore {
     $allowed = @(
         'schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi',
         'endpoint','models','auth','proxyRef','capabilities','compatibility','sources','codexProviderId',
-        'interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden',
+        'interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','modelMetadata',
         'defaultEffort','effortLevels','flexible','autoRun','modelPrefix','codexModelCatalog'
     )
     foreach ($key in $M.Keys) {
@@ -66,6 +66,69 @@ function Assert-AiCliManifestCore {
     }
     foreach ($modelId in @((Get-AiCliProperty $models 'reserved') | Where-Object { $_ })) {
         $null = Assert-AiCliModelId -Model ([string]$modelId)
+    }
+    $modelMetadata = Get-AiCliProperty $M 'modelMetadata'
+    if ($null -ne $modelMetadata) {
+        if ($modelMetadata -isnot [System.Collections.IDictionary]) {
+            throw "Manifest modelMetadata 必须是 object ($id)"
+        }
+        $activeModels = @(
+            (Get-AiCliProperty $models 'primary'),
+            (Get-AiCliProperty $models 'small')
+        ) + @((Get-AiCliProperty $models 'candidates') | Where-Object { $_ })
+        $activeModels = @($activeModels | Where-Object { $_ } | ForEach-Object { [string]$_ } | Select-Object -Unique)
+        $allowedMetadataFields = @(
+            'contextWindowTokens','autoCompactWindowTokens','inputWindowTokens','outputWindowTokens',
+            'compactionReserveTokens','preserveRecentTokens','tailTurns'
+        )
+        foreach ($modelName in @($modelMetadata.Keys)) {
+            $modelName = [string]$modelName
+            $null = Assert-AiCliModelId -Model $modelName
+            if ($activeModels -notcontains $modelName) {
+                throw "modelMetadata 模型未进入活动模型列表: $modelName ($id)"
+            }
+            $entry = Get-AiCliProperty $modelMetadata $modelName
+            if ($entry -isnot [System.Collections.IDictionary]) {
+                throw "modelMetadata 条目必须是 object: $modelName ($id)"
+            }
+            foreach ($field in @($entry.Keys)) {
+                if ($allowedMetadataFields -notcontains [string]$field) {
+                    throw "modelMetadata 未知字段: $field ($modelName / $id)"
+                }
+                $value = Get-AiCliProperty $entry ([string]$field)
+                if ($value -isnot [byte] -and $value -isnot [int16] -and $value -isnot [int32] -and $value -isnot [int64]) {
+                    throw "modelMetadata $field 必须是整数 ($modelName / $id)"
+                }
+                if ([long]$value -le 0) {
+                    throw "modelMetadata $field 必须大于 0 ($modelName / $id)"
+                }
+            }
+            $contextWindow = [long](Get-AiCliProperty $entry 'contextWindowTokens')
+            if ($contextWindow -lt 32768 -or $contextWindow -gt 4194304) {
+                throw "modelMetadata contextWindowTokens 超出允许范围 ($modelName / $id)"
+            }
+            foreach ($field in @('autoCompactWindowTokens','inputWindowTokens','outputWindowTokens','compactionReserveTokens','preserveRecentTokens')) {
+                $value = Get-AiCliProperty $entry $field
+                if ($null -ne $value -and [long]$value -gt $contextWindow) {
+                    throw "modelMetadata $field 不得超过 contextWindowTokens ($modelName / $id)"
+                }
+            }
+            if ([string](Get-AiCliProperty $M 'engine') -eq 'claude') {
+                if ($null -eq (Get-AiCliProperty $entry 'autoCompactWindowTokens')) {
+                    throw "Claude modelMetadata 缺少 autoCompactWindowTokens ($modelName / $id)"
+                }
+            }
+            if ([string](Get-AiCliProperty $M 'engine') -eq 'opencode') {
+                foreach ($field in @('inputWindowTokens','outputWindowTokens','compactionReserveTokens','preserveRecentTokens','tailTurns')) {
+                    if ($null -eq (Get-AiCliProperty $entry $field)) {
+                        throw "OpenCode modelMetadata 缺少 $field ($modelName / $id)"
+                    }
+                }
+            }
+        }
+        if ([string](Get-AiCliProperty $M 'engine') -notin @('claude','opencode')) {
+            throw "modelMetadata 当前仅允许 Claude/OpenCode Manifest ($id)"
+        }
     }
     $compatibility = Get-AiCliProperty $M 'compatibility'
     $minimumCliVersion = [string](Get-AiCliProperty $compatibility 'minCliVersion')

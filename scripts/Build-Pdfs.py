@@ -31,6 +31,7 @@ EDGE_CANDIDATES = (
     Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
     Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
 )
+PLAYWRIGHT_HELPER = Path(__file__).with_name("Print-HtmlPdfPlaywright.js")
 
 CSS = r"""
 @page { size: A4; margin: 1.5cm 1.4cm; }
@@ -96,7 +97,101 @@ def ps_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def find_playwright_runtime() -> tuple[Path, Path] | None:
+    """Find an existing Node + Playwright runtime without installing anything."""
+    node_candidates: list[Path] = []
+    explicit_node = os.environ.get("MD_PDF_PLAYWRIGHT_NODE")
+    if explicit_node:
+        node_candidates.append(Path(explicit_node).expanduser())
+    system_node = shutil.which("node")
+    if system_node:
+        node_candidates.append(Path(system_node))
+    node_candidates.append(
+        Path.home()
+        / ".cache"
+        / "codex-runtimes"
+        / "codex-primary-runtime"
+        / "dependencies"
+        / "node"
+        / "bin"
+        / "node.exe"
+    )
+
+    module_candidates: list[Path] = []
+    explicit_modules = os.environ.get("MD_PDF_PLAYWRIGHT_MODULES")
+    if explicit_modules:
+        module_candidates.extend(
+            Path(value).expanduser()
+            for value in explicit_modules.split(os.pathsep)
+            if value.strip()
+        )
+    node_path = os.environ.get("NODE_PATH")
+    if node_path:
+        module_candidates.extend(
+            Path(value).expanduser()
+            for value in node_path.split(os.pathsep)
+            if value.strip()
+        )
+    module_candidates.append(
+        Path.home()
+        / ".cache"
+        / "codex-runtimes"
+        / "codex-primary-runtime"
+        / "dependencies"
+        / "node"
+        / "node_modules"
+    )
+
+    nodes = list(dict.fromkeys(path.resolve() for path in node_candidates if path.is_file()))
+    modules = list(
+        dict.fromkeys(
+            path.resolve()
+            for path in module_candidates
+            if (path / "playwright" / "package.json").is_file()
+        )
+    )
+    if nodes and modules and PLAYWRIGHT_HELPER.is_file():
+        return nodes[0], modules[0]
+    return None
+
+
+def render_with_playwright(edge: Path, html_path: Path, output_pdf: Path) -> bool:
+    runtime = find_playwright_runtime()
+    if runtime is None:
+        return False
+    node, modules = runtime
+    environment = os.environ.copy()
+    environment["NODE_PATH"] = str(modules)
+    completed = subprocess.run(
+        [
+            str(node),
+            str(PLAYWRIGHT_HELPER),
+            str(edge),
+            str(html_path),
+            str(output_pdf),
+            "120000",
+        ],
+        timeout=130,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=environment,
+        check=False,
+    )
+    valid = completed.returncode == 0 and output_pdf.exists() and output_pdf.stat().st_size > 1024
+    if not valid:
+        detail = completed.stderr.strip()[-1200:] or f"exit={completed.returncode}"
+        print(f"Playwright PDF backend unavailable: {detail}")
+    return valid
+
+
 def render_with_edge(edge: Path, html_path: Path, output_pdf: Path, profile_dir: Path) -> None:
+    if render_with_playwright(edge, html_path, output_pdf):
+        print("PDF backend: Playwright + installed Edge")
+        return
+
     arguments = [
         "--headless=new",
         "--disable-gpu",
@@ -111,11 +206,15 @@ def render_with_edge(edge: Path, html_path: Path, output_pdf: Path, profile_dir:
         f"$p=Start-Process -FilePath {ps_quote(str(edge))} -ArgumentList {ps_args} "
         "-PassThru -Wait -WindowStyle Hidden; exit $p.ExitCode"
     )
-    completed = subprocess.run(
-        ["pwsh", "-NoLogo", "-NoProfile", "-Command", command], timeout=120, check=False
-    )
+    try:
+        completed = subprocess.run(
+            ["pwsh", "-NoLogo", "-NoProfile", "-Command", command], timeout=120, check=False
+        )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("Edge CLI PDF 生成超时；请安装或配置现有 Playwright runtime") from error
     if completed.returncode != 0 or not output_pdf.exists() or output_pdf.stat().st_size <= 1024:
         raise RuntimeError(f"Edge PDF 生成失败，退出码 {completed.returncode}: {output_pdf}")
+    print("PDF backend: Edge CLI fallback")
 
 
 def finalize_pdf(input_pdf: Path, output_pdf: Path, title: str, source_sha256: str) -> None:
