@@ -34,6 +34,7 @@
 
 ### 验收
 
+- 2026-08-03（UTC+8）从提交 `32dad74` 的干净快照事务安装 `0.3.3`，安装 payload 与快照逐文件 SHA256 一致，23 个 Manifest 可回读。Codex `debug models` 对 DeepSeek Flash、本地 Qwen 与云千问目录分别唯一命中 `1000000`、`262144`、`983616`；Claude 已知/未知模型窗口策略及 OpenCode 262144/8192/20000/16384/4、`prune=false` 均由安装态静态解析确认。Pester 200/200、release smoke 与两本 PDF 的源哈希/文本/全页渲染验收通过；未调用模型或 Provider API。
 - 通过仓库源代码入口执行的 Spark `workspace-write` 真实任务已证明工作区写权限生效；但 `code_repair` 在硬上限 `maxSteps=80` 下到达 `81/80` 并终止，确定性得分为 `2/9`。该结果属于能力验收不通过，不因写权限修复而晋升为合格代码 Agent，也不重复复测。
 
 ## [0.3.2] - 2026-07-25

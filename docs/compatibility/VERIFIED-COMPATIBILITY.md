@@ -1,14 +1,14 @@
 # 兼容性与最终验收状态
 
-文档日期：2026-08-01（UTC+8）
+文档日期：2026-08-03（UTC+8）
 产品版本：`0.3.3`（本机已安装并完成静态验收，未发布 Release）
 状态原则：代码路径存在不等于 Provider 已通过；最终状态必须来自当前版本、当前 Profile 指纹和真实目标 CLI 的验收记录。
 
-当前仓库包含尚未发布为 GitHub Release 的 DeepSeek 与 machine-run 变更；本机已从目标提交的干净快照安装 `0.3.3`。下文明确标注为“源代码入口”或“本机 installed”的证据都不得解释成 GitHub Release 已发布，也不得跨 Profile 指纹复用旧 Live 记录。
+当前仓库包含尚未发布为 GitHub Release 的 DeepSeek 与 machine-run 变更；本机已从提交 `32dad74` 的干净快照安装 `0.3.3`，安装 payload 与快照逐文件 SHA256 一致。下文明确标注为“源代码入口”或“本机 installed”的证据都不得解释成 GitHub Release 已发布，也不得跨 Profile 指纹复用旧 Live 记录。
 
 ## 1. 当前实现基线
 
-开发环境曾检测到：Windows 11、PowerShell 7.6.3、Codex CLI 0.146.0、Claude Code 2.1.220、Qwen Code 0.21.0、OpenCode 1.18.8、Open Interpreter 0.0.21。它们只是当前实现环境，不是所有用户机器的保证，也不代替逐 Profile Live 验收。`codex-deepseek` 的上游最低要求为 Codex CLI `0.144.0`。
+开发环境当前检测到：Windows 11、PowerShell 7.6.4、Codex CLI 0.146.0-alpha.9.2、Claude Code 2.1.220、Qwen Code 0.21.0、OpenCode 1.18.8、Open Interpreter 0.0.21。它们只是当前实现环境，不是所有用户机器的保证，也不代替逐 Profile Live 验收。`codex-deepseek` 的上游最低要求为 Codex CLI `0.144.0`。
 
 Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形如 `Open Interpreter 0.4.x` 的旧 Python 产品不在支持范围。
 
@@ -19,14 +19,14 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | Profile / 路径 | 实现状态 | 本轮最终 Live 状态 | 发布说明 |
 |----------------|----------|--------------------|----------|
 | `codex-official` | 已实现 | 可用但有限制（本轮按用户要求未做 Live） | 使用上游官方登录；不得由桌面端登录状态推断 CLI 一定可用 |
-| `codex-deepseek` | `0.3.3` 已在本机安装；DeepSeek Codex public beta | 可用但有限制（静态验收通过，尚未做当前 Flash Live） | 固定 `deepseek-v4-flash`、Responses、1M context、默认 `high`，支持 `low` / `high` / `max`；`deepseek-v4-pro` 仅 reserved 且不可选。2026-08-01（UTC+8）已验证 Profile 脱敏、Codex CLI 最低版本、受管 TOML、`env_key`、内容寻址模型目录及 Codex 本地目录解析；未调用 DeepSeek API。Key 由 DPAPI 保存，Codex 配置只引用 `env_key`。machine route 当前仅 `read-only`；`workspace-write` 在请求前失败关闭。 |
+| `codex-deepseek` | `0.3.3` 已在本机安装；DeepSeek Codex public beta | 可用但有限制（静态验收通过，尚未做当前 Flash Live） | 固定 `deepseek-v4-flash`、Responses、十进制 1M context、默认 `high`，支持 `low` / `high` / `max`；`deepseek-v4-pro` 仅 reserved 且不可选。2026-08-03（UTC+8）已验证 Profile 脱敏、Codex CLI 最低版本、受管 TOML、`env_key`、内容寻址模型目录及 Codex `debug models` 唯一命中 `1000000`；未调用 DeepSeek API。Key 由 DPAPI 保存，Codex 配置只引用 `env_key`。machine route 当前仅 `read-only`；`workspace-write` 在请求前失败关闭。 |
 | `codex-spark-xhigh` | 已实现；workspace 修复仅在未发布源码 | 能力验收不通过 | 2026-07-24 的只读严格 JSON smoke 仍只证明文本链路。2026-07-29 使用仓库源代码入口和 `gpt-5.3-codex-spark` / `xhigh` 的真实 `workspace-write` 任务已证明命名权限与工作区写入生效；但 `code_repair` 在硬上限 `maxSteps=80` 下达到 `81/80` 后终止，确定性得分 `2/9`。本轮停止复测，不把权限修复等同于代码 Agent 能力通过。官方 Spark 使用临时 `CODEX_HOME` / `auth.json` 副本，不走付费 API Key。 |
-| `codex-qwen-paygo` | 模型绑定与受管目录修复在未发布源码；付费 route 禁用 | 不可用（不做付费 Live 复验） | 旧 Flash/Plus 记录实际落到 Profile 主模型 Max，身份声明已撤回。当前源码保留默认 `qwen3.7-max-2026-06-08`，六个候选共用非空基础指令的 983616/95% model catalog，并同时绑定 Provider override、machine plan、`thread/start` 和回执；不含错误的 `ultra`。静态修复不构成付费 Live。 |
-| `codex-qwen-token-plan` | 已实现；受管目录修复在未发布源码 | 可用但有限制（本轮未做 Live） | 与按量共用 983616/95% 目录，但 Key、端点和套餐分开；默认模型未改变 |
+| `codex-qwen-paygo` | 模型绑定与受管目录修复已在本机 installed；付费 route 禁用 | 不可用（不做付费 Live 复验） | 旧 Flash/Plus 记录实际落到 Profile 主模型 Max，身份声明已撤回。当前 installed payload 保留默认 `qwen3.7-max-2026-06-08`，六个候选共用非空基础指令的 983616/95% model catalog，并同时绑定 Provider override、machine plan、`thread/start` 和回执；不含错误的 `ultra`。Codex 本地解析唯一命中 983616，静态修复不构成付费 Live。 |
+| `codex-qwen-token-plan` | 已实现；受管目录修复已在本机 installed | 可用但有限制（本轮未做 Live） | 与按量共用 983616/95% 目录，但 Key、端点和套餐分开；默认模型未改变 |
 | `codex-ollama` | 已实现，公共默认 `127.0.0.1:11434` | 可用但有限制（公共默认未做 Live） | 本机 `codex-ollama-main` 使用内容寻址的 `qwen-main-v1` 262144/95% 目录；当前 Codex `debug models` 静态回读唯一命中，未执行新模型 Live |
 | `claude-official` | 已实现 | 不可用（本机未登录，401） | 完成 Claude CLI 官方登录后可重新验收；不等于产品安装失败 |
-| `claude-deepseek` | Flash-only 模板已实现；上下文修复在未发布源码 | 可用但有限制（尚未做当前 Flash Live） | 2.1.193+ 按 `deepseek-v4-flash` 注入 MAX/AUTO=`1000000`；不设置提前压缩覆盖或禁压缩变量。2026-07-14 的 Pro 记录属于旧指纹，不能证明当前 Flash。 |
-| `claude-qwen-paygo` | 已实现；逐模型上下文修复在未发布源码 | 文本通过；工具层跳过（可用但有限制） | 已知模型按最终 `--model` 注入 1M；未知模型不猜。2026-07-14（UTC+8）Claude Code 2.1.207 → Max 的 `PONG` 记录早于当前指纹，只保留历史。 |
+| `claude-deepseek` | Flash-only 模板与上下文修复已在本机 installed | 可用但有限制（尚未做当前 Flash Live） | 2.1.193+ 按 `deepseek-v4-flash` 注入 MAX/AUTO=`1000000`；不设置提前压缩覆盖或禁压缩变量。安装态静态回读确认已知模型注入 1M，未知模型清除 MAX/AUTO、提前压缩与两个禁压缩变量。2026-07-14 的 Pro 记录属于旧指纹，不能证明当前 Flash。 |
+| `claude-qwen-paygo` | 已实现；逐模型上下文修复已在本机 installed | 文本通过；工具层跳过（可用但有限制） | 已知模型按最终 `--model` 注入 1M；未知模型不猜。2026-07-14（UTC+8）Claude Code 2.1.207 → Max 的 `PONG` 记录早于当前指纹，只保留历史。 |
 | `claude-qwen-coding-plan` | 已实现 | 可用但有限制（本轮未做 Live） | 套餐能力与模型候选必须匹配 |
 | `claude-qwen-token-plan` | 已实现 | 可用但有限制（本轮未做 Live） | 与按量/Coding Plan 分开 |
 | `claude-ollama` | 已实现，公共默认 `127.0.0.1:11434` | 可用但有限制（公共默认未做 Live） | 本机 `claude-ollama-main` 在 2.1.193+ 为 `qwen-main-v1` 注入 MAX/AUTO=`262144`；本机服务和模型仍是前置条件 |
@@ -39,7 +39,7 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 
 另有三条本机用户 Profile 在 2026-07-14（UTC+8）完成文本验收：Codex 0.144.3、Claude Code 2.1.207 和 Rust OI 0.0.21 均连接本机 Ollama `qwen3.6:27b`，目标 CLI exit 0 且最终正文严格等于 `PONG`。这些用户 Profile 使用非公开默认端口，因此证据只说明三套 Ollama 适配路径在该配置下通过，**不能**替代上表三个公共默认 Ollama Profile 的最终验收；三条工具层同样跳过，状态为“可用但有限制”。
 
-2026-07-29（UTC+8）又对本机 `qwen-main-v1` 做了更新后复核：Codex CLI 0.145.0、Claude Code 2.1.220、Qwen Code 0.21.0、OpenCode 1.18.8 均已通过修复后的本地文本 smoke。当前 OpenCode 1.18.8 的未发布源码进一步补齐 262144/8192 limit、20000 reserved、最近 4 轮/16384 token、`prune=false` 与本地 compaction model，修复 context=0 导致自动压缩失效；这些是静态/runtime-config 证据，不是新模型 Live。完整任务中 Codex 的硬预算/事件协议 3/3；Claude、Qwen Code、OpenCode 仍只能报告 `upstream` 或 `not-enforced`，不能晋升为受管默认。
+2026-07-29（UTC+8）又对本机 `qwen-main-v1` 做了更新后复核：Codex CLI 0.145.0、Claude Code 2.1.220、Qwen Code 0.21.0、OpenCode 1.18.8 均已通过修复后的本地文本 smoke。2026-08-03 的 installed payload 进一步补齐 OpenCode 262144/8192 limit、20000 reserved、最近 4 轮/16384 token、`prune=false` 与本地 compaction model；真实 `opencode debug config --pure` 已成功解析这些一次性设置，修复 context=0 导致自动压缩失效。这些仍是静态/runtime-config 证据，不是新模型 Live。完整任务中 Codex 的硬预算/事件协议 3/3；Claude、Qwen Code、OpenCode 仍只能报告 `upstream` 或 `not-enforced`，不能晋升为受管默认。
 
 Qwen Code 0.21.0 与 OpenCode 1.18.8 的上游原生能力不能自动变成 AICLI 公开 DeepSeek 路径。当前这两套 runner 仅允许 machine-only 禁网沙箱；若直接接远程 DeepSeek，真实 Key 会进入可执行 Shell 的子进程环境，同时缺少受控远程 egress relay。边界未补齐前状态为“不可用（未开放）”，不创建假 Profile。
 
