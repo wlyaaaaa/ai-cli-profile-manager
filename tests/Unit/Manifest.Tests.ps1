@@ -1,6 +1,22 @@
 ﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 Describe 'Manifest' {
     BeforeAll {
+        function Assert-CanonicalCatalogBytes {
+            param(
+                [Parameter(Mandatory)][string]$Path
+            )
+
+            $bytes = [IO.File]::ReadAllBytes($Path)
+            $hasUtf8Bom = $bytes.Length -ge 3 -and
+                $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+
+            $bytes.Length | Should -BeGreaterThan 0
+            $hasUtf8Bom | Should -BeFalse
+            ([Array]::IndexOf($bytes, [byte]13) -ge 0) | Should -BeFalse
+            $bytes[-1] | Should -Be 10
+            [Text.UTF8Encoding]::new($false, $true).GetString($bytes) | Should -Not -BeNullOrEmpty
+        }
+
         $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
         Get-Module -Name AiCliProfileManager -All -ErrorAction SilentlyContinue |
             Remove-Module -Force -ErrorAction SilentlyContinue
@@ -108,6 +124,9 @@ Describe 'Manifest' {
         $generated = Join-Path $TestDrive 'qwen3.7-codex.json'
         & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') -OutputCatalog $generated | Out-Null
 
+        Assert-CanonicalCatalogBytes -Path $generated
+        Assert-CanonicalCatalogBytes -Path (Join-Path $root 'data\model-catalogs\qwen3.7-codex.json')
+
         (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
             Should -Be (Get-FileHash -LiteralPath (Join-Path $root 'data\model-catalogs\qwen3.7-codex.json') -Algorithm SHA256).Hash
     }
@@ -131,6 +150,8 @@ Describe 'Manifest' {
 
         $generated = Join-Path $TestDrive 'qwen-main-v1-codex.json'
         & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') -CatalogKind local -OutputCatalog $generated | Out-Null
+        Assert-CanonicalCatalogBytes -Path $generated
+        Assert-CanonicalCatalogBytes -Path $catalogPath
         (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
             Should -Be (Get-FileHash -LiteralPath $catalogPath -Algorithm SHA256).Hash
     }

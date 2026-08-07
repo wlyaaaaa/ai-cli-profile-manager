@@ -1,0 +1,2 @@
+# Content-addressed catalog artifacts must have the same bytes on every checkout.
+data/model-catalogs/*.json text eol=lf

@@ -101,5 +101,8 @@ for ($index = 0; $index -lt $definitions.Count; $index++) {
 }
 
 $json = [ordered]@{ models = @($models) } | ConvertTo-Json -Depth 100
-[IO.File]::WriteAllText([IO.Path]::GetFullPath($OutputCatalog), $json + "`n", [Text.UTF8Encoding]::new($false))
+# Model catalogs are content-addressed. Normalize the serialization itself
+# instead of inheriting the platform newline used by ConvertTo-Json.
+$canonicalJson = ($json -replace "`r`n?", "`n") + "`n"
+[IO.File]::WriteAllText([IO.Path]::GetFullPath($OutputCatalog), $canonicalJson, [Text.UTF8Encoding]::new($false))
 Write-Output ([IO.Path]::GetFullPath($OutputCatalog))
