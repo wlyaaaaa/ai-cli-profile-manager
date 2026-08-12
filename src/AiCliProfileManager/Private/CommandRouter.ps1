@@ -115,7 +115,10 @@ function Assert-AiCliTokenShape {
 }
 
 function Invoke-AiCliRouter {
-    param($Tokens = @())
+    param(
+        $Tokens = @(),
+        [AllowNull()][string]$StdInText = $null
+    )
 
     try {
         $tokenList = ConvertTo-AiCliTokenList $Tokens
@@ -157,7 +160,13 @@ function Invoke-AiCliRouter {
             }
             'profile' { return (Invoke-AiCliProfileCommand -Tokens $rest) }
             'start' { return (Invoke-AiCliStartCommand -Tokens $rest) }
-            'run' { return (Invoke-AiCliRunCommand -Tokens $rest) }
+            'run' {
+                $run = @{ Tokens = $rest }
+                if ($PSBoundParameters.ContainsKey('StdInText')) {
+                    $run['StdInText'] = $StdInText
+                }
+                return (Invoke-AiCliRunCommand @run)
+            }
             'native' {
                 $pos = Assert-AiCliTokenShape -Tokens $rest -MinPositionals 1 -MaxPositionals 1
                 Show-AiCliNative -ProfileId $pos[0]
@@ -305,15 +314,18 @@ function Invoke-AiCliStartCommand {
 }
 
 function Invoke-AiCliRunCommand {
-    param($Tokens)
+    param(
+        $Tokens,
+        [AllowNull()][string]$StdInText = $null
+    )
     try {
         $tokenList = ConvertTo-AiCliTokenList $Tokens
         if ($tokenList.Count -lt 1) {
-            throw '用法: aicli run <id> --stdin --json [--project <path>] [--sandbox-policy read-only|workspace-write] [--timeout-seconds <n>] [--max-steps <n>] [--max-tool-calls <n>] [--max-output-chars <n>] [--event-file <absolute-jsonl-path>] -- <native-args...>'
+            throw '用法: aicli run <id> --stdin --json [--project <path>] [--sandbox-policy read-only|workspace-write] [--timeout-seconds <n>] [--max-steps <n>] [--max-tool-calls <n>] [--watchdog-only] [--max-output-chars <n>] [--event-file <absolute-jsonl-path>] [--authority-prelude-stdout] -- <native-args...>'
         }
         $split = Split-AiCliArgs -Tokens $tokenList
         $pos = Assert-AiCliTokenShape -Tokens $split.Before -MinPositionals 1 -MaxPositionals 1 `
-            -Switches @('--stdin','--json') `
+            -Switches @('--stdin','--json','--watchdog-only','--authority-prelude-stdout') `
             -ValueOptions @('--project','--sandbox-policy','--timeout-seconds','--max-steps','--max-tool-calls','--max-output-chars','--event-file')
         if (-not (Test-AiCliHasFlag $split.Before '--stdin')) {
             throw '参数 --stdin 是 machine run 的必需项；任务正文不得放入命令行参数。'
@@ -350,21 +362,30 @@ function Invoke-AiCliRunCommand {
         if ($machineEventFile) {
             $machineEventFile = Resolve-AiCliMachineEventFile -Path $machineEventFile
         }
-        $stdinText = [Console]::In.ReadToEnd()
-        if ([string]::IsNullOrWhiteSpace($stdinText)) {
+        $taskText = if ($PSBoundParameters.ContainsKey('StdInText')) {
+            $StdInText
+        } else {
+            [Console]::In.ReadToEnd()
+        }
+        if ([string]::IsNullOrWhiteSpace($taskText)) {
             throw '参数 --stdin 未提供任务正文；拒绝启动空任务。'
         }
+        $watchdogOnly = Test-AiCliHasFlag $split.Before '--watchdog-only'
         $run = Invoke-AiCliProfileCapture `
             -ProfileId ([string]$pos[0]) `
             -ProjectPath (Get-AiCliFlagValue -Tokens $split.Before -Name '--project') `
             -NativeArgs ([string[]]$native.ToArray()) `
-            -StdInText $stdinText `
+            -StdInText $taskText `
             -TimeoutMs ($timeoutSeconds * 1000) `
             -MaxCaptureChars $maxOutputChars `
             -SandboxPolicy $sandboxPolicy `
             -MaxSteps $maxSteps `
             -MaxToolCalls $maxToolCalls `
-            -MachineEventFile $machineEventFile
+            -EnforceStepLimit:(-not $watchdogOnly) `
+            -EnforceToolCallLimit:(-not $watchdogOnly) `
+            -WatchdogOnly:$watchdogOnly `
+            -MachineEventFile $machineEventFile `
+            -AuthorityPreludeStdout:(Test-AiCliHasFlag $split.Before '--authority-prelude-stdout')
         $status = if ([int]$run.exitCode -eq 0 -and -not [bool]$run.timedOut) { '通过' } else { '不可用' }
         Write-AiCliJson (New-AiCliResult -Command 'run' -OverallStatus $status -Extra @{ run = $run })
         return (Get-AiCliExitCodeFromStatus $status)

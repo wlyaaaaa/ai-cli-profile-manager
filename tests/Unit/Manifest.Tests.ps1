@@ -135,7 +135,7 @@ Describe 'Manifest' {
         $all = Import-AiCliProviderManifests
         $profile = $all['codex-ollama-main']
         $profile.codexModelCatalog | Should -Be 'qwen-main-v1-codex.json'
-        $profile.compatibility.minCliVersion | Should -Be '0.144.0'
+        $profile.compatibility.minCliVersion | Should -Be '0.147.0'
 
         $catalogPath = Join-Path $root 'data\model-catalogs\qwen-main-v1-codex.json'
         $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100

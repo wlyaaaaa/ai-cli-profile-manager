@@ -22,7 +22,7 @@ Describe 'Codex Ollama reasoning effort' {
                 }
             }
             Mock Get-AiCliResolvedCliVersionEvidence {
-                [pscustomobject]@{ Version = 'codex-cli 0.146.0'; FileName = 'C:\Program Files\nodejs\node.exe' }
+                [pscustomobject]@{ Version = 'codex-cli 0.147.0'; FileName = 'C:\Program Files\nodejs\node.exe' }
             }
             Mock Write-AiCliCodexManagedProfile {
                 [pscustomobject]@{
@@ -56,7 +56,7 @@ Describe 'Codex Ollama reasoning effort' {
                 }
             }
             Mock Get-AiCliResolvedCliVersionEvidence {
-                [pscustomobject]@{ Version = 'codex-cli 0.146.0'; FileName = 'C:\fake\codex.exe' }
+                [pscustomobject]@{ Version = 'codex-cli 0.147.0'; FileName = 'C:\fake\codex.exe' }
             }
             Mock Write-AiCliCodexManagedProfile {
                 [pscustomobject]@{
@@ -78,7 +78,7 @@ Describe 'Codex Ollama reasoning effort' {
             @($launchArgs | Where-Object { $_ -match '^model_reasoning_effort=' }).Count | Should -Be 1
             $reasoningIndex | Should -BeGreaterThan 0
             $launchArgs[$reasoningIndex - 1] | Should -Be '-c'
-            @($launchArgs | Where-Object { $_ -eq '-c' }).Count | Should -Be 10
+            @($launchArgs | Where-Object { $_ -eq '-c' }).Count | Should -Be 11
 
             $expectedProviderOverrides = @(
                 'model="qwen-main-v1"'
@@ -87,8 +87,9 @@ Describe 'Codex Ollama reasoning effort' {
                 'model_providers.aicli_ollama_main.base_url="http://127.0.0.1:32100/v1"'
                 'model_providers.aicli_ollama_main.env_key="AICLI_CODEX_PROVIDER_KEY"'
                 'model_providers.aicli_ollama_main.wire_api="responses"'
+                'model_providers.aicli_ollama_main.env_http_headers={"X-LocalGpuBroker-Lease-Id"="AICLI_LOCAL_GPU_BROKER_LEASE_ID","X-LocalGpuBroker-Capability"="AICLI_LOCAL_GPU_BROKER_CAPABILITY"}'
                 'shell_environment_policy.ignore_default_excludes=false'
-                'shell_environment_policy.exclude=["AICLI_CODEX_PROVIDER_KEY","OPENAI_API_KEY","CODEX_API_KEY"]'
+                'shell_environment_policy.exclude=["AICLI_CODEX_PROVIDER_KEY","OPENAI_API_KEY","CODEX_API_KEY","AICLI_LOCAL_GPU_BROKER_LEASE_ID","AICLI_LOCAL_GPU_BROKER_CAPABILITY"]'
                 ('model_catalog_json=' + (ConvertTo-AiCliTomlString (Join-Path $Work 'qwen-main-v1-codex.json')))
             )
             foreach ($expected in $expectedProviderOverrides) {

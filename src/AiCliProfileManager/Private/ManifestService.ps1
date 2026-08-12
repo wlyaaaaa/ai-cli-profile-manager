@@ -126,8 +126,8 @@ function Assert-AiCliManifestCore {
                 }
             }
         }
-        if ([string](Get-AiCliProperty $M 'engine') -notin @('claude','opencode')) {
-            throw "modelMetadata 当前仅允许 Claude/OpenCode Manifest ($id)"
+        if ([string](Get-AiCliProperty $M 'engine') -notin @('claude','opencode','codex')) {
+            throw "modelMetadata 当前仅允许 Claude/OpenCode/Codex Manifest ($id)"
         }
     }
     $compatibility = Get-AiCliProperty $M 'compatibility'

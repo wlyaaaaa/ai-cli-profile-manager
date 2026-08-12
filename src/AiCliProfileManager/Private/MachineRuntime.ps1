@@ -226,6 +226,19 @@ function Initialize-AiCliMachineRuntime {
                 throw 'PowerShell 7 is required for the Codex app-server bridge.'
             }
             $bridgeConfigPath = Join-Path $runtimePath 'codex-app-server-bridge.json'
+            $localGpuBrokerConfiguration = Get-AiCliProperty `
+                $runtimeConfig 'localGpuBrokerSession'
+            $requireRuntimeIdentity = $null -ne $localGpuBrokerConfiguration
+            $expectedModel = [string](Get-AiCliProperty $Plan 'model')
+            $expectedModelProvider = [string](
+                Get-AiCliProperty $Plan 'modelProvider'
+            )
+            if ($requireRuntimeIdentity -and (
+                $expectedModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$' -or
+                $expectedModelProvider -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
+            )) {
+                throw 'LocalGpuBroker machine runtime identity expectation is invalid.'
+            }
             $bridgeConfig = [ordered]@{
                 fileName = [IO.Path]::GetFullPath($runtimeFileName)
                 argumentList = @($appServerArguments)
@@ -233,7 +246,16 @@ function Initialize-AiCliMachineRuntime {
                 sandboxBoundary = $sandboxBoundary
                 sandboxPolicy = $Policy
                 model = [string](Get-AiCliProperty $Plan 'model')
-                minimumCliVersion = '0.145.0'
+                minimumCliVersion = if ($requireRuntimeIdentity) {
+                    '0.147.0'
+                } else {
+                    '0.145.0'
+                }
+            }
+            if ($requireRuntimeIdentity) {
+                $bridgeConfig['expectedModel'] = $expectedModel
+                $bridgeConfig['expectedModelProvider'] = $expectedModelProvider
+                $bridgeConfig['requireRuntimeIdentity'] = $true
             }
             Write-AiCliJsonFile -Path $bridgeConfigPath -Value $bridgeConfig
             $runtimeFileName = $pwsh

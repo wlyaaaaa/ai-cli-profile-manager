@@ -73,6 +73,15 @@ function Add-AiCliCodexProviderOverrides {
     }
     $null = Assert-AiCliModelId -Model $Model
     $name = [string](Get-AiCliProperty $MergedProfile 'displayName')
+    $localGpuBrokerSession = Get-AiCliLocalGpuBrokerSessionConfiguration `
+        -MergedProfile $MergedProfile
+    $shellExcludes = @($EnvironmentKey, 'OPENAI_API_KEY', 'CODEX_API_KEY')
+    if ($localGpuBrokerSession) {
+        $shellExcludes += Get-AiCliLocalGpuBrokerShellExcludes
+    }
+    $shellExcludeToml = '[' + (@(
+        $shellExcludes | ForEach-Object { ConvertTo-AiCliTomlString ([string]$_) }
+    ) -join ',') + ']'
     $overrides = @(
         ('model=' + (ConvertTo-AiCliTomlString $Model))
         ('model_provider=' + (ConvertTo-AiCliTomlString $ProviderId))
@@ -81,8 +90,15 @@ function Add-AiCliCodexProviderOverrides {
         ("model_providers.$ProviderId.env_key=" + (ConvertTo-AiCliTomlString $EnvironmentKey))
         "model_providers.$ProviderId.wire_api=`"responses`""
         'shell_environment_policy.ignore_default_excludes=false'
-        "shell_environment_policy.exclude=[`"$EnvironmentKey`",`"OPENAI_API_KEY`",`"CODEX_API_KEY`"]"
+        "shell_environment_policy.exclude=$shellExcludeToml"
     )
+    if ($localGpuBrokerSession) {
+        $overrides += (
+            "model_providers.$ProviderId.env_http_headers=" +
+            '{"X-LocalGpuBroker-Lease-Id"="AICLI_LOCAL_GPU_BROKER_LEASE_ID",' +
+            '"X-LocalGpuBroker-Capability"="AICLI_LOCAL_GPU_BROKER_CAPABILITY"}'
+        )
+    }
     if (-not [string]::IsNullOrWhiteSpace($ModelCatalogPath)) {
         $fullCatalogPath = [IO.Path]::GetFullPath($ModelCatalogPath)
         $overrides += 'model_catalog_json=' + (ConvertTo-AiCliTomlString $fullCatalogPath)
@@ -137,6 +153,19 @@ function New-AiCliCodexProviderToml {
         ConvertTo-AiCliTomlString ([IO.Path]::GetFullPath($ModelCatalogPath))
     }
     $catalogLine = if ($catalogToml) { "model_catalog_json = $catalogToml`n" } else { '' }
+    $localGpuBrokerSession = Get-AiCliLocalGpuBrokerSessionConfiguration `
+        -MergedProfile $MergedProfile
+    $providerHeaderLine = if ($localGpuBrokerSession) {
+        'env_http_headers = { "X-LocalGpuBroker-Lease-Id" = "AICLI_LOCAL_GPU_BROKER_LEASE_ID", ' +
+            '"X-LocalGpuBroker-Capability" = "AICLI_LOCAL_GPU_BROKER_CAPABILITY" }' + "`n"
+    } else { '' }
+    $shellExcludes = @($EnvKeyName, 'OPENAI_API_KEY', 'CODEX_API_KEY')
+    if ($localGpuBrokerSession) {
+        $shellExcludes += Get-AiCliLocalGpuBrokerShellExcludes
+    }
+    $shellExcludeToml = @(
+        $shellExcludes | ForEach-Object { ConvertTo-AiCliTomlString ([string]$_) }
+    ) -join ', '
 
     $body = @"
 model = $modelToml
@@ -148,10 +177,11 @@ name = $nameToml
 base_url = $baseToml
 env_key = $envToml
 wire_api = "responses"
+$providerHeaderLine
 
 [shell_environment_policy]
 ignore_default_excludes = false
-exclude = ["$EnvKeyName", "OPENAI_API_KEY", "CODEX_API_KEY"]
+exclude = [$shellExcludeToml]
 "@
     return $body.Trim() + "`n"
 }
@@ -356,6 +386,14 @@ function Resolve-AiCliCodexEffort {
 
 function Resolve-AiCliCodexModel {
     param($MergedProfile, [string[]]$NativeArgs)
+    if (Get-AiCliLocalGpuBrokerSessionConfiguration -MergedProfile $MergedProfile) {
+        foreach ($argument in @($NativeArgs)) {
+            if ([string]$argument -eq '--fallback-model' -or
+                ([string]$argument).StartsWith('--fallback-model=', [StringComparison]::Ordinal)) {
+                throw 'Local Codex fallback models are disabled; the selected broker route is exact.'
+            }
+        }
+    }
     $overrides = [System.Collections.Generic.List[string]]::new()
     for ($index = 0; $index -lt @($NativeArgs).Count; $index++) {
         $argument = [string]$NativeArgs[$index]
@@ -461,6 +499,7 @@ function Build-AiCliCodexLaunchPlan {
     $authSourceFile = $null
     $sandboxBoundary = 'outer-codex'
     $workspaceWriteValidated = $true
+    $localGpuBrokerSession = $null
     $notes = @()
     $effort = Resolve-AiCliCodexEffort -MergedProfile $MergedProfile -NativeArgs $NativeArgs
     $model = Resolve-AiCliCodexModel -MergedProfile $MergedProfile -NativeArgs $NativeArgs
@@ -495,6 +534,8 @@ function Build-AiCliCodexLaunchPlan {
         }
     }
     elseif ($provider -eq 'ollama' -or $id -eq 'codex-ollama') {
+        $localGpuBrokerSession = Get-AiCliLocalGpuBrokerSessionConfiguration `
+            -MergedProfile $MergedProfile
         if ($MachineRun) {
             # The local gateway does not require the official-cloud sandbox
             # contract. Keep the complete bridge/app-server tree inside the
@@ -514,6 +555,7 @@ function Build-AiCliCodexLaunchPlan {
             endpoint       = $endpoint
             codexProviderId= $providerId
             models         = [ordered]@{ primary = $model }
+            compatibility  = Get-AiCliProperty $MergedProfile 'compatibility'
         }
         $modelCatalogPath = Publish-AiCliCodexModelCatalog -MergedProfile $MergedProfile
         $toml = New-AiCliCodexProviderToml -MergedProfile $merged2 `
@@ -525,6 +567,8 @@ function Build-AiCliCodexLaunchPlan {
         foreach ($v in $script:AiCliCodexProviderVars) { $removeEnv += $v }
         $removeEnv += @('OPENAI_BASE_URL')
         $envDelta['AICLI_CODEX_PROVIDER_KEY'] = 'ollama'
+        $envDelta['NO_PROXY'] = '127.0.0.1,localhost,::1'
+        $envDelta['no_proxy'] = '127.0.0.1,localhost,::1'
         $cliArgs.Add('-c') | Out-Null
         $cliArgs.Add("model_reasoning_effort=`"$effort`"") | Out-Null
         Add-AiCliCodexProviderOverrides -ArgumentList $cliArgs -MergedProfile $merged2 `
@@ -581,6 +625,7 @@ function Build-AiCliCodexLaunchPlan {
     return [pscustomobject]@{
         engine            = 'codex'
         profileId         = $id
+        profileFingerprint = [string](Get-AiCliProperty $MergedProfile 'profileFingerprint')
         fileName          = [string](Get-AiCliProperty $resolved 'FileName')
         argumentList      = @($cliArgs.ToArray())
         versionArgumentList = @((Get-AiCliProperty $resolved 'PrefixArgs') | ForEach-Object { [string]$_ }) + @('--version')
@@ -593,12 +638,16 @@ function Build-AiCliCodexLaunchPlan {
         proxyRef          = $null
         effort            = $effort
         model             = $model
+        modelProvider     = $(if ($provider -eq 'openai' -or $id -eq 'codex-official') { 'openai' } else { $providerId })
+        endpoint          = $(if ($provider -eq 'openai' -or $id -eq 'codex-official') { $null } else { [string](Get-AiCliProperty $MergedProfile 'endpoint') })
+        wire              = 'responses'
         machineRuntime    = [ordered]@{
             kind = 'codex'
             configFiles = @($configFiles)
             authSourceFile = $authSourceFile
             sandboxBoundary = $sandboxBoundary
             workspaceWriteValidated = $workspaceWriteValidated
+            localGpuBrokerSession = $localGpuBrokerSession
         }
     }
 }

@@ -231,6 +231,8 @@ function Throw-BridgeFailure {
             'codex_appserver.response_after_turn_unexpected',
             'codex_appserver.version_unsupported',
             'codex_appserver.workspace_write_unavailable',
+            'codex_appserver.runtime_identity_missing',
+            'codex_appserver.runtime_identity_mismatch',
             'codex_appserver.notification_unknown',
             'codex_appserver.notification_scope_invalid',
             'codex_appserver.turn_status_invalid',
@@ -488,12 +490,64 @@ function Write-BridgeThreadStarted {
         Throw-BridgeFailure -Code 'codex_appserver.notification_scope_invalid'
     }
     $script:ThreadId = $threadId
+    if ($script:RequireRuntimeIdentity -and
+        -not $script:RuntimeIdentityVerified) {
+        return
+    }
     if ($script:ThreadStartedWritten) { return }
     Write-BridgeJson ([ordered]@{
         type = 'thread.started'
         thread_id = $threadId
     })
     $script:ThreadStartedWritten = $true
+}
+
+function Assert-AndWriteBridgeRuntimeIdentity {
+    param(
+        [Parameter(Mandatory)][object]$ThreadResult,
+        [Parameter(Mandatory)][string]$ExpectedModel,
+        [Parameter(Mandatory)][string]$ExpectedModelProvider,
+        [Parameter(Mandatory)][string]$CliVersion,
+        [Parameter(Mandatory)][string]$SandboxBoundary,
+        [Parameter(Mandatory)][string]$SandboxPolicy
+    )
+
+    $actualModelValue = Get-BridgeProperty $ThreadResult 'model'
+    $actualProviderValue = Get-BridgeProperty $ThreadResult 'modelProvider'
+    if ($actualModelValue -isnot [string] -or
+        $actualProviderValue -isnot [string] -or
+        [string]::IsNullOrWhiteSpace([string]$actualModelValue) -or
+        [string]::IsNullOrWhiteSpace([string]$actualProviderValue)) {
+        Throw-BridgeFailure -Code 'codex_appserver.runtime_identity_missing'
+    }
+    $actualModel = [string]$actualModelValue
+    $actualProvider = [string]$actualProviderValue
+    if ($actualModel -cne $ExpectedModel -or
+        $actualProvider -cne $ExpectedModelProvider) {
+        Throw-BridgeFailure -Code 'codex_appserver.runtime_identity_mismatch'
+    }
+
+    $sandboxType = if ($SandboxBoundary -eq 'outer-codex') {
+        'externalSandbox'
+    } elseif ($SandboxPolicy -eq 'workspace-write') {
+        'workspaceWrite'
+    } else {
+        'readOnly'
+    }
+    $script:RuntimeIdentityVerified = $true
+    Write-BridgeJson ([ordered]@{
+        type = 'runtime.identity'
+        model = $actualModel
+        model_provider = $actualProvider
+        cli_version = $CliVersion
+        permission = [ordered]@{
+            approval_policy = 'never'
+            requested_policy = $SandboxPolicy
+            sandbox_boundary = $SandboxBoundary
+            sandbox_type = $sandboxType
+            permission_profile = ':' + $SandboxPolicy
+        }
+    })
 }
 
 function Assert-BridgeNotificationScope {
@@ -1060,6 +1114,8 @@ $script:BridgeStage = 'setup'
 $script:FailureCode = ''
 $script:FailureItemType = ''
 $script:CurrentNotificationMethod = ''
+$script:RequireRuntimeIdentity = $false
+$script:RuntimeIdentityVerified = $false
 $serverErrorTask = $null
 $serverStarted = $false
 $bridgeExitCode = 1
@@ -1096,6 +1152,22 @@ try {
     )
     if ($minimumCliVersion -notmatch '^\d+\.\d+\.\d+$') {
         throw 'Codex app-server bridge has no valid protocol baseline.'
+    }
+    $requireRuntimeIdentityValue = Get-BridgeProperty `
+        $config 'requireRuntimeIdentity' $false
+    if ($requireRuntimeIdentityValue -isnot [bool]) {
+        throw 'Codex app-server runtime identity requirement is invalid.'
+    }
+    $script:RequireRuntimeIdentity = [bool]$requireRuntimeIdentityValue
+    $expectedModel = [string](Get-BridgeProperty $config 'expectedModel')
+    $expectedModelProvider = [string](
+        Get-BridgeProperty $config 'expectedModelProvider'
+    )
+    if ($script:RequireRuntimeIdentity -and (
+        $expectedModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$' -or
+        $expectedModelProvider -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
+    )) {
+        throw 'Codex app-server runtime identity expectation is invalid.'
     }
     $taskPipeName = [Environment]::GetEnvironmentVariable(
         'AICLI_CODEX_BRIDGE_TASK_PIPE',
@@ -1231,7 +1303,11 @@ try {
     } else {
         $threadParams['sandbox'] = 'danger-full-access'
     }
-    $model = [string](Get-BridgeProperty $config 'model')
+    $model = if ($script:RequireRuntimeIdentity) {
+        $expectedModel
+    } else {
+        [string](Get-BridgeProperty $config 'model')
+    }
     if (-not [string]::IsNullOrWhiteSpace($model)) {
         $threadParams['model'] = $model
     }
@@ -1242,6 +1318,10 @@ try {
     })
     $threadResult = Wait-BridgeResponse -Id 2
     $thread = Get-BridgeProperty $threadResult 'thread'
+    if ($script:RequireRuntimeIdentity) {
+        # Validate and bind the response thread id while output remains gated.
+        Write-BridgeThreadStarted -Thread $thread
+    }
     $cliVersion = [string](Get-BridgeProperty $thread 'cliVersion')
     if (-not (
         Test-BridgeVersionAtLeast -Actual $cliVersion -Minimum $minimumCliVersion
@@ -1259,6 +1339,15 @@ try {
         Invoke-BridgeWorkspaceWriteProbe `
             -WorkingDirectory $workingDirectory `
             -SandboxPolicy $turnSandbox
+    }
+    if ($script:RequireRuntimeIdentity) {
+        Assert-AndWriteBridgeRuntimeIdentity `
+            -ThreadResult $threadResult `
+            -ExpectedModel $expectedModel `
+            -ExpectedModelProvider $expectedModelProvider `
+            -CliVersion $cliVersion `
+            -SandboxBoundary $sandboxBoundary `
+            -SandboxPolicy $sandboxPolicy
     }
     Write-BridgeThreadStarted -Thread $thread
 

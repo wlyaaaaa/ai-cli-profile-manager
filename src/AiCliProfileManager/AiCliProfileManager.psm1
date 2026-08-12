@@ -16,6 +16,7 @@ $privateOrder = @(
     'ManifestService.ps1',
     'ProfileService.ps1',
     'ChildProcess.ps1',
+    'LocalGpuBrokerSession.ps1',
     'MachineRuntime.ps1',
     'PortAllocator.ps1',
     'ProcessIdentity.ps1',

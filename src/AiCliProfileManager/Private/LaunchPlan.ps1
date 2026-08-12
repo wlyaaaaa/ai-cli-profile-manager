@@ -299,8 +299,22 @@ function Invoke-AiCliProfileCapture {
         [ValidateSet('read-only','workspace-write')][string]$SandboxPolicy = 'read-only',
         [int]$MaxSteps = 20,
         [int]$MaxToolCalls = 80,
-        [string]$MachineEventFile = $null
+        [string]$MachineEventFile = $null,
+        [switch]$EnforceStepLimit,
+        [switch]$EnforceToolCallLimit,
+        [switch]$WatchdogOnly,
+        [switch]$AuthorityPreludeStdout
     )
+    $enforceStepLimitEffective = if ($PSBoundParameters.ContainsKey('EnforceStepLimit')) {
+        [bool]$EnforceStepLimit
+    } else {
+        -not [bool]$WatchdogOnly
+    }
+    $enforceToolCallLimitEffective = if ($PSBoundParameters.ContainsKey('EnforceToolCallLimit')) {
+        [bool]$EnforceToolCallLimit
+    } else {
+        -not [bool]$WatchdogOnly
+    }
     $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId -ProjectPath $ProjectPath -NativeArgs $NativeArgs -MachineRun
     $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText $StdInText `
         -Policy $SandboxPolicy -MaxSteps $MaxSteps -MaxToolCalls $MaxToolCalls
@@ -313,7 +327,41 @@ function Invoke-AiCliProfileCapture {
     } else {
         $runtimeEventProtocol
     }
+    $localGpuBrokerSession = $null
+    $localGpuBrokerBindingObservation = $null
+    $localGpuBrokerSecretValues = @()
+    $beforeProcessTreeStop = $null
+    $receipt = $null
+    $sessionConfiguration = Get-AiCliProperty `
+        (Get-AiCliProperty $plan 'machineRuntime') 'localGpuBrokerSession'
+    $requireRuntimeIdentity = $null -ne $sessionConfiguration
     try {
+        if ($null -ne $sessionConfiguration) {
+            $localGpuBrokerSession = Open-AiCliLocalGpuBrokerSession `
+                -Plan $plan -RequestText ([string]$runtime.StdInText) `
+                -TimeoutMs $TimeoutMs
+            $localGpuBrokerBindingObservation = `
+                $localGpuBrokerSession.BindingObservation
+            $null = Assert-AiCliLocalGpuBrokerBindingObservation `
+                -Observation $localGpuBrokerBindingObservation `
+                -Session $localGpuBrokerSession
+            Set-AiCliLocalGpuBrokerSessionEnvironment `
+                -EnvironmentDelta $runtime.EnvironmentDelta `
+                -Session $localGpuBrokerSession
+            $localGpuBrokerSecretValues = @(
+                [string]$localGpuBrokerSession.Capability
+            )
+            $beforeProcessTreeStop = New-AiCliLocalGpuBrokerBeforeStopAction `
+                -Session $localGpuBrokerSession
+        }
+        if ($AuthorityPreludeStdout) {
+            if ($null -eq $localGpuBrokerSession -or
+                $null -eq $localGpuBrokerBindingObservation) {
+                throw 'Authority prelude stdout requires a verified LocalGpuBroker session.'
+            }
+            Write-AiCliLocalGpuBrokerAuthorityPrelude `
+                -Observation $localGpuBrokerBindingObservation
+        }
         $sandboxWorkspace = if ([bool](Get-AiCliProperty $runtime 'UseOuterSandbox' $true)) {
             Get-AiCliProperty $plan 'workingDirectory'
         } else {
@@ -337,6 +385,9 @@ function Invoke-AiCliProfileCapture {
             -EventProtocol $eventProtocol `
             -MaxSteps $MaxSteps `
             -MaxToolCalls $MaxToolCalls `
+            -EnforceStepLimit:$enforceStepLimitEffective `
+            -EnforceToolCallLimit:$enforceToolCallLimitEffective `
+            -WatchdogOnly:$WatchdogOnly `
             -MachineEventFile $MachineEventFile `
             -WritableWorkspace (Get-AiCliProperty $plan 'workingDirectory') `
             -PrivateTaskPipeName ([string](
@@ -345,13 +396,40 @@ function Invoke-AiCliProfileCapture {
             -AdditionalSandboxReadRoots @(
                 (Get-AiCliProperty $runtime 'AdditionalReadRoots') |
                     ForEach-Object { [string]$_ }
-            )
+            ) `
+            -BeforeProcessTreeStop $beforeProcessTreeStop `
+            -AuthorityMachineEvent $(if ($MachineEventFile) {
+                $localGpuBrokerBindingObservation
+            } else {
+                $null
+            }) `
+            -SecretValues @($(if ($localGpuBrokerSession) {
+                [string]$localGpuBrokerSession.Capability
+            })) `
+            -RequireRuntimeIdentity:$requireRuntimeIdentity `
+            -ExpectedRuntimeModel $(if ($requireRuntimeIdentity) {
+                [string](Get-AiCliProperty $plan 'model')
+            } else { '' }) `
+            -ExpectedRuntimeModelProvider $(if ($requireRuntimeIdentity) {
+                [string](Get-AiCliProperty $plan 'modelProvider')
+            } else { '' })
+        if ($requireRuntimeIdentity) {
+            $capturedIdentity = Get-AiCliProperty $captured 'RuntimeIdentity'
+            if ($null -eq $capturedIdentity -or
+                [string](Get-AiCliProperty $capturedIdentity 'model') -cne
+                    [string](Get-AiCliProperty $plan 'model') -or
+                [string](Get-AiCliProperty $capturedIdentity 'model_provider') -cne
+                    [string](Get-AiCliProperty $plan 'modelProvider')) {
+                throw 'LocalGpuBroker machine run has no matching verified runtime identity.'
+            }
+        }
         $codexLimitsHard = $engine -eq 'codex' -and [bool](Get-AiCliProperty $captured 'LimitsHard' $false)
         $cleanupConfirmed = [bool](Get-AiCliProperty $captured 'CleanupConfirmed' $true)
-        return [pscustomobject]@{
+        $receipt = [pscustomobject]@{
             profileId = $ProfileId
             engine = $engine
             model = [string](Get-AiCliProperty $plan 'model')
+            modelProvider = [string](Get-AiCliProperty $plan 'modelProvider')
             exitCode = [int]$captured.ExitCode
             stdout = [string]$captured.StdOut
             stderr = [string]$captured.StdErr
@@ -373,9 +451,12 @@ function Invoke-AiCliProfileCapture {
             usage = ConvertTo-AiCliSafeUsage (
                 Get-AiCliProperty $captured 'Usage'
             )
+            runtimeIdentity = Get-AiCliProperty $captured 'RuntimeIdentity'
             limitEnforcement = [ordered]@{
                 timeout = if ($cleanupConfirmed) { 'hard' } else { 'failed-closed' }
-                maxSteps = if ($codexLimitsHard) {
+                maxSteps = if (-not $enforceStepLimitEffective) {
+                    'not-configured'
+                } elseif ($codexLimitsHard) {
                     'hard'
                 } elseif ($engine -eq 'codex') {
                     'failed-closed'
@@ -384,7 +465,9 @@ function Invoke-AiCliProfileCapture {
                 } else {
                     'not-enforced'
                 }
-                maxToolCalls = if ($codexLimitsHard) {
+                maxToolCalls = if (-not $enforceToolCallLimitEffective) {
+                    'not-configured'
+                } elseif ($codexLimitsHard) {
                     'hard'
                 } elseif ($engine -eq 'codex') {
                     'failed-closed'
@@ -405,11 +488,15 @@ function Invoke-AiCliProfileCapture {
             }
             limitHit = Get-AiCliProperty $captured 'LimitHit'
         }
+        $receipt | Add-Member -NotePropertyName budgetMode -NotePropertyValue $(
+            if ($WatchdogOnly) { 'watchdog-only' } else { 'explicit-limits' }
+        )
     } catch [System.TimeoutException] {
-        return [pscustomobject]@{
+        $receipt = [pscustomobject]@{
             profileId = $ProfileId
             engine = [string](Get-AiCliProperty $plan 'engine')
             model = [string](Get-AiCliProperty $plan 'model')
+            modelProvider = [string](Get-AiCliProperty $plan 'modelProvider')
             exitCode = (Get-AiCliExitCode Unavailable)
             stdout = ''
             stderr = 'Child process exceeded the configured wall timeout.'
@@ -433,10 +520,11 @@ function Invoke-AiCliProfileCapture {
             }
             machineEventCount = 0
             usage = [ordered]@{}
+            runtimeIdentity = $null
             limitEnforcement = [ordered]@{
                 timeout = 'failed-closed'
-                maxSteps = 'failed-closed'
-                maxToolCalls = 'failed-closed'
+                maxSteps = if ($enforceStepLimitEffective) { 'failed-closed' } else { 'not-configured' }
+                maxToolCalls = if ($enforceToolCallLimitEffective) { 'failed-closed' } else { 'not-configured' }
             }
             limitUsage = [ordered]@{
                 steps = 0
@@ -449,11 +537,77 @@ function Invoke-AiCliProfileCapture {
             }
             limitHit = 'timeout'
         }
+        $receipt | Add-Member -NotePropertyName budgetMode -NotePropertyValue $(
+            if ($WatchdogOnly) { 'watchdog-only' } else { 'explicit-limits' }
+        )
+    } catch {
+        if ($localGpuBrokerSecretValues.Count -gt 0) {
+            $safeMessage = Protect-AiCliExactSecretValues `
+                -Text $_.Exception.Message `
+                -SecretValues $localGpuBrokerSecretValues
+            throw [InvalidOperationException]::new($safeMessage)
+        }
+        throw
     } finally {
         $started.Stop()
-        if ($runtime) {
-            Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath `
-                -Workspace (Get-AiCliProperty $plan 'workingDirectory')
+        try {
+            try {
+                if ($localGpuBrokerSession) {
+                    $closeReason = if ([bool]$localGpuBrokerSession.CloseRequested) {
+                        [string]$localGpuBrokerSession.CloseReason
+                    } elseif ($null -eq $receipt) {
+                        'launch_failed'
+                    } elseif ([bool](Get-AiCliProperty $receipt 'timedOut' $false)) {
+                        'timeout'
+                    } elseif (-not [bool](
+                        Get-AiCliProperty (
+                            Get-AiCliProperty $receipt 'limitUsage'
+                        ) 'cleanupConfirmed' $false
+                    )) {
+                        'cleanup_failed'
+                    } elseif (Get-AiCliProperty $receipt 'limitHit') {
+                        'cancelled'
+                    } else {
+                        'normal'
+                    }
+                    $terminalBrokerReceipt = Complete-AiCliLocalGpuBrokerSession `
+                        -Session $localGpuBrokerSession -Reason $closeReason
+                    if ($receipt) {
+                        $receipt | Add-Member `
+                            -NotePropertyName localGpuBrokerSession `
+                            -NotePropertyValue $terminalBrokerReceipt
+                    }
+                }
+            } finally {
+                if ($localGpuBrokerSession -and $runtime.EnvironmentDelta) {
+                    Clear-AiCliLocalGpuBrokerSessionEnvironment `
+                        -EnvironmentDelta $runtime.EnvironmentDelta `
+                        -Session $localGpuBrokerSession
+                }
+            }
+        } catch {
+            if ($localGpuBrokerSecretValues.Count -gt 0) {
+                $safeMessage = Protect-AiCliExactSecretValues `
+                    -Text $_.Exception.Message `
+                    -SecretValues $localGpuBrokerSecretValues
+                throw [InvalidOperationException]::new($safeMessage)
+            }
+            throw
+        } finally {
+            if ($runtime) {
+                Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath `
+                    -Workspace (Get-AiCliProperty $plan 'workingDirectory')
+            }
         }
     }
+    if ($receipt -and $localGpuBrokerSecretValues.Count -gt 0) {
+        $receiptJson = $receipt | ConvertTo-Json -Depth 50 -Compress
+        $safeReceiptJson = Protect-AiCliExactSecretValues `
+            -Text $receiptJson -SecretValues $localGpuBrokerSecretValues
+        if ($safeReceiptJson -cne $receiptJson) {
+            $receipt = $safeReceiptJson |
+                ConvertFrom-Json -Depth 50 -ErrorAction Stop
+        }
+    }
+    return $receipt
 }

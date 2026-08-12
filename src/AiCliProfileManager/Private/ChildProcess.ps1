@@ -1,5 +1,49 @@
 ﻿# ProcessStartInfo-based child launch: ArgumentList array, child-only env, no IEX.
 
+function Get-AiCliExactSecretRepresentations {
+    [CmdletBinding()]
+    param([string[]]$SecretValues = @())
+
+    $representations = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::Ordinal
+    )
+    foreach ($secretValue in @($SecretValues)) {
+        $secret = [string]$secretValue
+        if ([string]::IsNullOrEmpty($secret)) { continue }
+        $utf8Bytes = [Text.Encoding]::UTF8.GetBytes($secret)
+        $utf8Base64 = [Convert]::ToBase64String($utf8Bytes)
+        foreach ($representation in @(
+            $secret,
+            $utf8Base64,
+            $utf8Base64.Replace('+', '-').Replace('/', '_'),
+            $utf8Base64.TrimEnd('=').Replace('+', '-').Replace('/', '_'),
+            [Convert]::ToHexString($utf8Bytes).ToLowerInvariant(),
+            [Convert]::ToHexString($utf8Bytes),
+            [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($secret))
+        )) {
+            if (-not [string]::IsNullOrEmpty([string]$representation)) {
+                [void]$representations.Add([string]$representation)
+            }
+        }
+    }
+    return @($representations | Sort-Object Length -Descending)
+}
+
+function Protect-AiCliExactSecretValues {
+    [CmdletBinding()]
+    param(
+        [AllowNull()][string]$Text,
+        [string[]]$SecretValues = @()
+    )
+    if ([string]::IsNullOrEmpty($Text)) { return $Text }
+    $safe = $Text
+    foreach ($representation in @(Get-AiCliExactSecretRepresentations `
+        -SecretValues $SecretValues)) {
+        $safe = $safe.Replace([string]$representation, '***REDACTED***')
+    }
+    return $safe
+}
+
 function New-AiCliProcessStartInfo {
     [CmdletBinding()]
     param(
@@ -191,7 +235,26 @@ exit `$LASTEXITCODE
 
 function Stop-AiCliProcessTree {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][System.Diagnostics.Process]$Process)
+    param(
+        [Parameter(Mandatory)][System.Diagnostics.Process]$Process,
+        [ValidateSet('cancelled', 'timeout')][string]$Reason = 'cancelled'
+    )
+
+    $hookProperty = $Process.PSObject.Properties['AiCliBeforeProcessTreeStop']
+    $beforeStopFailed = $false
+    if ($hookProperty) {
+        $hook = $hookProperty.Value
+        if ($hook -and -not [bool]$hook.Invoked) {
+            $hook.Invoked = $true
+            $hook.Reason = $Reason
+            try {
+                & $hook.Action $Reason $Process
+            } catch {
+                $hook.Error = $_.Exception.GetType().FullName
+                $beforeStopFailed = $true
+            }
+        }
+    }
 
     try {
         if ($Process.HasExited) {
@@ -208,6 +271,13 @@ function Stop-AiCliProcessTree {
     try {
         $Process.Kill($true)
         if ($Process.WaitForExit(5000)) {
+            if ($beforeStopFailed) {
+                return [pscustomobject]@{
+                    Attempted = $true
+                    Confirmed = $false
+                    Method = 'before-stop-hook-failed'
+                }
+            }
             return [pscustomobject]@{ Attempted = $true; Confirmed = $true; Method = 'dotnet-kill-tree' }
         }
     } catch {}
@@ -233,6 +303,13 @@ function Stop-AiCliProcessTree {
             $taskkillExitCode = $killer.ExitCode
             $killer.Dispose()
             if ($taskkillExitCode -eq 0 -and $Process.WaitForExit(5000)) {
+                if ($beforeStopFailed) {
+                    return [pscustomobject]@{
+                        Attempted = $true
+                        Confirmed = $false
+                        Method = 'before-stop-hook-failed'
+                    }
+                }
                 return [pscustomobject]@{ Attempted = $true; Confirmed = $true; Method = 'taskkill-tree' }
             }
         } catch {}
@@ -242,7 +319,11 @@ function Stop-AiCliProcessTree {
         if (-not $Process.HasExited) { $Process.Kill() }
         [void]$Process.WaitForExit(5000)
     } catch {}
-    return [pscustomobject]@{ Attempted = $true; Confirmed = $false; Method = 'unconfirmed' }
+    return [pscustomobject]@{
+        Attempted = $true
+        Confirmed = $false
+        Method = if ($beforeStopFailed) { 'before-stop-hook-failed' } else { 'unconfirmed' }
+    }
 }
 
 function Resolve-AiCliMachineEventFile {
@@ -398,7 +479,8 @@ function Write-AiCliMachineEvent {
         [Parameter(Mandatory)][IO.FileStream]$Stream,
         [Parameter(Mandatory)][ref]$Sequence,
         [Parameter(Mandatory)][string]$Kind,
-        [hashtable]$Data = @{}
+        [hashtable]$Data = @{},
+        [string[]]$SecretValues = @()
     )
 
     $nextSequence = [int]$Sequence.Value + 1
@@ -412,9 +494,10 @@ function Write-AiCliMachineEvent {
         $value[[string]$key] = $Data[$key]
     }
     try {
-        $encoded = [Text.UTF8Encoding]::new($false).GetBytes(
-            (($value | ConvertTo-Json -Depth 10 -Compress) + "`n")
-        )
+        $json = Protect-AiCliExactSecretValues `
+            -Text ($value | ConvertTo-Json -Depth 10 -Compress) `
+            -SecretValues $SecretValues
+        $encoded = [Text.UTF8Encoding]::new($false).GetBytes($json + "`n")
         $Stream.Write($encoded, 0, $encoded.Length)
         $Stream.Flush()
         $Sequence.Value = $nextSequence
@@ -516,12 +599,42 @@ function Invoke-AiCliChildCapture {
         [ValidateSet('none','codex-jsonl','codex-app-server')][string]$EventProtocol = 'none',
         [int]$MaxSteps = 20,
         [int]$MaxToolCalls = 80,
+        [switch]$EnforceStepLimit,
+        [switch]$EnforceToolCallLimit,
+        [switch]$WatchdogOnly,
         [string]$MachineEventFile = $null,
         [string]$WritableWorkspace = $null,
         [string]$PrivateTaskPipeName = $null,
-        [string[]]$AdditionalSandboxReadRoots = @()
+        [string[]]$AdditionalSandboxReadRoots = @(),
+        [scriptblock]$BeforeProcessTreeStop = $null,
+        $AuthorityMachineEvent = $null,
+        [string[]]$SecretValues = @(),
+        [switch]$RequireRuntimeIdentity,
+        [string]$ExpectedRuntimeModel = '',
+        [string]$ExpectedRuntimeModelProvider = ''
     )
+    $enforceStepLimitEffective = if ($PSBoundParameters.ContainsKey('EnforceStepLimit')) {
+        [bool]$EnforceStepLimit
+    } else {
+        $true
+    }
+    $enforceToolCallLimitEffective = if ($PSBoundParameters.ContainsKey('EnforceToolCallLimit')) {
+        [bool]$EnforceToolCallLimit
+    } else {
+        $true
+    }
+    if ($WatchdogOnly) {
+        $enforceStepLimitEffective = $false
+        $enforceToolCallLimitEffective = $false
+    }
     $isCodexEventProtocol = $EventProtocol -in @('codex-jsonl','codex-app-server')
+    if ($RequireRuntimeIdentity -and (
+        -not $isCodexEventProtocol -or
+        $ExpectedRuntimeModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$' -or
+        $ExpectedRuntimeModelProvider -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
+    )) {
+        throw 'Required Codex runtime identity has no valid trusted expectation.'
+    }
     $privateTaskPipeRequested = -not [string]::IsNullOrWhiteSpace($PrivateTaskPipeName)
     if ($privateTaskPipeRequested) {
         if ($EventProtocol -ne 'codex-app-server' -or
@@ -562,6 +675,13 @@ function Invoke-AiCliChildCapture {
         'unsupported'
     } else {
         'disabled'
+    }
+    if ($null -ne $AuthorityMachineEvent) {
+        if (-not $resolvedMachineEventFile) {
+            throw 'Authority machine event requires the persistent Codex machine-event channel.'
+        }
+        $null = Assert-AiCliLocalGpuBrokerBindingObservation `
+            -Observation $AuthorityMachineEvent
     }
     $machineEventSequence = 0
     $machineEventStream = $null
@@ -657,6 +777,16 @@ function Invoke-AiCliChildCapture {
 
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
+    if ($BeforeProcessTreeStop) {
+        $proc | Add-Member -NotePropertyName AiCliBeforeProcessTreeStop `
+            -NotePropertyValue ([pscustomobject]@{
+                Invoked = $false
+                Reason = $null
+                Error = $null
+                Action = $BeforeProcessTreeStop
+            })
+    }
+    $processStarted = $false
     $privateTaskPipe = $null
     $privateTaskWriter = $null
     if ($privateTaskPipeRequested) {
@@ -721,11 +851,13 @@ function Invoke-AiCliChildCapture {
     $lastFinalMessageEvent = 0
     $safeTurnUsage = [ordered]@{}
     $safeContextUsage = [ordered]@{}
+    $runtimeIdentity = $null
     $compactionCount = 0
     $upstreamFailureSummary = 'Codex reported an upstream failure.'
     $termination = [pscustomobject]@{ Attempted = $false; Confirmed = $true; Method = 'none' }
     $knownEventTypes = @(
         'thread.started',
+        'runtime.identity',
         'turn.started',
         'turn.completed',
         'turn.failed',
@@ -752,6 +884,8 @@ function Invoke-AiCliChildCapture {
         'codex_appserver.response_after_turn_unexpected',
         'codex_appserver.version_unsupported',
         'codex_appserver.workspace_write_unavailable',
+        'codex_appserver.runtime_identity_missing',
+        'codex_appserver.runtime_identity_mismatch',
         'codex_appserver.notification_unknown',
         'codex_appserver.notification_scope_invalid',
         'codex_appserver.turn_status_invalid',
@@ -819,7 +953,17 @@ function Invoke-AiCliChildCapture {
             $machineEventStream.SetLength(0)
             $machineEventStream.Position = 0
         }
+        if ($null -ne $AuthorityMachineEvent -and -not (
+            Write-AiCliMachineEvent -Stream $machineEventStream `
+                -Sequence ([ref]$machineEventSequence) `
+                -Kind 'local-gpu-broker.binding' `
+                -Data @{ binding_observation = $AuthorityMachineEvent } `
+                -SecretValues $SecretValues
+        )) {
+            throw 'LocalGpuBroker authority binding observation could not be persisted.'
+        }
         [void]$proc.Start()
+        $processStarted = $true
         $stderrTask = $proc.StandardError.ReadToEndAsync()
         try {
             if ($privateTaskPipeRequested) {
@@ -828,7 +972,7 @@ function Invoke-AiCliChildCapture {
                 while (-not $connectTask.IsCompleted) {
                     $remainingPipeMs = $TimeoutMs - [int]$stopwatch.ElapsedMilliseconds
                     if ($remainingPipeMs -le 0) {
-                        $termination = Stop-AiCliProcessTree -Process $proc
+                        $termination = Stop-AiCliProcessTree -Process $proc -Reason timeout
                         throw [System.TimeoutException]::new(
                             "Private task pipe timed out (${TimeoutMs}ms): $FileName"
                         )
@@ -850,7 +994,7 @@ function Invoke-AiCliChildCapture {
                 while (-not $writeTask.IsCompleted) {
                     $remainingPipeMs = $TimeoutMs - [int]$stopwatch.ElapsedMilliseconds
                     if ($remainingPipeMs -le 0) {
-                        $termination = Stop-AiCliProcessTree -Process $proc
+                        $termination = Stop-AiCliProcessTree -Process $proc -Reason timeout
                         throw [System.TimeoutException]::new(
                             "Private task pipe timed out (${TimeoutMs}ms): $FileName"
                         )
@@ -884,14 +1028,14 @@ function Invoke-AiCliChildCapture {
         if ($isCodexEventProtocol) {
             while ($true) {
                 if ($stopwatch.ElapsedMilliseconds -ge $TimeoutMs) {
-                    $termination = Stop-AiCliProcessTree -Process $proc
+                    $termination = Stop-AiCliProcessTree -Process $proc -Reason timeout
                     throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
                 }
                 $readTask = $proc.StandardOutput.ReadLineAsync()
                 while (-not $readTask.IsCompleted) {
                     $remainingReadMs = $TimeoutMs - [int]$stopwatch.ElapsedMilliseconds
                     if ($remainingReadMs -le 0) {
-                        $termination = Stop-AiCliProcessTree -Process $proc
+                        $termination = Stop-AiCliProcessTree -Process $proc -Reason timeout
                         throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
                     }
                     [void]$readTask.Wait([Math]::Min(50, $remainingReadMs))
@@ -945,6 +1089,50 @@ function Invoke-AiCliChildCapture {
                             $bridgeErrorCode +
                             ').'
                         )
+                    }
+                }
+                if ($RequireRuntimeIdentity -and $protocolValid -and
+                    $null -eq $runtimeIdentity -and
+                    $eventType -notin @('runtime.identity', 'bridge.failed')) {
+                    $protocolValid = $false
+                    $protocolErrorCode = 'codex_appserver.runtime_identity_missing'
+                    $protocolError = 'Codex app-server runtime identity is missing.'
+                    $termination = Stop-AiCliProcessTree -Process $proc
+                    break
+                }
+                if ($eventType -eq 'runtime.identity') {
+                    $identityModel = [string](Get-AiCliProperty $event 'model')
+                    $identityProvider = [string](Get-AiCliProperty $event 'model_provider')
+                    $identityCliVersion = [string](Get-AiCliProperty $event 'cli_version')
+                    $identityPermission = Get-AiCliProperty $event 'permission'
+                    if ($null -ne $runtimeIdentity -or
+                        $identityModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$' -or
+                        $identityProvider -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$' -or
+                        ($RequireRuntimeIdentity -and (
+                            $identityModel -cne $ExpectedRuntimeModel -or
+                            $identityProvider -cne $ExpectedRuntimeModelProvider
+                        )) -or
+                        [string](Get-AiCliProperty $identityPermission 'approval_policy') -ne 'never' -or
+                        [string](Get-AiCliProperty $identityPermission 'requested_policy') -notin @('read-only','workspace-write') -or
+                        [string](Get-AiCliProperty $identityPermission 'sandbox_boundary') -notin @('outer-codex','codex-native') -or
+                        [string](Get-AiCliProperty $identityPermission 'sandbox_type') -notin @('readOnly','workspaceWrite','externalSandbox')) {
+                        $protocolValid = $false
+                        $protocolErrorCode = 'codex_appserver.runtime_identity_mismatch'
+                        $protocolError = 'Codex app-server runtime identity is invalid.'
+                        $termination = Stop-AiCliProcessTree -Process $proc
+                        break
+                    }
+                    $runtimeIdentity = [ordered]@{
+                        model = $identityModel
+                        model_provider = $identityProvider
+                        cli_version = $identityCliVersion
+                        permission = [ordered]@{
+                            approval_policy = 'never'
+                            requested_policy = [string](Get-AiCliProperty $identityPermission 'requested_policy')
+                            sandbox_boundary = [string](Get-AiCliProperty $identityPermission 'sandbox_boundary')
+                            sandbox_type = [string](Get-AiCliProperty $identityPermission 'sandbox_type')
+                            permission_profile = [string](Get-AiCliProperty $identityPermission 'permission_profile')
+                        }
                     }
                 }
                 if ($eventType -eq 'cleanup.failed') {
@@ -1074,7 +1262,9 @@ function Invoke-AiCliChildCapture {
                         type = 'item.completed'
                         item = [ordered]@{
                             type = 'agent_message'
-                            text = [string](Get-AiCliProperty $item 'text')
+                            text = Protect-AiCliExactSecretValues `
+                                -Text ([string](Get-AiCliProperty $item 'text')) `
+                                -SecretValues $SecretValues
                         }
                     }
                 }
@@ -1097,6 +1287,19 @@ function Invoke-AiCliChildCapture {
                             Kind = 'thread.started'
                             Data = @{
                                 thread_id = $publicThreadId
+                            }
+                        }
+                    } elseif ($eventType -eq 'runtime.identity') {
+                        $machineEvent = @{
+                            Kind = 'runtime.identity'
+                            Data = @{
+                                model = $runtimeIdentity.model
+                                provider_id = $runtimeIdentity.model_provider
+                                cli_version = $runtimeIdentity.cli_version
+                                approval_policy = $runtimeIdentity.permission.approval_policy
+                                sandbox_policy = $runtimeIdentity.permission.requested_policy
+                                sandbox_boundary = $runtimeIdentity.permission.sandbox_boundary
+                                sandbox_type = $runtimeIdentity.permission.sandbox_type
                             }
                         }
                     } elseif ($eventType -eq 'bridge.failed') {
@@ -1231,7 +1434,9 @@ function Invoke-AiCliChildCapture {
                         $eventType -eq 'item.updated' -and
                         $itemType -eq 'agent_message'
                     ) {
-                        $publicText = [string](Get-AiCliProperty $item 'text')
+                        $publicText = Protect-AiCliExactSecretValues `
+                            -Text ([string](Get-AiCliProperty $item 'text')) `
+                            -SecretValues $SecretValues
                         if ($publicText.Length -gt 2000) {
                             $publicText = $publicText.Substring(0, 2000)
                         }
@@ -1252,7 +1457,9 @@ function Invoke-AiCliChildCapture {
                         $eventType -eq 'item.completed' -and
                         $itemType -eq 'agent_message'
                     ) {
-                        $publicText = [string](Get-AiCliProperty $item 'text')
+                        $publicText = Protect-AiCliExactSecretValues `
+                            -Text ([string](Get-AiCliProperty $item 'text')) `
+                            -SecretValues $SecretValues
                         if ($publicText.Length -gt 8000) {
                             $publicText = $publicText.Substring(0, 8000)
                         }
@@ -1271,7 +1478,8 @@ function Invoke-AiCliChildCapture {
                     if ($machineEvent -and -not (
                         Write-AiCliMachineEvent -Stream $machineEventStream `
                             -Sequence ([ref]$machineEventSequence) `
-                            -Kind $machineEvent.Kind -Data $machineEvent.Data
+                            -Kind $machineEvent.Kind -Data $machineEvent.Data `
+                            -SecretValues $SecretValues
                     )) {
                         $machineEventStatus = 'degraded'
                     } elseif ($machineEvent -and $machineEvent.Kind -in @('run.failed','limit.hit')) {
@@ -1280,12 +1488,12 @@ function Invoke-AiCliChildCapture {
                 }
 
                 if ($stopwatch.ElapsedMilliseconds -ge $TimeoutMs) {
-                    $termination = Stop-AiCliProcessTree -Process $proc
+                    $termination = Stop-AiCliProcessTree -Process $proc -Reason timeout
                     throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
-                } elseif ($stepCount -gt $MaxSteps) {
+                } elseif ($enforceStepLimitEffective -and $stepCount -gt $MaxSteps) {
                     $limitHit = 'maxSteps'
                 }
-                elseif ($toolCallCount -gt $MaxToolCalls) {
+                elseif ($enforceToolCallLimitEffective -and $toolCallCount -gt $MaxToolCalls) {
                     $limitHit = 'maxToolCalls'
                 }
                 if ($limitHit) {
@@ -1299,7 +1507,7 @@ function Invoke-AiCliChildCapture {
                                     steps = $stepCount
                                     tool_calls = $toolCallCount
                                     events_seen = $eventsSeen
-                                }
+                                } -SecretValues $SecretValues
                         )) {
                             $machineEventStatus = 'degraded'
                         } else {
@@ -1317,7 +1525,7 @@ function Invoke-AiCliChildCapture {
             if (-not $proc.HasExited) {
                 $remainingMs = $TimeoutMs - [int]$stopwatch.ElapsedMilliseconds
                 if ($remainingMs -le 0 -or -not $proc.WaitForExit($remainingMs)) {
-                    $termination = Stop-AiCliProcessTree -Process $proc
+                    $termination = Stop-AiCliProcessTree -Process $proc -Reason timeout
                     throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
                 }
             }
@@ -1326,7 +1534,7 @@ function Invoke-AiCliChildCapture {
         } else {
             $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
             if (-not $proc.WaitForExit($TimeoutMs)) {
-                $termination = Stop-AiCliProcessTree -Process $proc
+                $termination = Stop-AiCliProcessTree -Process $proc -Reason timeout
                 throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
             }
             $proc.WaitForExit()
@@ -1354,6 +1562,16 @@ function Invoke-AiCliChildCapture {
         } else {
             $stderrTask.GetAwaiter().GetResult()
         }
+        $stdout = Protect-AiCliExactSecretValues `
+            -Text $stdout -SecretValues $SecretValues
+        $stderr = Protect-AiCliExactSecretValues `
+            -Text $stderr -SecretValues $SecretValues
+        if ($isCodexEventProtocol -and $RequireRuntimeIdentity -and
+            $protocolValid -and $null -eq $runtimeIdentity) {
+            $protocolValid = $false
+            $protocolErrorCode = 'codex_appserver.runtime_identity_missing'
+            $protocolError = 'Codex app-server runtime identity is missing.'
+        }
         if ($isCodexEventProtocol -and $proc.ExitCode -eq 0 -and $eventsSeen -eq 0) {
             $protocolValid = $false
             $protocolError = 'Codex returned success without any countable JSON events.'
@@ -1378,7 +1596,8 @@ function Invoke-AiCliChildCapture {
         if ($limitHit) {
             $stderr = "Agent exceeded the configured hard limit: $limitHit."
         } elseif (-not $protocolValid) {
-            $stderr = $protocolError
+            $stderr = Protect-AiCliExactSecretValues `
+                -Text $protocolError -SecretValues $SecretValues
         }
         if (
             $machineEventStatus -eq 'ok' -and
@@ -1408,7 +1627,8 @@ function Invoke-AiCliChildCapture {
             if (-not (
                 Write-AiCliMachineEvent -Stream $machineEventStream `
                     -Sequence ([ref]$machineEventSequence) `
-                    -Kind $terminalKind -Data $terminalData
+                    -Kind $terminalKind -Data $terminalData `
+                    -SecretValues $SecretValues
             )) {
                 $machineEventStatus = 'degraded'
             } else {
@@ -1445,10 +1665,11 @@ function Invoke-AiCliChildCapture {
             MachineEventCount = $machineEventSequence
             Usage = Merge-AiCliSafeRunUsage -TurnUsage $safeTurnUsage `
                 -ContextUsage $safeContextUsage
+            RuntimeIdentity = $runtimeIdentity
         }
     } catch [System.TimeoutException] {
         if (-not $termination.Attempted -or -not $termination.Confirmed) {
-            $retriedTermination = Stop-AiCliProcessTree -Process $proc
+            $retriedTermination = Stop-AiCliProcessTree -Process $proc -Reason timeout
             if ($retriedTermination.Confirmed -or -not $termination.Attempted) {
                 $termination = $retriedTermination
             }
@@ -1470,6 +1691,10 @@ function Invoke-AiCliChildCapture {
         } else {
             ''
         }
+        $stdout = Protect-AiCliExactSecretValues `
+            -Text $stdout -SecretValues $SecretValues
+        $stderr = Protect-AiCliExactSecretValues `
+            -Text $stderr -SecretValues $SecretValues
         if ($EventProtocol -eq 'none' -and $MaxCaptureChars -gt 0 -and $stdout.Length -gt $MaxCaptureChars) {
             $stdout = $stdout.Substring(0, $MaxCaptureChars)
             $outputTruncated = $true
@@ -1492,7 +1717,7 @@ function Invoke-AiCliChildCapture {
                         steps = $stepCount
                         tool_calls = $toolCallCount
                         events_seen = $eventsSeen
-                    }
+                    } -SecretValues $SecretValues
             )) {
                 $machineEventStatus = 'degraded'
             } else {
@@ -1524,8 +1749,12 @@ function Invoke-AiCliChildCapture {
             MachineEventCount = $machineEventSequence
             Usage = Merge-AiCliSafeRunUsage -TurnUsage $safeTurnUsage `
                 -ContextUsage $safeContextUsage
+            RuntimeIdentity = $runtimeIdentity
         }
     } catch {
+        if ($processStarted -and -not $termination.Attempted) {
+            $termination = Stop-AiCliProcessTree -Process $proc -Reason cancelled
+        }
         if (
             $machineEventStatus -eq 'ok' -and
             $null -ne $machineEventStream -and
@@ -1540,7 +1769,7 @@ function Invoke-AiCliChildCapture {
                         steps = $stepCount
                         tool_calls = $toolCallCount
                         events_seen = $eventsSeen
-                    }
+                    } -SecretValues $SecretValues
             )) {
                 $machineEventStatus = 'degraded'
             }
