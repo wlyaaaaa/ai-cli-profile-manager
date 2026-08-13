@@ -25,6 +25,7 @@
 
 ### 修正
 
+- Codex app-server 的运行累计 Token 现在取同一快照中的 `tokenUsage.total`，包括输入、缓存输入、输出、推理输出与上游总计；当前上下文仍只取 `tokenUsage.last.totalTokens`。桥接不再把最近一次调用误标为整场累计，也不会在累计字段缺失时回退到 `last`；无法证明缓存统计可用的零值会省略。
 - PDF 构建优先复用本机已有的 Playwright 与已安装 Edge，避免 Edge 命令行打印受既有浏览器单例影响而无限等待；仍保留有界超时的 Edge CLI 后备路径。两本 canonical Markdown 会写入源 SHA256，并在生成后做文本与逐页渲染验收。
 - Codex CLI `0.145.x` 的原生 app-server `workspace-write` 改用实验协议中的命名权限：`thread/start` 与 `turn/start` 都传入 `permissions=:workspace`，并用唯一的 `runtimeWorkspaceRoots` 精确绑定请求 `cwd`。桥接器回读 `workspaceWrite`、`:workspace` 和同一根路径，并在模型轮次前执行受限写探针；根目录为空、漂移或探针失败时，不启动模型调用。
 - 原生 Codex machine run 继续固定 `approvalPolicy=never`；app-server 发起任何审批或用户输入 RPC 时均失败关闭，不自动批准。

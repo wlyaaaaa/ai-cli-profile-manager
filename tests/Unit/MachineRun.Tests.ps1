@@ -200,7 +200,7 @@ $text = [Console]::In.ReadToEnd()
 [Console]::Out.WriteLine('{"type":"item.started","item":{"id":"tool-1","type":"command_execution","command":"PRIVATE_COMMAND"}}')
 [Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"tool-1","type":"command_execution","aggregated_output":"PRIVATE_OUTPUT"}}')
 [Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"message-1","type":"agent_message","text":"FINAL_AFTER_RECOVERY"}}')
-[Console]::Out.WriteLine('{"type":"turn.completed","usage":{"input_tokens":1234,"cached_input_tokens":234,"output_tokens":56,"total_tokens":1524,"secret":"USAGE_SECRET_CANARY","nested":{"path":"C:\\private\\USAGE_PATH"}}}')
+[Console]::Out.WriteLine('{"type":"turn.completed","usage":{"input_tokens":1234,"cached_input_tokens":234,"output_tokens":56,"reasoning_output_tokens":7,"total_tokens":1531,"secret":"USAGE_SECRET_CANARY","nested":{"path":"C:\\private\\USAGE_PATH"}}}')
 [Console]::Error.WriteLine('RECOVERABLE_RAW_STDERR_CANARY')
 exit 0
 '@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
@@ -214,13 +214,19 @@ exit 0
             $result.StdErr | Should -Be ''
             $result.StdOut | Should -Match 'FINAL_AFTER_RECOVERY'
             ($result.Usage | ConvertTo-Json -Compress) |
-                Should -Be '{"input_tokens":1234,"cached_input_tokens":234,"output_tokens":56}'
+                Should -Be (
+                    '{"input_tokens":1234,"cached_input_tokens":234,"output_tokens":56,' +
+                    '"reasoning_output_tokens":7,"total_tokens":1531}'
+                )
 
             $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
             @($events.kind) | Should -Not -Contain 'run.failed'
             $completed = @($events | Where-Object kind -eq 'turn.completed')[-1]
             ($completed.usage | ConvertTo-Json -Compress) |
-                Should -Be '{"input_tokens":1234,"cached_input_tokens":234,"output_tokens":56}'
+                Should -Be (
+                    '{"input_tokens":1234,"cached_input_tokens":234,"output_tokens":56,' +
+                    '"reasoning_output_tokens":7,"total_tokens":1531}'
+                )
 
             $publicEnvelopeAndEvents = @(
                 ($result | ConvertTo-Json -Depth 10 -Compress)
@@ -229,7 +235,7 @@ exit 0
             $publicEnvelopeAndEvents | Should -Not -Match (
                 'RECOVERABLE_TOP_LEVEL_CANARY|TOP_LEVEL_PATH|RECOVERABLE_ITEM_CANARY|' +
                 'PRIVATE_COMMAND|PRIVATE_OUTPUT|RECOVERABLE_RAW_STDERR_CANARY|' +
-                'total_tokens|USAGE_SECRET_CANARY|USAGE_PATH|nested'
+                'USAGE_SECRET_CANARY|USAGE_PATH|nested'
             )
         }
     }
@@ -248,9 +254,10 @@ exit 0
                 -EventProtocol codex-jsonl -MaxSteps 4 -MaxToolCalls 1 -TimeoutMs 5000
 
             $result.ExitCode | Should -Be 0
-            ($result.Usage | ConvertTo-Json -Compress) | Should -Be '{"input_tokens":12}'
+            ($result.Usage | ConvertTo-Json -Compress) |
+                Should -Be '{"input_tokens":12,"total_tokens":15}'
             ($result | ConvertTo-Json -Depth 10 -Compress) |
-                Should -Not -Match 'cached_input_tokens|output_tokens|total_tokens|PRIVATE_USAGE_CANARY'
+                Should -Not -Match 'cached_input_tokens|output_tokens|PRIVATE_USAGE_CANARY'
         }
     }
 
@@ -373,7 +380,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
             [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","startedAtMs":2,"item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_COMMAND_CANARY","aggregatedOutput":"PRIVATE_TOOL_OUTPUT_CANARY","status":"inProgress"}}}')
             [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","startedAtMs":2,"item":{"id":"command-2","type":"commandExecution","command":"PRIVATE_FAILED_COMMAND_CANARY","aggregatedOutput":"PRIVATE_FAILED_OUTPUT_CANARY","status":"inProgress"}}}')
             [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","startedAtMs":2,"item":{"id":"command-3","type":"commandExecution","command":"PRIVATE_DECLINED_COMMAND_CANARY","aggregatedOutput":"PRIVATE_DECLINED_OUTPUT_CANARY","status":"inProgress"}}}')
-            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":120,"cachedInputTokens":20,"outputTokens":5,"reasoningOutputTokens":3,"totalTokens":341,"secret":"PRIVATE_USAGE_CANARY"},"total":{"inputTokens":9999,"cachedInputTokens":999,"outputTokens":999,"reasoningOutputTokens":999,"totalTokens":99999},"modelContextWindow":262144}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":120,"cachedInputTokens":0,"outputTokens":5,"reasoningOutputTokens":3,"totalTokens":341,"secret":"PRIVATE_USAGE_CANARY"},"total":{"inputTokens":9999,"cachedInputTokens":0,"outputTokens":999,"reasoningOutputTokens":777,"totalTokens":11775},"modelContextWindow":262144}}}')
             [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","completedAtMs":3,"item":{"id":"reason-1","type":"reasoning","summary":["PRIVATE_REASONING_CANARY"]}}}')
             [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","completedAtMs":3,"item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_COMMAND_CANARY","aggregatedOutput":"PRIVATE_TOOL_OUTPUT_CANARY","status":"completed","exitCode":0,"durationMs":617}}}')
             [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","completedAtMs":3,"item":{"id":"command-2","type":"commandExecution","command":"PRIVATE_FAILED_COMMAND_CANARY","aggregatedOutput":"PRIVATE_FAILED_OUTPUT_CANARY","status":"failed","exitCode":9,"durationMs":731}}}')
@@ -418,7 +425,8 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
             $result.StepCount | Should -Be 6
             $result.ToolCallCount | Should -Be 4
             ($result.Usage | ConvertTo-Json -Compress) | Should -Be (
-                '{"input_tokens":120,"cached_input_tokens":20,"output_tokens":5,' +
+                '{"input_tokens":9999,"output_tokens":999,"reasoning_output_tokens":777,' +
+                '"total_tokens":11775,' +
                 '"current_context_tokens":341,"context_window_tokens":262144}'
             )
             $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
@@ -492,7 +500,12 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 Should -Not -Contain 'duration_ms'
             $turnCompleted = @($events | Where-Object kind -eq 'turn.completed')[-1]
             ($turnCompleted.usage | ConvertTo-Json -Compress) |
-                Should -Be '{"input_tokens":120,"cached_input_tokens":20,"output_tokens":5}'
+                Should -Be (
+                    '{"input_tokens":9999,"output_tokens":999,' +
+                    '"reasoning_output_tokens":777,"total_tokens":11775}'
+                )
+            $result.Usage.PSObject.Properties.Name |
+                Should -Not -Contain 'cached_input_tokens'
 
             $public = @(
                 ($result | ConvertTo-Json -Depth 10 -Compress)
@@ -633,6 +646,11 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
             $result.ErrorCode | Should -BeNullOrEmpty
             $result.Usage.current_context_tokens | Should -Be 41
             $result.Usage.context_window_tokens | Should -Be 258400
+            $result.Usage.PSObject.Properties.Name | Should -Not -Contain 'input_tokens'
+            $result.Usage.PSObject.Properties.Name | Should -Not -Contain 'cached_input_tokens'
+            $result.Usage.PSObject.Properties.Name | Should -Not -Contain 'output_tokens'
+            $result.Usage.PSObject.Properties.Name | Should -Not -Contain 'reasoning_output_tokens'
+            $result.Usage.PSObject.Properties.Name | Should -Not -Contain 'total_tokens'
             $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
             $contextEvents = @(
                 $events | Where-Object kind -eq 'context.usage.updated'

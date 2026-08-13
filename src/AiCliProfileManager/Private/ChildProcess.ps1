@@ -399,6 +399,8 @@ function ConvertTo-AiCliSafeUsage {
         'input_tokens',
         'cached_input_tokens',
         'output_tokens',
+        'reasoning_output_tokens',
+        'total_tokens',
         'current_context_tokens',
         'context_window_tokens'
     )) {
@@ -464,7 +466,13 @@ function Merge-AiCliSafeRunUsage {
 
     $safe = [ordered]@{}
     $turn = ConvertTo-AiCliSafeUsage $TurnUsage
-    foreach ($name in @('input_tokens','cached_input_tokens','output_tokens')) {
+    foreach ($name in @(
+        'input_tokens',
+        'cached_input_tokens',
+        'output_tokens',
+        'reasoning_output_tokens',
+        'total_tokens'
+    )) {
         if ($turn.Contains($name)) { $safe[$name] = $turn[$name] }
     }
     $context = ConvertTo-AiCliSafeUsage $ContextUsage
@@ -1221,7 +1229,13 @@ function Invoke-AiCliChildCapture {
                         Get-AiCliProperty $event 'usage'
                     )
                     $safeTurnUsage = [ordered]@{}
-                    foreach ($name in @('input_tokens','cached_input_tokens','output_tokens')) {
+                    foreach ($name in @(
+                        'input_tokens',
+                        'cached_input_tokens',
+                        'output_tokens',
+                        'reasoning_output_tokens',
+                        'total_tokens'
+                    )) {
                         if ($completedUsage.Contains($name)) {
                             $safeTurnUsage[$name] = $completedUsage[$name]
                         }

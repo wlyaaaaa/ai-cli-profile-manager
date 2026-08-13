@@ -141,14 +141,38 @@ function ConvertTo-BridgeUsage {
 
     $safe = [ordered]@{}
     $last = Get-BridgeProperty $TokenUsage 'last'
+    $total = Get-BridgeProperty $TokenUsage 'total'
     foreach ($mapping in @(
         @('input_tokens', 'inputTokens'),
         @('cached_input_tokens', 'cachedInputTokens'),
         @('output_tokens', 'outputTokens'),
-        @('current_context_tokens', 'totalTokens')
+        @('reasoning_output_tokens', 'reasoningOutputTokens')
     )) {
-        $value = ConvertTo-BridgeInt64 (Get-BridgeProperty $last $mapping[1])
-        if ($null -ne $value) { $safe[$mapping[0]] = $value }
+        $value = ConvertTo-BridgeInt64 (Get-BridgeProperty $total $mapping[1])
+        if ($null -eq $value) { continue }
+        if ($mapping[0] -eq 'cached_input_tokens' -and $value -eq 0) {
+            continue
+        }
+        $safe[$mapping[0]] = $value
+    }
+    $currentContext = ConvertTo-BridgeInt64 (
+        Get-BridgeProperty $last 'totalTokens'
+    )
+    if ($null -ne $currentContext) {
+        $safe['current_context_tokens'] = $currentContext
+    }
+    $upstreamTotal = ConvertTo-BridgeInt64 (
+        Get-BridgeProperty $total 'totalTokens'
+    )
+    if (
+        $null -ne $upstreamTotal -and
+        (
+            $safe.Contains('input_tokens') -or
+            $safe.Contains('output_tokens') -or
+            $safe.Contains('reasoning_output_tokens')
+        )
+    ) {
+        $safe['total_tokens'] = $upstreamTotal
     }
     $contextWindow = ConvertTo-BridgeInt64 (
         Get-BridgeProperty $TokenUsage 'modelContextWindow'
