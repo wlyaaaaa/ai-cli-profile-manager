@@ -1,8 +1,9 @@
 {
   "schemaVersion": 1,
   "displayName": "Claude Code + DeepSeek V4 Flash 0731",
-  "defaultEffort": "high",
+  "defaultEffort": "max",
   "effortLevels": [
+    "low",
     "high",
     "max"
   ],
@@ -15,7 +16,7 @@
     "effort": true
   },
   "requiresSecret": true,
-  "notes": "当前 Profile 固定 deepseek-v4-flash（0731）；deepseek-v4-pro 仅预留，未进入可选模型。思考 high|max。",
+  "notes": "当前 Profile 只固定 deepseek-v4-flash / DeepSeek-V4-Flash-0731；不保留 preview、旧 alias 或其他 V4 候选。默认使用供应商最高 max。",
   "region": "global",
   "id": "claude-deepseek",
   "auth": {
@@ -37,9 +38,6 @@
     "primary": "deepseek-v4-flash",
     "candidates": [
       "deepseek-v4-flash"
-    ],
-    "reserved": [
-      "deepseek-v4-pro"
     ]
   },
   "modelMetadata": {
@@ -50,7 +48,7 @@
   },
   "compatibility": {
     "minCliVersion": "2.1.193",
-    "modelVersion": "0731"
+    "modelVersion": "DeepSeek-V4-Flash-0731"
   },
   "dataDestination": "DeepSeek API",
   "virtualReady": false

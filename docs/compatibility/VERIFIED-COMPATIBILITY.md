@@ -1,10 +1,10 @@
 # 兼容性与最终验收状态
 
 文档日期：2026-08-13
-产品版本：`0.3.4`（`main` 源码；未发布 GitHub Release）
+产品版本：`0.3.5`（source/install/runtime/live 分层验收）
 状态原则：代码路径存在不等于 Provider 已通过；最终状态必须来自当前版本、当前 Profile 指纹和真实目标 CLI 的验收记录。
 
-本页严格分开 source/static/install/runtime/live。旧 `0.3.3` 安装及任何旧 Live 回执都不能证明 `0.3.4`；最终安装提交、payload、受管 TOML/catalog 和 Live 回执必须分别固定指纹。
+本页严格分开 source/static/install/runtime/live。任何旧版本安装或旧 Live 回执都不能证明 `0.3.5`；最终安装提交、payload、受管 TOML/catalog 和 Live 回执必须分别固定指纹。
 
 ## 1. 当前实现基线
 
@@ -19,22 +19,16 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | Profile / 路径 | 实现状态 | 本轮最终 Live 状态 | 发布说明 |
 |----------------|----------|--------------------|----------|
 | `codex-official` | 已实现 | 可用但有限制（本轮按用户要求未做 Live） | 使用上游官方登录；不得由桌面端登录状态推断 CLI 一定可用 |
-| `codex-qwen3-8-max-paygo` | `0.3.4` source/static 已实现 | 仅由同指纹发布验收回执判定 | 精确 `qwen3.8-max`、Workspace paygo Responses、983616/95%、compact 262144；用户 `max` → 原生 `xhigh`；拒绝 preview/Token Plan/模型覆盖。 |
-| `codex-deepseek` | `0.3.4` source/static 已实现 | 仅由同指纹发布验收回执判定 | 精确 alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，1048576 context，Responses，默认 `max`。 |
-| `codex-deepseek-v4-pro` | `0.3.4` source/static 已实现 | 仅由同指纹发布验收回执判定 | 精确 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`，1048576 context，Responses，默认 `max`。 |
+| `codex-qwen3-8-max-paygo` | `0.3.5` source/static 已实现 | 仅由同指纹发布验收回执判定 | 精确 `qwen3.8-max`、Workspace paygo Responses、983616/95%、compact 262144；用户 `max` → 原生 `xhigh`；拒绝 preview/Token Plan/模型覆盖。 |
+| `codex-deepseek` | `0.3.5` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，1048576 context，Responses，默认/配置/argv `max`。 |
+| `codex-deepseek-v4-pro` | `0.3.5` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`，1048576 context，Responses，默认/配置/argv `max`。 |
 | `codex-ollama-main` | exact source/static 已实现 | 本轮不把旧运行证据晋升为新 Live | `qwen-main-v1`、Responses、max、无 fallback。 |
 | `codex-ollama-review` | exact source/static 已实现 | 本轮不把旧运行证据晋升为新 Live | `qwen-review-v1`、Responses、max、无 fallback。 |
 | `codex-spark-xhigh` | 已实现；workspace 修复仅在未发布源码 | 能力验收不通过 | 2026-07-24 的只读严格 JSON smoke 仍只证明文本链路。2026-07-29 使用仓库源代码入口和 `gpt-5.3-codex-spark` / `xhigh` 的真实 `workspace-write` 任务已证明命名权限与工作区写入生效；但 `code_repair` 在硬上限 `maxSteps=80` 下达到 `81/80` 后终止，确定性得分 `2/9`。本轮停止复测，不把权限修复等同于代码 Agent 能力通过。官方 Spark 使用临时 `CODEX_HOME` / `auth.json` 副本，不走付费 API Key。 |
-| `codex-qwen-paygo` | 兼容 ID 收敛为单模型 exact | 仅由同指纹发布验收回执判定 | 固定 `qwen3.7-max-2026-06-08` 与 max，无 preview/plus/fallback。 |
-| `codex-qwen-token-plan` | 兼容 ID 收敛为单模型 exact | 仅由同指纹发布验收回执判定 | 与按量端点/SecretRef 隔离，固定同一 pinned model 与 max。 |
 | `claude-official` | 已实现 | 不可用（本机未登录，401） | 完成 Claude CLI 官方登录后可重新验收；不等于产品安装失败 |
 | `claude-deepseek` | Flash-only 模板与上下文修复已在本机 installed | 可用但有限制（尚未做当前 Flash Live） | 2.1.193+ 按 `deepseek-v4-flash` 注入 MAX/AUTO=`1000000`；不设置提前压缩覆盖或禁压缩变量。安装态静态回读确认已知模型注入 1M，未知模型清除 MAX/AUTO、提前压缩与两个禁压缩变量。2026-07-14 的 Pro 记录属于旧指纹，不能证明当前 Flash。 |
-| `claude-qwen-paygo` | 已实现；逐模型上下文修复已在本机 installed | 文本通过；工具层跳过（可用但有限制） | 已知模型按最终 `--model` 注入 1M；未知模型不猜。2026-07-14（UTC+8）Claude Code 2.1.207 → Max 的 `PONG` 记录早于当前指纹，只保留历史。 |
-| `claude-qwen-coding-plan` | 已实现 | 可用但有限制（本轮未做 Live） | 套餐能力与模型候选必须匹配 |
-| `claude-qwen-token-plan` | 已实现 | 可用但有限制（本轮未做 Live） | 与按量/Coding Plan 分开 |
 | `claude-ollama` | 已实现，公共默认 `127.0.0.1:11434` | 可用但有限制（公共默认未做 Live） | 本机 `claude-ollama-main` 在 2.1.193+ 为 `qwen-main-v1` 注入 MAX/AUTO=`262144`；本机服务和模型仍是前置条件 |
 | `claude-custom` | 已实现 | 可用但有限制（按用户端点分别验收） | 只接受 HTTPS 或 localhost HTTP 的 Anthropic Messages 兼容端点 |
-| `oi-qwen-paygo` | Rust 0.0.21+ 适配已实现 | 文本通过；工具层跳过（可用但有限制） | 2026-07-14（UTC+8）：Rust OI 0.0.21 → `qwen3.7-max-2026-06-08`，exit 0，最终正文严格 `PONG` |
 | `oi-deepseek` | Rust 0.0.21+ Flash-only 模板已实现 | 可用但有限制（尚未做当前 Flash Live） | 2026-07-14 的 `deepseek-v4-pro` 文本通过记录属于旧 Profile 指纹；不能作为当前 `deepseek-v4-flash` 证据。 |
 | `oi-ollama` | Rust 0.0.21+ 适配已实现 | 可用但有限制（公共默认未做 Live） | 公共默认 `127.0.0.1:11434/v1` |
 | `claude-chatgpt-ccp` | 代理运维与 Profile 已实现 | 可用但有限制（本轮未做 OAuth/端到端 Live） | 可选第三方通道，不标成完全“可用” |
@@ -61,15 +55,18 @@ aicli native <Profile ID>
 aicli test <Profile ID> --live --level text --yes
 ```
 
-只有文本通过并且要求的工具层完成时才允许显示“可用”。工具层安全隔离无法证明时必须跳过，并保持“可用但有限制”。
+只有文本通过并且要求的工具层完成时才允许显示“可用”。Codex harness 固定 `danger-full-access`；Live 只发送要求严格返回 `PONG` 的文本任务，并要求最终观测到的工具调用数为 0。首个工具事件会触发终止并判失败，但不是执行前工具禁用，可能已经产生副作用，也不缩小全访问权限；权限事实仍必须进入回执。
 
 当前 Live Test 要求：
 
 - 通过真实目标 CLI，不使用外部 HTTP 请求冒充。
 - 进程退出码为 0。
 - 最终模型正文严格等于 `PONG`，不能由提示回显刷绿。
-- 临时空目录运行，禁用或隔离项目配置、私人规则和普通工具。
-- 记录 CLI 版本、Provider、端点、模型、Profile 指纹和测试时间，不记录提示/回复正文或秘密。
+- 临时空目录运行，但 Codex harness 仍按统一合同拥有 `danger-full-access`；不得把空目录冒充权限隔离。
+- Codex 回执记录实际 CLI 路径/版本、Provider、端点、actual 模型/Provider、`approval_policy=never`、`requested_policy=danger-full-access`、`native` 边界、`sandbox_type=dangerFullAccess`、permission profile、零工具使用、Profile 指纹和测试时间；不记录提示/回复正文或秘密。
+- Codex machine run 默认提供受管 `public_web_search`；回执记录 `enabled/provider/searches/eventEvidence`，事件仅记录 `web_search` 生命周期和计数，不含 query/result。2026-08-13 源码入口已由本地 `qwen-main-v1` 真实完成一次搜索并返回 `SEARCH_DONE`；该次未启用 event-file，不能冒充安装态或 durable GUI JSONL acceptance。
+
+`0.3.5` 安装前会只读预检 Qwen3.7 遗留入口；只有能用 marker/body/state/hash 和模块 Manifest 身份证明由 AICLI 管理的文件才会移入可恢复 quarantine。未知/篡改/reparse 项会阻断安装且不会被删除；SecretRef 与密钥不参与迁移。
 
 `codex-spark-xhigh` 的 machine run 证据与桌面端“能够创建 Spark 任务”是两条不同事实。当前证据进一步拆成三层：旧只读 smoke 证明文本链路，2026-07-29 的写任务证明源码权限修复生效，而同一任务的 `81/80` 与 `2/9` 证明能力验收不通过。额度和限流仍是动态外部状态；aicli 不自动降级，调用方如改投本地模型必须显式重提并保留两份回执。
 
@@ -86,7 +83,7 @@ aicli test <Profile ID> --live --level text --yes
 
 内置模板当前候选包括：
 
-- Qwen Codex 兼容入口各自固定 `qwen3.7-max-2026-06-08` 单模型；独立 `codex-qwen3-8-max-paygo` 只允许 Workspace 按量 `qwen3.8-max`，requested `max` 映射 effective `xhigh`。旧 Flash/Plus 记录的模型身份仍已撤回，模板存在不代表当前 Live。
+- Qwen3.7 Max/Plus 云模型、兼容 ID、目录与导入入口均已退役；旧用户 Profile/原生模型参数失败关闭。Qwen 云端只保留 `codex-qwen3-8-max-paygo` → Workspace paygo `qwen3.8-max`，requested `max` 映射 effective `xhigh`。
 - DeepSeek Codex 分别固定 `deepseek-v4-flash` / `DeepSeek-V4-Flash-0731` 与 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`，均为 Responses、1M、默认 `max`；Claude Code 与 Open Interpreter 的 DeepSeek 模板仍保持 Flash-only。
 - Ollama 公共模板只使用默认端口和公开模型名；用户必须确认本机已经存在该模型。
 

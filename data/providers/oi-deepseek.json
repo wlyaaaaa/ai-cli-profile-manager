@@ -21,9 +21,6 @@
     "small": "deepseek-v4-flash",
     "candidates": [
       "deepseek-v4-flash"
-    ],
-    "reserved": [
-      "deepseek-v4-pro"
     ]
   },
   "flexible": false,
@@ -38,10 +35,10 @@
   "compatibility": {
     "family": "rust",
     "minCliVersion": "0.0.21",
-    "modelVersion": "0731"
+    "modelVersion": "DeepSeek-V4-Flash-0731"
   },
   "dataDestination": "DeepSeek API（OpenAI 兼容）+ 本机代码执行",
-  "notes": "当前官方 Rust Open Interpreter 0.0.21+。使用 DeepSeek Chat wire API 并固定 deepseek-v4-flash（0731）；deepseek-v4-pro 仅预留。默认不启用任何跳过审批或沙箱的危险参数。",
+  "notes": "当前官方 Rust Open Interpreter 0.0.21+。使用 DeepSeek Chat wire API 并只固定 deepseek-v4-flash / DeepSeek-V4-Flash-0731；不保留其他 V4 候选。默认不启用任何跳过审批或沙箱的危险参数。",
   "sources": [
     "https://www.openinterpreter.com/docs/terminal/providers",
     "https://www.openinterpreter.com/docs/terminal/config",

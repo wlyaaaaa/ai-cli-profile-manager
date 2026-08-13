@@ -90,26 +90,9 @@ function Import-RecognizedProfile {
 }
 
 $planned = 0
-$qwen = Get-AiCliProperty $providers 'openai'
-if ($qwen) {
-    $qwenUrl = [string](Get-AiCliProperty $qwen 'baseUrl')
-    $qwenKey = [string](Get-AiCliProperty $qwen 'apiKey')
-    if (-not (Test-ExpectedProviderUrl -Url $qwenUrl -Provider qwen)) {
-        Write-Host "SKIP providers.openai — Base URL 不能证明它是阿里云百炼，拒绝把未知/OpenAI Key 改送到千问。"
-    } elseif ([string]::IsNullOrWhiteSpace($qwenKey)) {
-        Write-Host 'SKIP Qwen — 无 API Key'
-    } else {
-        foreach ($templateId in @('claude-qwen-paygo','codex-qwen-paygo','oi-qwen-paygo')) {
-            try {
-                Import-RecognizedProfile -TemplateId $templateId -Key $qwenKey -SourceProviderId 'openai'
-                $planned++
-            } catch {
-                if ($_.Exception.Message -match '未知 Profile 模板') { continue }
-                throw
-            }
-        }
-    }
-}
+# Qwen3.7 Max/Plus cloud profiles are retired. Do not inspect, import, copy, or
+# silently migrate an OpenClaw credential to Qwen3.8; the latter has its own
+# exact Workspace profile and must be configured explicitly.
 
 $deepseek = Get-AiCliProperty $providers 'deepseek'
 if ($deepseek) {
@@ -120,7 +103,7 @@ if ($deepseek) {
     } elseif ([string]::IsNullOrWhiteSpace($dsKey)) {
         Write-Host 'SKIP DeepSeek — 无 API Key'
     } else {
-        foreach ($templateId in @('codex-deepseek','claude-deepseek','oi-deepseek')) {
+        foreach ($templateId in @('codex-deepseek','codex-deepseek-v4-pro','claude-deepseek','oi-deepseek')) {
             try {
                 Import-RecognizedProfile -TemplateId $templateId -Key $dsKey -SourceProviderId 'deepseek'
                 $planned++

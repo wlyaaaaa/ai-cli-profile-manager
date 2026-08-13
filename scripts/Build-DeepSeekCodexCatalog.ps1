@@ -24,13 +24,17 @@ $definition = if ($Model -eq 'pro') {
     [ordered]@{
         slug = 'deepseek-v4-pro'
         display = 'DeepSeek-V4-Pro'
-        description = 'Exact DeepSeek V4 Pro 0813 Responses model.'
+        description = 'Most capable frontier agentic coding model.'
+        priority = 2
+        officialCanonicalEntrySha256 = '16e8716359c27ade5f748e586e2b25886f5a7257ab4e9795436e11f9c4fdeedf'
     }
 } else {
     [ordered]@{
         slug = 'deepseek-v4-flash'
         display = 'DeepSeek-V4-Flash'
-        description = 'Exact DeepSeek V4 Flash 0731 Responses model.'
+        description = 'Latest frontier agentic coding model.'
+        priority = 1
+        officialCanonicalEntrySha256 = '8065e17700fe1a88bed911114c10f3e792eac48601aa765e067bec13eb0ae1d4'
     }
 }
 
@@ -47,7 +51,24 @@ $entry.supported_reasoning_levels = @(
     [ordered]@{ effort = 'max'; description = 'Maximum reasoning depth for the hardest problems' }
 )
 $entry.minimal_client_version = '0.144.0'
-$entry.priority = 1
+$entry.priority = $definition.priority
+
+# Bind every non-policy field to the current official dual-model catalog from
+# codex-deepseek-setup-en.ps1 (SHA-256 239c5e7e...54a36). AICLI's only
+# deliberate catalog override is the default effort below: users chose max to
+# mean the highest level that this model declares.
+$canonicalOfficialEntry = $entry | ConvertTo-Json -Depth 100 -Compress
+$canonicalBytes = [Text.Encoding]::UTF8.GetBytes($canonicalOfficialEntry)
+$sha = [Security.Cryptography.SHA256]::Create()
+try {
+    $canonicalHash = [Convert]::ToHexString($sha.ComputeHash($canonicalBytes)).ToLowerInvariant()
+} finally {
+    $sha.Dispose()
+}
+if ($canonicalHash -cne $definition.officialCanonicalEntrySha256) {
+    throw "DeepSeek official catalog baseline mismatch for $($definition.slug): $canonicalHash"
+}
+$entry.default_reasoning_level = 'max'
 
 $json = [ordered]@{ models = @($entry) } | ConvertTo-Json -Depth 100
 $canonicalJson = ($json -replace "`r`n?", "`n") + "`n"

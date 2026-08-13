@@ -229,7 +229,7 @@ Describe 'Codex remote Responses machine profile' {
                 -ProjectPath $Work -MachineRun
 
             $plan.machineRuntime.sandboxBoundary | Should -Be 'codex-native'
-            $plan.machineRuntime.workspaceWriteValidated | Should -BeFalse
+            $plan.machineRuntime.harnessAccess | Should -BeExactly 'danger-full-access'
             $plan.environmentDelta.AICLI_CODEX_PROVIDER_KEY | Should -Be 'test-secret'
             $plan.model | Should -Be 'qwen3.7-flash'
         }

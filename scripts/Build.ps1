@@ -8,20 +8,110 @@ $stage = Join-Path $OutDir "stage-aicli-$version"
 $zip = Join-Path $OutDir "ai-cli-profile-manager-$version-win-x64.zip"
 $releaseManifestPath = Join-Path $OutDir "ai-cli-profile-manager-$version.sha256.json"
 
+function Assert-AiCliBuildPathAncestorsSafe {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $current = [IO.Path]::GetFullPath($Path)
+    while (-not (Test-Path -LiteralPath $current)) {
+        $parent = Split-Path -Parent $current
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $current) {
+            throw "发行输出目录没有可验证的既有祖先: $Path"
+        }
+        $current = $parent
+    }
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if (-not $item.PSIsContainer -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "发行输出目录或其既有祖先不是普通目录: $current"
+        }
+        $parent = Split-Path -Parent $current
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $current) {
+            break
+        }
+        $current = $parent
+    }
+}
+
+Assert-AiCliBuildPathAncestorsSafe -Path $OutDir
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+$outDirItem = Get-Item -LiteralPath $OutDir -Force -ErrorAction Stop
+if (-not $outDirItem.PSIsContainer -or
+    ($outDirItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "发行输出目录必须是非重解析点目录: $OutDir"
+}
+$resolvedOutDir = [IO.Path]::TrimEndingDirectorySeparator(
+    [IO.Path]::GetFullPath($outDirItem.FullName)
+)
+
+function Assert-AiCliBuildArtifactSafe {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][bool]$ExpectDirectory
+    )
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    $artifactPath = [IO.Path]::GetFullPath($item.FullName)
+    $artifactParent = [IO.Path]::TrimEndingDirectorySeparator(
+        [IO.Path]::GetFullPath((Split-Path -Parent $artifactPath))
+    )
+    if (-not $artifactParent.Equals($resolvedOutDir, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "拒绝清理输出目录之外的构建产物: $artifactPath"
+    }
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "拒绝清理重解析点构建产物: $artifactPath"
+    }
+    if ([bool]$item.PSIsContainer -ne $ExpectDirectory) {
+        throw "构建产物类型与文件名合同不一致: $artifactPath"
+    }
+    return $item
+}
+$currentArtifactNames = @(
+    [IO.Path]::GetFileName($stage),
+    [IO.Path]::GetFileName($zip),
+    [IO.Path]::GetFileName($releaseManifestPath)
+)
+# A release-candidate directory is single-version. Keeping an older runnable
+# ZIP/stage beside the current build can preserve entrances that the current
+# source deliberately retired. Delete only recognized AICLI build artifacts
+# whose direct parent is the exact resolved output directory.
+$staleArtifacts = @(
+    Get-ChildItem -LiteralPath $resolvedOutDir -Force -ErrorAction Stop |
+        Where-Object {
+            $_.Name -notin $currentArtifactNames -and (
+                ($_.PSIsContainer -and $_.Name -match '^stage-aicli-\d+\.\d+\.\d+$') -or
+                (-not $_.PSIsContainer -and $_.Name -match '^ai-cli-profile-manager-\d+\.\d+\.\d+(?:-win-x64\.zip|\.sha256\.json)$')
+            )
+        }
+)
+foreach ($artifact in $staleArtifacts) {
+    $safeArtifact = Assert-AiCliBuildArtifactSafe -Path $artifact.FullName `
+        -ExpectDirectory ([bool]$artifact.PSIsContainer)
+    Remove-Item -LiteralPath $safeArtifact.FullName -Recurse:$safeArtifact.PSIsContainer -Force
+}
 # Fail closed: a failed new build must not leave an older ZIP/hash pair that
 # can be mistaken for the current release candidate.
 foreach ($oldArtifact in @($zip, $releaseManifestPath)) {
-    if (Test-Path -LiteralPath $oldArtifact) { Remove-Item -LiteralPath $oldArtifact -Force }
+    if (Test-Path -LiteralPath $oldArtifact) {
+        $safeArtifact = Assert-AiCliBuildArtifactSafe -Path $oldArtifact -ExpectDirectory $false
+        Remove-Item -LiteralPath $safeArtifact.FullName -Force
+    }
 }
-if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+if (Test-Path -LiteralPath $stage) {
+    $safeStage = Assert-AiCliBuildArtifactSafe -Path $stage -ExpectDirectory $true
+    Remove-Item -LiteralPath $safeStage.FullName -Recurse -Force
+}
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
 foreach ($dir in @('src','data','bin')) {
     Copy-Item -LiteralPath (Join-Path $root $dir) -Destination (Join-Path $stage $dir) -Recurse -Force
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $stage 'scripts') | Out-Null
-foreach ($script in @('Install.ps1','Uninstall.ps1','Import-FromOpenClaw.ps1')) {
+foreach ($script in @(
+    'Install.ps1',
+    'Uninstall.ps1',
+    'Import-FromOpenClaw.ps1',
+    'Invoke-AiCliRetirementMigration.ps1'
+)) {
     Copy-Item -LiteralPath (Join-Path $root "scripts\$script") -Destination (Join-Path $stage "scripts\$script") -Force
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $stage 'docs') | Out-Null

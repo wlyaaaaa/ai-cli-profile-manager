@@ -38,6 +38,7 @@ $text = [Console]::In.ReadToEnd()
                     argumentList = @('exec', '--json', '-')
                     workingDirectory = $Work
                     model = 'qwen-main-v1'
+                    modelProvider = 'aicli_ollama_main'
                     environmentDelta = @{ OPENAI_API_KEY = 'CANARY_SECRET' }
                     removeEnvironment = @('ANTHROPIC_API_KEY')
                 }
@@ -62,6 +63,18 @@ $text = [Console]::In.ReadToEnd()
                         input_tokens = [long]123
                         cached_input_tokens = [long]45
                         output_tokens = [long]67
+                    }
+                    RuntimeIdentity = [ordered]@{
+                        model = 'qwen-main-v1'
+                        model_provider = 'aicli_ollama_main'
+                        cli_version = '0.147.0'
+                        permission = [ordered]@{
+                            approval_policy = 'never'
+                            requested_policy = 'danger-full-access'
+                            sandbox_boundary = 'codex-native'
+                            sandbox_type = 'dangerFullAccess'
+                            permission_profile = ':danger-full-access'
+                        }
                     }
                 }
             }
@@ -264,7 +277,7 @@ exit 0
         }
     }
 
-    It 'launches local Codex app-server inside the requested outer Windows sandbox' {
+    It 'launches every Codex app-server harness with native danger-full-access' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $package = Join-Path $Work 'tool\node_modules\@openai\codex'
             $entry = Join-Path $package 'bin\codex.js'
@@ -291,6 +304,7 @@ exit 0
                     environmentDelta = @{ AICLI_CODEX_PROVIDER_KEY = 'ollama' }
                     removeEnvironment = @()
                     model = 'qwen-main-v1'
+                    modelProvider = 'aicli_ollama_main'
                     machineRuntime = [ordered]@{
                         kind = 'codex'
                         configFiles = @()
@@ -315,22 +329,31 @@ exit 0
                     CleanupConfirmed = $true
                     CleanupMethod = 'none'
                     Usage = [ordered]@{}
+                    RuntimeIdentity = [ordered]@{
+                        model = 'qwen-main-v1'
+                        model_provider = 'aicli_ollama_main'
+                        cli_version = '0.147.0'
+                        permission = [ordered]@{
+                            approval_policy = 'never'
+                            requested_policy = 'danger-full-access'
+                            sandbox_boundary = 'codex-native'
+                            sandbox_type = 'dangerFullAccess'
+                            permission_profile = ':danger-full-access'
+                        }
+                    }
                 }
             }
 
             $null = Invoke-AiCliProfileCapture -ProfileId 'local' `
                 -ProjectPath $Work -NativeArgs @('exec', '--json', '-') `
-                -StdInText 'PRIVATE_TASK_CANARY' -SandboxPolicy workspace-write
+                -StdInText 'PRIVATE_TASK_CANARY' -SandboxPolicy danger-full-access
 
             Should -Invoke Invoke-AiCliChildCapture -Times 1 -Exactly `
                 -ParameterFilter {
-                    $SandboxWorkspace -eq $Work -and
-                    $SandboxPolicy -eq 'workspace-write' -and
+                    [string]::IsNullOrWhiteSpace([string]$SandboxWorkspace) -and
+                    $SandboxPolicy -eq 'danger-full-access' -and
                     $EventProtocol -eq 'codex-app-server' -and
-                    $PrivateTaskPipeName -match '^aicli-[a-f0-9]{32}$' -and
-                    $AdditionalSandboxReadRoots -contains (
-                        [IO.Path]::GetFullPath($package)
-                    )
+                    [string]::IsNullOrWhiteSpace($PrivateTaskPipeName)
                 }
         }
     }
@@ -2712,34 +2735,93 @@ Start-Sleep -Seconds 2
         }
     }
 
-    It 'fails before launch when remote Codex workspace-write is not validated' {
+    It 'rejects any lower permission on the universal Codex harness route' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
-            $before = @(
-                Get-ChildItem -LiteralPath $Work -Directory `
-                    -Filter '.aicli-runtime-*' -Force
-            ).Count
-            $plan = [pscustomobject]@{
-                engine = 'codex'
-                fileName = 'C:\Program Files\nodejs\node.exe'
-                argumentList = @('C:\npm\node_modules\@openai\codex\bin\codex.js', 'exec', '--json', '-')
-                workingDirectory = $Work
-                environmentDelta = @{}
-                machineRuntime = [ordered]@{
-                    kind = 'codex'
-                    configFiles = @()
-                    sandboxBoundary = 'codex-native'
-                    workspaceWriteValidated = $false
+            Mock Build-AiCliLaunchPlan {
+                [pscustomobject]@{
+                    engine = 'codex'; workingDirectory = $Work
+                    machineRuntime = [ordered]@{ kind = 'codex' }
+                }
+            }
+            Mock Initialize-AiCliMachineRuntime { throw 'must not initialize' }
+            {
+                Invoke-AiCliProfileCapture -ProfileId 'future-codex-model' `
+                    -ProjectPath $Work -StdInText 'TASK' -SandboxPolicy workspace-write
+            } | Should -Throw '*danger-full-access*'
+            Should -Invoke Initialize-AiCliMachineRuntime -Times 0 -Exactly -Scope It
+        }
+    }
+
+    It 'injects canonical machine arguments when a Codex harness caller supplies none' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            Mock Build-AiCliLaunchPlan {
+                [pscustomobject]@{
+                    engine = 'codex'; fileName = 'C:\fake\codex.exe'
+                    argumentList = @('--profile', 'aicli-future')
+                    workingDirectory = $Work; environmentDelta = @{}; removeEnvironment = @()
+                    model = 'future-model'; modelProvider = 'future_provider'
+                }
+            }
+            Mock Initialize-AiCliMachineRuntime {
+                @($Plan.argumentList) | Should -Be @('--profile', 'aicli-future', 'exec', '--json', '-')
+                [pscustomobject]@{
+                    FileName = 'C:\fake\codex.exe'; ArgumentList = @('bridge')
+                    WorkingDirectory = $Work; EnvironmentDelta = @{}; StdInText = 'TASK'
+                    UseOuterSandbox = $false; EventProtocol = 'codex-app-server'
+                    RuntimePath = $Work; AdditionalReadRoots = @(); PrivateTaskPipeName = $null
+                }
+            }
+            Mock Remove-AiCliMachineRuntime {}
+            Mock Invoke-AiCliChildCapture {
+                [pscustomobject]@{
+                    ExitCode = 0; StdOut = ''; StdErr = ''; TimedOut = $false
+                    DurationMs = 1; OutputTruncated = $false; LimitsHard = $true
+                    CleanupConfirmed = $true; Usage = @{}
+                    RuntimeIdentity = [ordered]@{
+                        model = 'future-model'; model_provider = 'future_provider'; cli_version = '0.147.0'
+                        permission = [ordered]@{
+                            approval_policy = 'never'; requested_policy = 'danger-full-access'
+                            sandbox_boundary = 'codex-native'; sandbox_type = 'dangerFullAccess'
+                            permission_profile = ':danger-full-access'
+                        }
+                    }
                 }
             }
 
-            {
-                Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' `
-                    -Policy workspace-write
-            } | Should -Throw '*remote workspace-write is disabled*'
-            @(
-                Get-ChildItem -LiteralPath $Work -Directory `
-                    -Filter '.aicli-runtime-*' -Force
-            ).Count | Should -Be $before
+            { Invoke-AiCliProfileCapture -ProfileId 'future' -ProjectPath $Work -StdInText 'TASK' } |
+                Should -Not -Throw
+        }
+    }
+
+    It 'rejects a lower permission runtime identity even when model identity matches' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            Mock Build-AiCliLaunchPlan {
+                [pscustomobject]@{
+                    engine = 'codex'; fileName = 'C:\fake\codex.exe'
+                    argumentList = @('exec', '--json', '-')
+                    workingDirectory = $Work; environmentDelta = @{}; removeEnvironment = @()
+                    model = 'future-model'; modelProvider = 'future_provider'
+                }
+            }
+            Mock Invoke-AiCliChildCapture {
+                [pscustomobject]@{
+                    ExitCode = 0; StdOut = ''; StdErr = ''; TimedOut = $false
+                    DurationMs = 1; OutputTruncated = $false; LimitsHard = $true
+                    CleanupConfirmed = $true; Usage = @{}
+                    RuntimeIdentity = [ordered]@{
+                        model = 'future-model'; model_provider = 'future_provider'; cli_version = '0.147.0'
+                        permission = [ordered]@{
+                            approval_policy = 'never'; requested_policy = 'read-only'
+                            sandbox_boundary = 'codex-native'; sandbox_type = 'readOnly'
+                            permission_profile = ':read-only'
+                        }
+                    }
+                }
+            }
+
+            { Invoke-AiCliProfileCapture -ProfileId 'future' -ProjectPath $Work `
+                    -NativeArgs @('exec', '--json', '-') -StdInText 'TASK' } |
+                Should -Throw '*verified danger-full-access*'
         }
     }
 
@@ -2785,7 +2867,7 @@ Start-Sleep -Seconds 2
         }
     }
 
-    It 'uses the native Codex sandbox for an official cloud machine run' {
+    It 'uses native danger-full-access for every Codex harness model' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $package = Join-Path $Work 'tool\node_modules\@openai\codex'
             $entry = Join-Path $package 'bin\codex.js'
@@ -2803,6 +2885,8 @@ Start-Sleep -Seconds 2
                 )
                 workingDirectory = $Work
                 environmentDelta = @{}
+                model = 'future-model'
+                modelProvider = 'future_provider'
                 machineRuntime = [ordered]@{
                     kind = 'codex'
                     configFiles = @()
@@ -2810,7 +2894,7 @@ Start-Sleep -Seconds 2
                 }
             }
 
-            $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' -Policy 'read-only'
+            $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' -Policy 'danger-full-access'
             try {
                 $runtime.UseOuterSandbox | Should -BeFalse
                 $runtime.StdInText | Should -Be 'TASK'
@@ -2820,8 +2904,11 @@ Start-Sleep -Seconds 2
                     ConvertFrom-Json
                 $bridgeConfig.PSObject.Properties.Name | Should -Not -Contain 'taskFile'
                 $bridgeConfig.sandboxBoundary | Should -Be 'codex-native'
-                $bridgeConfig.sandboxPolicy | Should -Be 'read-only'
-                $bridgeConfig.minimumCliVersion | Should -Be '0.145.0'
+                $bridgeConfig.sandboxPolicy | Should -Be 'danger-full-access'
+                $bridgeConfig.requireRuntimeIdentity | Should -BeTrue
+                $bridgeConfig.expectedModel | Should -BeExactly 'future-model'
+                $bridgeConfig.expectedModelProvider | Should -BeExactly 'future_provider'
+                $bridgeConfig.minimumCliVersion | Should -Be '0.147.0'
                 $bridgeArgs = @($bridgeConfig.argumentList)
                 $bridgeArgs | Should -Not -Contain '--dangerously-bypass-approvals-and-sandbox'
                 ($bridgeArgs -join ' ') | Should -Match '--disable multi_agent'
@@ -2831,6 +2918,211 @@ Start-Sleep -Seconds 2
             } finally {
                 Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath -Workspace $Work
             }
+        }
+    }
+
+    It 'requires the named danger-full-access profile receipt before starting a model turn' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $fakeServer = Join-Path $Work 'fake-missing-danger-profile-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'missing-danger-profile-bridge.json'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' { [Console]::Out.WriteLine('{"id":1,"result":{}}') }
+        'initialized' {}
+        'thread/start' {
+            if ([string]$message.params.permissions -ne ':danger-full-access' -or
+                $null -ne $message.params.sandbox) {
+                [Console]::Out.WriteLine('{"id":2,"error":{"code":-32602,"message":"named danger profile not requested"}}')
+                [Console]::Out.Flush()
+                continue
+            }
+            $response = [ordered]@{
+                id = 2
+                result = [ordered]@{
+                    thread = [ordered]@{
+                        id = '019f98ff-110f-7390-8d7b-d85d70bba89f'
+                        cliVersion = '0.147.0'
+                    }
+                    model = 'future-model'
+                    modelProvider = 'future_provider'
+                    approvalPolicy = 'never'
+                    sandbox = [ordered]@{ type = 'dangerFullAccess' }
+                }
+            }
+            [Console]::Out.WriteLine(($response | ConvertTo-Json -Depth 20 -Compress))
+        }
+        'turn/start' {
+            [IO.File]::WriteAllText(
+                (Join-Path $PSScriptRoot 'MUST_NOT_START_MISSING_PERMISSION_PROFILE'),
+                'bad'
+            )
+            [Console]::Out.WriteLine('{"id":3,"error":{"code":-32602,"message":"turn must not start"}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'danger-full-access'
+                model = 'future-model'
+                expectedModel = 'future-model'
+                expectedModelProvider = 'future_provider'
+                requireRuntimeIdentity = $true
+                minimumCliVersion = '0.147.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+
+            $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+
+            $result.ExitCode | Should -Be 74
+            $result.ErrorCode | Should -Be 'codex_appserver.runtime_identity_mismatch'
+            Test-Path -LiteralPath (Join-Path $Work 'MUST_NOT_START_MISSING_PERMISSION_PROFILE') |
+                Should -BeFalse
+        }
+    }
+
+    It 'serves managed public search through dynamicTools and projects only safe lifecycle evidence' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $root
+        } {
+            $supportRoot = Join-Path $Work 'search-bridge-support'
+            New-Item -ItemType Directory -Force -Path $supportRoot | Out-Null
+            Copy-Item -LiteralPath (
+                Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            ) -Destination (Join-Path $supportRoot 'CodexAppServerBridge.ps1')
+            @'
+function Get-BridgePublicWebSearchToolSpec {
+    [pscustomobject][ordered]@{
+        type='function'; name='public_web_search'; description='test'
+        inputSchema=[pscustomobject][ordered]@{
+            type='object'; additionalProperties=$false; required=@('query')
+            properties=[pscustomobject][ordered]@{ query=[pscustomobject]@{ type='string' } }
+        }
+    }
+}
+function Invoke-BridgePublicWebSearch {
+    param($Arguments)
+    if ([string]$Arguments.query -ne 'PRIVATE_QUERY_CANARY') { throw 'bad query' }
+    [pscustomobject][ordered]@{
+        success=$true
+        contentItems=@([pscustomobject][ordered]@{
+            type='inputText'; text='{"provider":"bing-rss-v1","resultCount":1}'
+        })
+    }
+}
+'@ | Set-Content -LiteralPath (Join-Path $supportRoot 'PublicWebSearch.ps1') -Encoding utf8
+            $fakeServer = Join-Path $Work 'fake-dynamic-search-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'dynamic-search-bridge.json'
+            $eventFile = Join-Path $Work 'dynamic-search-events.jsonl'
+            @'
+$utf8 = [Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8
+[Console]::OutputEncoding = $utf8
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' { [Console]::Out.WriteLine('{"id":1,"result":{}}') }
+        'initialized' {}
+        'thread/start' {
+            $tool = @($message.params.dynamicTools)[0]
+            if (@($message.params.dynamicTools).Count -ne 1 -or
+                [string]$tool.type -ne 'function' -or
+                [string]$tool.name -ne 'public_web_search') {
+                [Console]::Out.WriteLine('{"id":2,"error":{"code":-32602,"message":"dynamic tool missing"}}')
+                continue
+            }
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.147.0"},"model":"qwen-main-v1","modelProvider":"aicli_ollama_main","approvalPolicy":"never","sandbox":{"type":"dangerFullAccess"},"activePermissionProfile":{"id":":danger-full-access"}}}')
+        }
+        'turn/start' {
+            if ($null -ne $message.params.dynamicTools) {
+                [Console]::Out.WriteLine('{"id":3,"error":{"code":-32602,"message":"dynamicTools must be thread-scoped"}}')
+                continue
+            }
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"search-1","type":"dynamicToolCall","tool":"public_web_search","arguments":{"query":"PRIVATE_QUERY_CANARY"},"status":"inProgress","success":null}}}')
+            [Console]::Out.WriteLine('{"id":91,"method":"item/tool/call","params":{"arguments":{"query":"PRIVATE_QUERY_CANARY"},"callId":"search-call-1","threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","tool":"public_web_search","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890"}}')
+            [Console]::Out.Flush()
+            $toolResponse = [Console]::In.ReadLine() | ConvertFrom-Json
+            if ($toolResponse.id -ne 91 -or -not $toolResponse.result.success) { exit 92 }
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"search-1","type":"dynamicToolCall","tool":"public_web_search","arguments":{"query":"PRIVATE_QUERY_CANARY"},"contentItems":[{"type":"inputText","text":"PRIVATE_RESULT_CANARY"}],"status":"completed","success":true}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":""}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":"SEARCH_OK"}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":1,"cachedInputTokens":0,"outputTokens":1,"reasoningOutputTokens":0,"totalTokens":2},"total":{"inputTokens":1,"cachedInputTokens":0,"outputTokens":1,"reasoningOutputTokens":0,"totalTokens":2},"modelContextWindow":262144}}}')
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'danger-full-access'
+                expectedModel = 'qwen-main-v1'
+                expectedModelProvider = 'aicli_ollama_main'
+                requireRuntimeIdentity = $true
+                minimumCliVersion = '0.147.0'
+                webSearchEnabled = $true
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+
+            $captured = Invoke-AiCliChildCapture `
+                -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @(
+                    '-NoProfile', '-File',
+                    (Join-Path $supportRoot 'CodexAppServerBridge.ps1'),
+                    '-ConfigPath', $bridgeConfig
+                ) `
+                -WorkingDirectory $Work -StdInText 'SEARCH TASK' `
+                -EventProtocol codex-app-server -MachineEventFile $eventFile `
+                -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000 `
+                -RequireRuntimeIdentity `
+                -ExpectedRuntimeModel 'qwen-main-v1' `
+                -ExpectedRuntimeModelProvider 'aicli_ollama_main'
+
+            $captured.ExitCode | Should -Be 0
+            $captured.ToolCallCount | Should -Be 1
+            $captured.WebSearchCount | Should -Be 1
+            $captured.StdOut | Should -Match 'SEARCH_OK'
+            ($captured | ConvertTo-Json -Depth 20 -Compress) |
+                Should -Not -Match 'PRIVATE_QUERY_CANARY|PRIVATE_RESULT_CANARY'
+            $events = @(Get-Content -LiteralPath $eventFile | ConvertFrom-Json)
+            $searchEvents = @($events | Where-Object {
+                $_.kind -eq 'tool.activity' -and $_.item_type -eq 'web_search'
+            })
+            $searchEvents.Count | Should -Be 2
+            @($searchEvents.status) | Should -Be @('started', 'completed')
+            @($searchEvents.tool_name | Select-Object -Unique) |
+                Should -Be @('public_web_search')
+            @($searchEvents.search_provider | Select-Object -Unique) |
+                Should -Be @('bing-rss-v1')
+            ($events | ConvertTo-Json -Depth 20 -Compress) |
+                Should -Not -Match 'PRIVATE_QUERY_CANARY|PRIVATE_RESULT_CANARY'
         }
     }
 
@@ -2857,6 +3149,7 @@ Start-Sleep -Seconds 2
 
     It 'routes stdin and native arguments through run and emits one JSON envelope' {
         InModuleScope AiCliProfileManager {
+            Mock Get-AiCliResolvedProfile { [ordered]@{ id = 'local'; engine = 'codex' } }
             Mock Invoke-AiCliProfileCapture {
                 [pscustomobject]@{
                     profileId = $ProfileId
@@ -2883,7 +3176,7 @@ Start-Sleep -Seconds 2
                 [Console]::SetOut($writer)
                 $eventFile = Join-Path $TestDrive 'router-events.jsonl'
                 $code = Invoke-AiCliRouter -Tokens @(
-                    'run', 'local', '--project', 'C:\work', '--stdin', '--json', '--sandbox-policy', 'workspace-write',
+                    'run', 'local', '--project', 'C:\work', '--stdin', '--json', '--sandbox-policy', 'danger-full-access',
                     '--timeout-seconds', '9', '--max-output-chars', '4096', '--event-file', $eventFile, '--',
                     'exec', '--json', '-'
                 )
@@ -2906,7 +3199,7 @@ Start-Sleep -Seconds 2
                 $TimeoutMs -eq 9000 -and
                 $MaxCaptureChars -eq 4096 -and
                 $MachineEventFile -eq $eventFile -and
-                $SandboxPolicy -eq 'workspace-write' -and
+                $SandboxPolicy -eq 'danger-full-access' -and
                 $NativeArgs.Count -eq 3 -and
                 $NativeArgs[0] -eq 'exec' -and
                 $NativeArgs[2] -eq '-'
@@ -2916,6 +3209,7 @@ Start-Sleep -Seconds 2
 
     It 'rejects an empty machine task before launching an agent' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            Mock Get-AiCliResolvedProfile { [ordered]@{ id = 'local'; engine = 'codex' } }
             Mock Invoke-AiCliProfileCapture { throw 'agent must not launch' }
             $oldIn = [Console]::In
             $oldOut = [Console]::Out
@@ -2925,7 +3219,7 @@ Start-Sleep -Seconds 2
                 [Console]::SetIn($reader)
                 [Console]::SetOut($writer)
                 $code = Invoke-AiCliRouter -Tokens @(
-                    'run', 'local', '--project', $Work, '--stdin', '--json', '--sandbox-policy', 'workspace-write',
+                    'run', 'local', '--project', $Work, '--stdin', '--json', '--sandbox-policy', 'danger-full-access',
                     '--', 'exec', '--json', '-'
                 )
             } finally {

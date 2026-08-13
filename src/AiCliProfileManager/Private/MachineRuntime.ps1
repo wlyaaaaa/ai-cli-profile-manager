@@ -1,14 +1,59 @@
 # Ephemeral runtime for machine-facing agent calls. The parent creates only
-# deterministic configuration; the untrusted agent still runs inside Codex sandbox.
+# deterministic configuration. Public Codex harness calls deliberately use
+# native danger-full-access; other engines retain their explicit sandbox policy.
+
+function Resolve-AiCliCodexNativeRuntimeFromEntry {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$EntryPath)
+    $entry = [IO.Path]::GetFullPath($EntryPath)
+    if (-not $entry.EndsWith('codex.js', [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath $entry -PathType Leaf)) {
+        throw "Codex npm entry is invalid: $entry"
+    }
+    $packageSource = Split-Path -Parent (Split-Path -Parent $entry)
+    $nativePackages = @(
+        Get-ChildItem -LiteralPath (Join-Path $packageSource 'node_modules\@openai') `
+            -Directory -Filter 'codex-win32-*' -ErrorAction SilentlyContinue |
+            Where-Object {
+                @(Get-ChildItem -LiteralPath (Join-Path $_.FullName 'vendor') `
+                    -Recurse -File -Filter 'codex.exe' -ErrorAction SilentlyContinue).Count -gt 0
+            }
+    )
+    if ($nativePackages.Count -eq 0) {
+        throw "Codex npm package is missing its Windows native runtime: $packageSource"
+    }
+    $architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+    $preferredPackage = @($nativePackages | Where-Object { $_.Name -eq "codex-win32-$architecture" })
+    $selectedPackage = if ($preferredPackage.Count -eq 1) {
+        $preferredPackage[0]
+    } elseif ($nativePackages.Count -eq 1) {
+        $nativePackages[0]
+    } else {
+        throw "Codex npm package has no unambiguous native runtime for $architecture."
+    }
+    $nativeExecutables = @(
+        Get-ChildItem -LiteralPath (Join-Path $selectedPackage.FullName 'vendor') `
+            -Recurse -File -Filter 'codex.exe' -ErrorAction SilentlyContinue
+    )
+    if ($nativeExecutables.Count -ne 1) {
+        throw "Codex npm package has no unambiguous native executable: $($selectedPackage.FullName)"
+    }
+    return [pscustomobject]@{
+        EntryPath = $entry
+        PackageRoot = [IO.Path]::GetFullPath($packageSource)
+        NativeExecutable = [IO.Path]::GetFullPath($nativeExecutables[0].FullName)
+    }
+}
 
 function Initialize-AiCliMachineRuntime {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$Plan,
         [string]$StdInText = '',
-        [ValidateSet('read-only','workspace-write')][string]$Policy = 'read-only',
+        [ValidateSet('danger-full-access','read-only','workspace-write')][string]$Policy = 'read-only',
         [int]$MaxSteps = 20,
-        [int]$MaxToolCalls = 80
+        [int]$MaxToolCalls = 80,
+        [switch]$DisableWebSearch
     )
     $workspace = [IO.Path]::GetFullPath([string](Get-AiCliProperty $Plan 'workingDirectory'))
     if (-not (Test-Path -LiteralPath $workspace -PathType Container)) {
@@ -16,13 +61,6 @@ function Initialize-AiCliMachineRuntime {
     }
     $runtimeConfig = Get-AiCliProperty $Plan 'machineRuntime'
     $kind = [string](Get-AiCliProperty $runtimeConfig 'kind')
-    if (
-        $kind -eq 'codex' -and
-        $Policy -eq 'workspace-write' -and
-        -not [bool](Get-AiCliProperty $runtimeConfig 'workspaceWriteValidated' $true)
-    ) {
-        throw 'Codex remote workspace-write is disabled: the current provider sandbox rejected all writes during live acceptance.'
-    }
     $base = if ($Policy -eq 'workspace-write') { $workspace } else { [IO.Path]::GetTempPath() }
     $runtimePath = Join-Path $base ('.aicli-runtime-' + [guid]::NewGuid().ToString('N'))
     $tmpPath = Join-Path $runtimePath 'tmp'
@@ -39,6 +77,7 @@ function Initialize-AiCliMachineRuntime {
     $effectiveStdIn = if ($null -eq $StdInText) { '' } else { [string]$StdInText }
     $useOuterSandbox = $true
     $runtimeFileName = [string](Get-AiCliProperty $Plan 'fileName')
+    $runtimeTargetFileName = $runtimeFileName
     $eventProtocol = $null
     $additionalReadRoots = @()
     $privateTaskPipeName = $null
@@ -97,42 +136,15 @@ function Initialize-AiCliMachineRuntime {
                 $candidate = [string]$arguments[$index]
                 if ($candidate.EndsWith('codex.js', [StringComparison]::OrdinalIgnoreCase) -and
                     (Test-Path -LiteralPath $candidate -PathType Leaf)) {
-                    $packageSource = Split-Path -Parent (Split-Path -Parent $candidate)
-                    $nativePackages = @(Get-ChildItem -LiteralPath (Join-Path $packageSource 'node_modules\@openai') `
-                        -Directory -Filter 'codex-win32-*' -ErrorAction SilentlyContinue | Where-Object {
-                            @(Get-ChildItem -LiteralPath (Join-Path $_.FullName 'vendor') -Recurse -File `
-                                -Filter 'codex.exe' -ErrorAction SilentlyContinue).Count -gt 0
-                        })
-                    if ($nativePackages.Count -eq 0) {
-                        throw "Codex npm package is missing its Windows native runtime: $packageSource"
-                    }
-                    $architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-                    $preferredPackage = @(
-                        $nativePackages |
-                            Where-Object { $_.Name -eq "codex-win32-$architecture" }
-                    )
-                    $selectedPackage = if ($preferredPackage.Count -eq 1) {
-                        $preferredPackage[0]
-                    } elseif ($nativePackages.Count -eq 1) {
-                        $nativePackages[0]
-                    } else {
-                        throw "Codex npm package has no unambiguous native runtime for $architecture."
-                    }
-                    $nativeExecutables = @(
-                        Get-ChildItem -LiteralPath (Join-Path $selectedPackage.FullName 'vendor') `
-                            -Recurse -File -Filter 'codex.exe' -ErrorAction SilentlyContinue
-                    )
-                    if ($nativeExecutables.Count -ne 1) {
-                        throw "Codex npm package has no unambiguous native executable: $($selectedPackage.FullName)"
-                    }
+                    $nativeRuntime = Resolve-AiCliCodexNativeRuntimeFromEntry -EntryPath $candidate
                     # Keep the installed package at its short canonical path.
                     # The outer sandbox grants this exact package read-only;
                     # mirroring it under a deep workspace can exceed MAX_PATH.
-                    $arguments[$index] = [IO.Path]::GetFullPath($candidate)
+                    $arguments[$index] = $nativeRuntime.EntryPath
                     $codexEntryFound = $true
                     $codexEntryIndex = $index
-                    $codexPackageSource = [IO.Path]::GetFullPath($packageSource)
-                    $codexNativeExecutable = [IO.Path]::GetFullPath($nativeExecutables[0].FullName)
+                    $codexPackageSource = $nativeRuntime.PackageRoot
+                    $codexNativeExecutable = $nativeRuntime.NativeExecutable
                     break
                 }
             }
@@ -171,7 +183,11 @@ function Initialize-AiCliMachineRuntime {
             $environment['CODEX_MANAGED_BY_NPM'] = '1'
 
             $boundedAgentFlags = @('--disable', 'multi_agent', '--disable', 'multi_agent_v2')
-            $sandboxBoundary = [string](Get-AiCliProperty $runtimeConfig 'sandboxBoundary' 'outer-codex')
+            $sandboxBoundary = if ($Policy -eq 'danger-full-access') {
+                'codex-native'
+            } else {
+                [string](Get-AiCliProperty $runtimeConfig 'sandboxBoundary' 'outer-codex')
+            }
             if ($sandboxBoundary -notin @('outer-codex', 'codex-native')) {
                 throw "Unsupported Codex machine sandbox boundary: $sandboxBoundary"
             }
@@ -214,6 +230,7 @@ function Initialize-AiCliMachineRuntime {
             # a fast turn the wrapper can exit before the bridge can kill and
             # confirm the complete process tree.
             $runtimeFileName = $codexNativeExecutable
+            $runtimeTargetFileName = $codexNativeExecutable
             $bridgePath = Join-Path (
                 Split-Path -Parent $PSScriptRoot
             ) 'Support\CodexAppServerBridge.ps1'
@@ -228,7 +245,13 @@ function Initialize-AiCliMachineRuntime {
             $bridgeConfigPath = Join-Path $runtimePath 'codex-app-server-bridge.json'
             $localGpuBrokerConfiguration = Get-AiCliProperty `
                 $runtimeConfig 'localGpuBrokerSession'
-            $requireRuntimeIdentity = $null -ne $localGpuBrokerConfiguration
+            $expectedProviderForIdentity = [string](Get-AiCliProperty $Plan 'modelProvider')
+            # The public Codex harness is always danger-full-access and every
+            # current/future model on that route must attest actual identity.
+            # Legacy lower-level sandbox probes retain their narrower fixtures.
+            $requireRuntimeIdentity = $Policy -eq 'danger-full-access' -or
+                $null -ne $localGpuBrokerConfiguration -or
+                $expectedProviderForIdentity -cmatch '^aicli_deepseek(?:_|$)'
             $expectedModel = [string](Get-AiCliProperty $Plan 'model')
             $expectedModelProvider = [string](
                 Get-AiCliProperty $Plan 'modelProvider'
@@ -237,7 +260,7 @@ function Initialize-AiCliMachineRuntime {
                 $expectedModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$' -or
                 $expectedModelProvider -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$'
             )) {
-                throw 'LocalGpuBroker machine runtime identity expectation is invalid.'
+                throw 'Codex machine runtime identity expectation is invalid.'
             }
             $bridgeConfig = [ordered]@{
                 fileName = [IO.Path]::GetFullPath($runtimeFileName)
@@ -251,6 +274,9 @@ function Initialize-AiCliMachineRuntime {
                 } else {
                     '0.145.0'
                 }
+                webSearchEnabled = (
+                    $Policy -eq 'danger-full-access' -and -not $DisableWebSearch
+                )
             }
             if ($requireRuntimeIdentity) {
                 $bridgeConfig['expectedModel'] = $expectedModel
@@ -354,6 +380,7 @@ function Initialize-AiCliMachineRuntime {
         return [pscustomobject]@{
             RuntimePath = $runtimePath
             FileName = $runtimeFileName
+            TargetFileName = $runtimeTargetFileName
             ArgumentList = @($arguments)
             EnvironmentDelta = $environment
             StdInText = $effectiveStdIn
@@ -361,6 +388,11 @@ function Initialize-AiCliMachineRuntime {
             EventProtocol = $eventProtocol
             AdditionalReadRoots = @($additionalReadRoots)
             PrivateTaskPipeName = $privateTaskPipeName
+            WebSearchEnabled = (
+                $kind -eq 'codex' -and
+                $Policy -eq 'danger-full-access' -and
+                -not $DisableWebSearch
+            )
         }
     } catch {
         Remove-AiCliMachineRuntime -RuntimePath $runtimePath -Workspace $workspace

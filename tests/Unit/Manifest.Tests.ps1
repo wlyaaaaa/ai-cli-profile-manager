@@ -34,7 +34,7 @@ Describe 'Manifest' {
         $all.Contains('codex-official') | Should -BeTrue
         $all.Contains('codex-spark-xhigh') | Should -BeTrue
         $all.Contains('claude-deepseek') | Should -BeTrue
-        $all.Contains('oi-qwen-paygo') | Should -BeTrue
+        $all.Contains('oi-qwen-paygo') | Should -BeFalse
         $all.Contains('oi-ollama') | Should -BeTrue
         $all.Contains('oi-deepseek') | Should -BeTrue
         $all.Contains('qwen-code-ollama-main') | Should -BeTrue
@@ -77,7 +77,7 @@ Describe 'Manifest' {
             $manifest.models.primary | Should -Be 'deepseek-v4-flash' -Because $id
             $manifest.models.small | Should -Be 'deepseek-v4-flash' -Because $id
             @($manifest.models.candidates) | Should -Be @('deepseek-v4-flash') -Because $id
-            @($manifest.models.reserved) | Should -Contain 'deepseek-v4-pro' -Because $id
+            @($manifest.models.reserved) | Should -BeNullOrEmpty -Because $id
         }
         $all['codex-deepseek-v4-pro'].models.primary | Should -Be 'deepseek-v4-pro'
         @($all['codex-deepseek-v4-pro'].models.candidates) | Should -Be @('deepseek-v4-pro')
@@ -88,8 +88,6 @@ Describe 'Manifest' {
         $all['claude-deepseek'].compatibility.minCliVersion | Should -Be '2.1.193'
         $all['claude-deepseek'].modelMetadata.'deepseek-v4-flash'.contextWindowTokens | Should -Be 1000000
         $all['claude-deepseek'].modelMetadata.'deepseek-v4-flash'.autoCompactWindowTokens | Should -Be 1000000
-        $all['claude-qwen-token-plan'].modelMetadata.'qwen3.7-max-2026-06-08'.contextWindowTokens | Should -Be 983616
-        $all['claude-qwen-coding-plan'].modelMetadata.'qwen3-coder-next'.contextWindowTokens | Should -Be 262144
         $all['claude-ollama-main'].compatibility.minCliVersion | Should -Be '2.1.193'
         $all['claude-ollama-main'].modelMetadata.'qwen-main-v1'.contextWindowTokens | Should -Be 262144
         $all['claude-ollama-main'].modelMetadata.'qwen-main-v1'.autoCompactWindowTokens | Should -Be 262144
@@ -97,60 +95,13 @@ Describe 'Manifest' {
         $all['opencode-ollama-main'].modelMetadata.'qwen-main-v1'.compactionReserveTokens | Should -Be 20000
     }
 
-    It 'locks the legacy Qwen Codex entries to one exact pinned model' {
-        $all = Import-AiCliProviderManifests
-        $paygo = $all['codex-qwen-paygo']
-        $tokenPlan = $all['codex-qwen-token-plan']
-        $paygo.codexModelCatalog | Should -Be 'qwen3.7-max-2026-06-08-codex.json'
-        $tokenPlan.codexModelCatalog | Should -Be 'qwen3.7-max-2026-06-08-codex.json'
-        $paygo.models.primary | Should -Be 'qwen3.7-max-2026-06-08'
-        $paygo.models.small | Should -Be 'qwen3.7-max-2026-06-08'
-        @($paygo.models.candidates) | Should -Be @('qwen3.7-max-2026-06-08')
-        $paygo.flexible | Should -BeFalse
-        $paygo.defaultEffort | Should -Be 'max'
-        @($paygo.effortLevels) | Should -Be @('low', 'medium', 'high', 'xhigh', 'max')
-        @($paygo.effortLevels) | Should -Not -Contain 'ultra'
-
-        $catalogPath = Join-Path $root 'data\model-catalogs\qwen3.7-max-2026-06-08-codex.json'
-        $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100
-        $candidateSlugs = @($paygo.models.candidates | Select-Object -Unique | Sort-Object)
-        $catalogSlugs = @($catalog.models.slug | Sort-Object)
-        $catalogSlugs | Should -Be $candidateSlugs
-        foreach ($model in @($catalog.models)) {
-            $model.context_window | Should -Be 983616
-            $model.max_context_window | Should -Be 983616
-            $model.effective_context_window_percent | Should -Be 95
-            $model.auto_compact_token_limit | Should -BeNullOrEmpty
-            $model.base_instructions | Should -Not -BeNullOrEmpty
-            $model.base_instructions | Should -Match 'Codex'
-            $model.supports_parallel_tool_calls | Should -BeFalse
-            @($model.input_modalities) | Should -Be @('text')
+    It 'contains no runnable Qwen3.7 Max or Plus manifest or catalog' {
+        foreach ($relative in @('data\providers','data\model-catalogs')) {
+            foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root $relative) -Filter '*.json' -File) {
+                (Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8) |
+                    Should -Not -Match 'qwen3\.7-(?:max|plus)' -Because $file.Name
+            }
         }
-        (Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8) |
-            Should -Not -Match '(?i)preview|qwen3\.7-plus'
-    }
-
-    It 'rebuilds the Qwen Codex catalog deterministically from the checked-in baseline' {
-        $generated = Join-Path $TestDrive 'qwen3.7-codex.json'
-        & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') -OutputCatalog $generated | Out-Null
-
-        Assert-CanonicalCatalogBytes -Path $generated
-        Assert-CanonicalCatalogBytes -Path (Join-Path $root 'data\model-catalogs\qwen3.7-codex.json')
-
-        (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
-            Should -Be (Get-FileHash -LiteralPath (Join-Path $root 'data\model-catalogs\qwen3.7-codex.json') -Algorithm SHA256).Hash
-    }
-
-    It 'rebuilds the exact Qwen3.7 Max catalog deterministically' {
-        $generated = Join-Path $TestDrive 'qwen3.7-max-2026-06-08-codex.json'
-        & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') `
-            -CatalogKind qwen37max -OutputCatalog $generated | Out-Null
-
-        $checkedIn = Join-Path $root 'data\model-catalogs\qwen3.7-max-2026-06-08-codex.json'
-        Assert-CanonicalCatalogBytes -Path $generated
-        Assert-CanonicalCatalogBytes -Path $checkedIn
-        (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
-            Should -Be (Get-FileHash -LiteralPath $checkedIn -Algorithm SHA256).Hash
     }
 
     It 'rebuilds the exact Qwen3.8 Max catalog deterministically' {

@@ -622,7 +622,7 @@ function Invoke-AiCliChildCapture {
         [int]$TimeoutMs = 120000,
         [int]$MaxCaptureChars = 1000000,
         [string]$SandboxWorkspace = $null,
-        [ValidateSet('read-only','workspace-write')][string]$SandboxPolicy = 'read-only',
+        [ValidateSet('danger-full-access','read-only','workspace-write')][string]$SandboxPolicy = 'read-only',
         [switch]$CloseStdIn,
         [string]$StdInText = $null,
         [ValidateSet('none','codex-jsonl','codex-app-server')][string]$EventProtocol = 'none',
@@ -861,6 +861,7 @@ function Invoke-AiCliChildCapture {
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $stepCount = 0
     $toolCallCount = 0
+    $webSearchCount = 0
     $eventsSeen = 0
     $limitHit = $null
     $protocolValid = $true
@@ -932,6 +933,7 @@ function Invoke-AiCliChildCapture {
         'codex_appserver.item_unfinished',
         'codex_appserver.command_status_invalid',
         'codex_appserver.command_metric_invalid',
+        'codex_appserver.web_search_request_invalid',
         'codex_appserver.server_request_unsupported',
         'codex_appserver.cleanup_unconfirmed',
         'codex_appserver.failure_code_invalid'
@@ -1163,6 +1165,12 @@ function Invoke-AiCliChildCapture {
                     $identityProvider = [string](Get-AiCliProperty $event 'model_provider')
                     $identityCliVersion = [string](Get-AiCliProperty $event 'cli_version')
                     $identityPermission = Get-AiCliProperty $event 'permission'
+                    $identityRequestedPolicy = [string](
+                        Get-AiCliProperty $identityPermission 'requested_policy'
+                    )
+                    $identityPermissionProfile = [string](
+                        Get-AiCliProperty $identityPermission 'permission_profile'
+                    )
                     if ($null -ne $runtimeIdentity -or
                         $identityModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$' -or
                         $identityProvider -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$' -or
@@ -1171,9 +1179,10 @@ function Invoke-AiCliChildCapture {
                             $identityProvider -cne $ExpectedRuntimeModelProvider
                         )) -or
                         [string](Get-AiCliProperty $identityPermission 'approval_policy') -ne 'never' -or
-                        [string](Get-AiCliProperty $identityPermission 'requested_policy') -notin @('read-only','workspace-write') -or
+                        $identityRequestedPolicy -notin @('danger-full-access','read-only','workspace-write') -or
                         [string](Get-AiCliProperty $identityPermission 'sandbox_boundary') -notin @('outer-codex','codex-native') -or
-                        [string](Get-AiCliProperty $identityPermission 'sandbox_type') -notin @('readOnly','workspaceWrite','externalSandbox')) {
+                        [string](Get-AiCliProperty $identityPermission 'sandbox_type') -notin @('dangerFullAccess','readOnly','workspaceWrite','externalSandbox') -or
+                        $identityPermissionProfile -ne (':' + $identityRequestedPolicy)) {
                         $protocolValid = $false
                         $protocolErrorCode = 'codex_appserver.runtime_identity_mismatch'
                         $protocolError = 'Codex app-server runtime identity is invalid.'
@@ -1186,10 +1195,10 @@ function Invoke-AiCliChildCapture {
                         cli_version = $identityCliVersion
                         permission = [ordered]@{
                             approval_policy = 'never'
-                            requested_policy = [string](Get-AiCliProperty $identityPermission 'requested_policy')
+                            requested_policy = $identityRequestedPolicy
                             sandbox_boundary = [string](Get-AiCliProperty $identityPermission 'sandbox_boundary')
                             sandbox_type = [string](Get-AiCliProperty $identityPermission 'sandbox_type')
-                            permission_profile = [string](Get-AiCliProperty $identityPermission 'permission_profile')
+                            permission_profile = $identityPermissionProfile
                         }
                     }
                 }
@@ -1250,6 +1259,9 @@ function Invoke-AiCliChildCapture {
                     if ($itemType -in $toolItemTypes -and -not $seenTools.ContainsKey($stepKey)) {
                         $seenTools[$stepKey] = $true
                         $toolCallCount++
+                        if ($itemType -eq 'web_search') {
+                            $webSearchCount++
+                        }
                     }
                     if ($itemType -eq 'collab_tool_call') {
                         $protocolValid = $false
@@ -1507,6 +1519,21 @@ function Invoke-AiCliChildCapture {
                                 $toolData['duration_ms'] = $durationMs
                             }
                         }
+                        if ($itemType -eq 'web_search') {
+                            $toolName = [string](Get-AiCliProperty $item 'tool_name')
+                            $searchProvider = [string](
+                                Get-AiCliProperty $item 'search_provider'
+                            )
+                            if ($toolName -cne 'public_web_search' -or
+                                $searchProvider -cne 'bing-rss-v1') {
+                                $protocolValid = $false
+                                $protocolError = 'Codex web search event identity is invalid.'
+                                $termination = Stop-AiCliProcessTree -Process $proc
+                                break
+                            }
+                            $toolData['tool_name'] = $toolName
+                            $toolData['search_provider'] = $searchProvider
+                        }
                         $machineEvent = @{
                             Kind = 'tool.activity'
                             Data = $toolData
@@ -1746,6 +1773,7 @@ function Invoke-AiCliChildCapture {
             OutputTruncated = $outputTruncated
             StepCount = $stepCount
             ToolCallCount = $toolCallCount
+            WebSearchCount = $webSearchCount
             EventsSeen = $eventsSeen
             EventProtocol = $EventProtocol
             LimitHit = $limitHit
@@ -1826,6 +1854,7 @@ function Invoke-AiCliChildCapture {
             OutputTruncated = $outputTruncated
             StepCount = $stepCount
             ToolCallCount = $toolCallCount
+            WebSearchCount = $webSearchCount
             EventsSeen = $eventsSeen
             EventProtocol = $EventProtocol
             LimitHit = 'timeout'

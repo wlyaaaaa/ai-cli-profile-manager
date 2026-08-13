@@ -1,6 +1,6 @@
 # Codex、Claude Code 与 Open Interpreter CLI 中文手册
 
-适用版本：AI CLI Profile Manager `0.3.4`（source/install/runtime/live 分层验收）
+适用版本：AI CLI Profile Manager `0.3.5`（source/install/runtime/live 分层验收）
 用途：帮助中文用户直接使用原生 Codex CLI、Claude Code 和当前官方 Rust Open Interpreter。
 
 > aicli 只负责选择 Profile 并启动原生 CLI。本手册保留上游英文命令，便于复制和搜索。上游版本会变化；某条命令不在当前 CLI 的 `/help` 或斜杠菜单中时，以当前官方界面为准。
@@ -35,7 +35,7 @@ aicli start oi-ollama
 
 ```powershell
 aicli start codex-official --project "C:\Work\Project"
-aicli start claude-qwen-paygo --project "D:\项目\演示"
+aicli start codex-deepseek --project "D:\项目\演示"
 ```
 
 启动参数在进程创建时生效，会话内斜杠命令在当前会话中生效。需要更换 Provider 时退出当前 CLI，重新运行 `aicli start <Profile ID>`。
@@ -59,7 +59,7 @@ aicli start codex-official -- --model gpt-5.6-sol
 
 DeepSeek Codex 使用两个 exact Profile：`codex-deepseek` 固定 API alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，`codex-deepseek-v4-pro` 固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`。两者都是 Responses、1M context、默认用户档 `max`，且不接受模型、Provider 或 fallback 覆盖。AICLI 用 DPAPI 保存 Key，受管配置只写 `env_key`；不要照抄官方示例里的明文 `experimental_bearer_token`。
 
-Qwen3.8 Max 使用独立 `codex-qwen3-8-max-paygo`：精确 `qwen3.8-max`、Workspace 按量 Responses、983616 context、95% 有效窗口、262144 token 自动压缩阈值。用户档 `max` 映射为模型原生最高 `xhigh`；计划和回执同时显示 requested/effective。它拒绝 preview、通用 DashScope 与 Token Plan。原有 `codex-qwen-paygo` / `codex-qwen-token-plan` 各自保持套餐隔离，并收敛为固定 `qwen3.7-max-2026-06-08` 的单模型 Responses Profile。
+Qwen3.8 Max 使用独立 `codex-qwen3-8-max-paygo`：精确 `qwen3.8-max`、Workspace 按量 Responses、983616 context、95% 有效窗口、262144 token 自动压缩阈值。用户档 `max` 映射为模型原生最高 `xhigh`；计划和回执同时显示 requested/effective。它拒绝 preview、通用 DashScope 与 Token Plan。Qwen3.7 Max/Plus 的所有模型身份、Profile、目录和导入入口均已永久退役；旧 ID 与 native model/fallback 参数会失败关闭，绝不重路由到 Qwen3.8。
 
 ### 2.2 权限、沙箱和计划模式
 
@@ -70,7 +70,8 @@ Qwen3.8 Max 使用独立 `codex-qwen3-8-max-paygo`：精确 `qwen3.8-max`、Work
 
 - `/permissions` 调整当前会话的审批模式。
 - `/plan` 进入偏规划的工作方式；是否可用以当前版本斜杠菜单为准。
-- 完全绕过审批和沙箱风险极高，不应作为公开 Profile 的默认值。
+- 交互式 `aicli start` 不替用户改写原生权限。面向程序的 `aicli run` 是另一条明确合同：所有当前及未来 Codex 模型一律在 `thread/start` 与 `turn/start` 选择命名权限 `permissions=:danger-full-access`，同时固定 `approvalPolicy=never`；thread receipt 还必须实际返回 `activePermissionProfile=:danger-full-access` 与 `sandbox.type=dangerFullAccess`。显式请求 `read-only` 或 `workspace-write` 会在模型调用前失败，新增模型也不会获得例外或静默降权。
+- 同一 `aicli run` 合同默认在 `thread/start.dynamicTools` 注册受管 `public_web_search`，适用于当前和未来 Codex 模型。它只访问固定 HTTPS RSS provider，拒绝重定向、任意 endpoint/Header/Key，公开事件不含 query/result；`--no-web-search` 只关闭本次搜索，不降低全访问权限。
 
 ### 2.3 上下文、状态和用量
 
@@ -146,16 +147,16 @@ manual → acceptEdits → plan
 
 ```powershell
 # 日常写代码、减少文件编辑确认
-aicli start claude-qwen-paygo -- --permission-mode acceptEdits
+aicli start claude-deepseek -- --permission-mode acceptEdits
 
 # 仅适合外部已隔离环境
-aicli start claude-qwen-paygo -- --permission-mode bypassPermissions --dangerously-skip-permissions
+aicli start claude-deepseek -- --permission-mode bypassPermissions --dangerously-skip-permissions
 ```
 
 PowerShell 可能吞掉 `--`，导致权限参数未进入 Claude。需要时用：
 
 ```powershell
-pwsh -NoProfile -File $env:LOCALAPPDATA\aicli\bin\aicli.ps1 --% start claude-qwen-paygo -- --permission-mode acceptEdits
+pwsh -NoProfile -File $env:LOCALAPPDATA\aicli\bin\aicli.ps1 --% start claude-deepseek -- --permission-mode acceptEdits
 ```
 
 `bypassPermissions` 需要新进程启动时明确启用，且通常无法仅靠 `Shift+Tab` 从 `manual` 切到最高档。第三方模型通常不满足 `auto` 模式的模型或账号门槛。
@@ -176,11 +177,11 @@ claude -p "检查当前项目"
 
 ### 3.4 第三方 API 常见提示
 
-使用 `claude-qwen-*`、`claude-deepseek` 或 `claude-custom` 时，上游可能提示检测到自定义 API Key。确认前先用：
+使用 `claude-deepseek` 或 `claude-custom` 时，上游可能提示检测到自定义 API Key。确认前先用：
 
 ```powershell
-aicli profile show claude-qwen-paygo
-aicli native claude-qwen-paygo
+aicli profile show claude-deepseek
+aicli native claude-deepseek
 ```
 
 核对数据去向确实是你选择的 Provider。若同时登录 claude.ai，可能出现双认证或 connectors disabled 提示；这是上游认证优先级提示，不自动代表启动失败。
@@ -295,22 +296,21 @@ Provider 切换要求新进程；模型、权限等是否能在当前会话变�
 
 Token 是计量单位，不等于人民币费用。aicli 不计算费用。Codex 可用 `/status` 或 `/usage` 查看上游提供的信息；其他 CLI 以当前状态页或官方用量页面为准。
 
-#### 第三方模型（千问等）下 Claude Code 的费用显示
+#### 第三方模型下 Claude Code 的费用显示
 
-使用 `claude-qwen-*`、`claude-deepseek` 等自定义 API 路径时，Claude 欢迎区可能显示 **API Usage Billing** 和具体模型名（例如 `qwen3.7-max-…`）。会话结束页可能出现类似：
+使用 `claude-deepseek` 等自定义 API 路径时，Claude 欢迎区可能显示 **API Usage Billing** 和 Provider 模型名。会话结束页可能出现类似：
 
 ```text
 Total cost: $1.57 (costs may be inaccurate due to usage of unknown models)
 Usage by model:
-  qwen3.7-max-…:  … input, … output, … cache read, … cache write ($0.54)
-  qwen3.7-plus-…: …
+  deepseek-v4-flash: … input, … output, … cache read, … cache write
 ```
 
 如何阅读：
 
 | 内容 | 建议 |
 |------|------|
-| 模型名（max / plus 等） | 一般可信，对应 aicli 主模型与小模型配置 |
+| 模型名 | 只作为上游显示；仍以 AICLI Profile 与 Provider 回执核对 exact 身份 |
 | input / output token | 可能接近各次 API 返回的 usage 累加，可与百炼监控对照量级 |
 | cache read / write | Claude 侧常见统计；是否等于百炼上下文缓存计费口径以阿里云为准 |
 | **Total cost 美元金额** | **不可当作阿里云扣款**。脚注 `unknown models` 表示客户端按内置未知模型单价估算，**往往偏高** |

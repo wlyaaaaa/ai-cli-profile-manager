@@ -2,9 +2,34 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
-## [Unreleased]
+## [0.3.5] - 2026-08-13
 
-本节描述 `0.3.3` 未发布版本；本机已从目标提交的干净快照安装并完成 DeepSeek 静态验收，但尚未发布 GitHub Release，也未执行当前 Flash Live/API 请求。其他机器不得把这项本机证据解释成公开发行或 Provider 能力通过。
+### 新增
+
+- 所有当前及未来 Codex harness 默认通过 app-server `thread/start.dynamicTools` 注册受管 `public_web_search`，并提供显式 `--no-web-search`；固定 HTTPS RSS provider、拒绝重定向/任意 endpoint/Header/凭据，事件与回执只记录生命周期/provider/次数，不记录 query/result。真实本地 `qwen-main-v1` 已打通 dynamicTools → `item/tool/call` → managed search → 完成回执。
+- DeepSeek Codex 提供两个可发现的一键 exact Profile：`codex-deepseek` 固定 `deepseek-v4-flash` / `DeepSeek-V4-Flash-0731`，`codex-deepseek-v4-pro` 固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`。两者均使用官方 Responses wire、隔离单模型目录和用户 `max`。
+- `profile configure` 支持在同一凭据域内用 `--reuse-existing-secret` 或 `--reuse-secret-from <Profile ID>` 复用现有 SecretRef；不读取或复制明文，保存失败也不会删除被其他 Profile 共用的密钥。
+- 安装器新增幂等退役迁移：只把 marker/body/state/hash 闭合的 Qwen3.7 用户 Profile、Codex TOML/目录和旧模块版本移入可恢复 quarantine；未知、篡改或 reparse 项在任何变更前失败关闭，SecretRef 和密钥始终保留。
+
+### 变更
+
+- 永久退役 Qwen3.7 Max/Plus 全家族及其 Codex、Claude Code、Open Interpreter Profile、目录、生成器分支和 OpenClaw 导入入口。旧用户 Profile、native `--model` / `--fallback-model` 与未知别名均失败关闭，不自动映射到 Qwen3.8。
+- 所有当前和未来 Codex harness 模型统一使用原生 `danger-full-access` 与 `approvalPolicy=never`；该不变量按 `engine=codex` 生效，不维护模型 allowlist。显式请求 `read-only` / `workspace-write` 会在模型调用前失败关闭。
+- Codex harness 必须回读实际 model、modelProvider 和 `dangerFullAccess` 权限身份，并拒绝任何 `model/rerouted` 通知。请求/计划值不再冒充运行时 actual。
+- 所有 Codex 文本 Live 统一走同一 app-server harness，要求最终观测到 `toolCalls=0` 并持久化五项运行时权限证据。首个工具事件会触发终止和失败，但不是执行前工具禁用，也不把 `danger-full-access` 降权或冒充沙箱。
+- DeepSeek 官方目录以 2026-08-13 Codex setup artifact 的双模型条目为基线；AICLI 仅把目录默认 reasoning 从官方 `high` 明确覆盖为产品最高档 `max`，其余能力字段与官方条目绑定。
+
+### 验收边界
+
+- source、static、install、runtime 和 live 分层记录；只允许每个付费 DeepSeek exact Profile 一次最小 Live，失败不自动重试。Qwen3.8、本地 main/review 的旧回执不冒充 `0.3.5` 当前 Live。
+
+## [0.3.4] - 2026-08-13
+
+本节仅记录已安装候选的历史事实：该版本引入 Qwen3.8 Max、DeepSeek Flash/Pro 和本地 main/review 的 exact Codex Profile，但仍保留了后续在 `0.3.5` 退役的 Qwen3.7 入口，也未包含本版的通用全访问 harness 与升级隔离。不得把 `0.3.4` 安装态或 Live 回执解释为 `0.3.5` 当前证据。
+
+## [0.3.3] - 2026-08-03
+
+本节保留 `0.3.3` 的历史候选事实；本机当时只从目标提交的干净快照安装并完成 DeepSeek 静态验收，未发布 GitHub Release，也未执行当时 Flash Live/API 请求。不得把这项旧证据解释成当前发行或 Provider 能力通过。
 
 ### 新增
 

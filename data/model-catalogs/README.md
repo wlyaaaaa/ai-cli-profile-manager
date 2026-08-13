@@ -2,14 +2,17 @@
 
 这里保存 AICLI 随安装包发布、再按内容哈希复制到真实 `CODEX_HOME` 的静态模型目录。目录文件不含 API Key；认证仍由 DPAPI `secretRef` 在启动目标子进程时注入 `env_key`。
 
-`deepseek-v4-flash.json` 取自 DeepSeek 官方 Windows Codex setup 脚本中的 `models.json`，只保留 `deepseek-v4-flash` / `DeepSeek-V4-Flash-0731` exact 条目：
+`deepseek-v4-flash.json` 与 `deepseek-v4-pro.json` 从 DeepSeek 官方 Windows/Linux Codex setup 脚本内同一份双模型 `models.json` 按 slug 确定性抽取，各自只保留一个 exact 条目：
 
 - 来源：<https://cdn.deepseek.com/api-docs/codex-deepseek-setup-en.ps1>
-- 取证日期：2026-08-01
-- 上游脚本 SHA-256：`806f7018da07359c39b8c256a10e17130f8c1eeaf76a2481ebdda5c9d39a0283`
-- 版本名：DeepSeek V4 Flash 0731；API slug 仍为 `deepseek-v4-flash`
+- 取证日期：2026-08-13；上游 Windows 脚本版本 `1.1.0`
+- 上游 Windows 脚本 SHA-256：`239c5e7e4a24a5216cf03756cc66d7459c748a46d1d4bf084418d2b58ef54a36`
+- 上游双模型 `models.json` SHA-256：`b459a6e438d6a9939d01fd0dbb4693f165ed732bc8e4fd58d7145d9d94bd49a4`
+- 官方规范化单条目 SHA-256：Flash `8065e17700fe1a88bed911114c10f3e792eac48601aa765e067bec13eb0ae1d4`；Pro `16e8716359c27ade5f748e586e2b25886f5a7257ab4e9795436e11f9c4fdeedf`
+- alias 到版本的映射由官方 Models & Pricing 页分别固定为 Flash 0731 与 Pro 0813；setup catalog 自身只写 alias。
+- AICLI 唯一策略覆盖是把两条目录的 `default_reasoning_level` 从官方示例 `high` 提升为用户最高档 `max`；其余字段必须通过上述单条目哈希校验。
 
-`deepseek-v4-pro.json` 由 `scripts/Build-DeepSeekCodexCatalog.ps1` 从同一受控基线确定性生成，只保留 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813` exact 条目。Flash 与 Pro 目录、Provider ID 和 Profile 指纹互相隔离；任何一方的 Live 回执不能证明另一方。
+`scripts/Build-DeepSeekCodexCatalog.ps1` 负责上述抽取和哈希绑定。Flash 与 Pro 目录、Provider ID 和 Profile 指纹互相隔离；任何一方的 Live 回执不能证明另一方。
 
 `qwen3.8-max-codex.json` 由 `scripts/Build-QwenCodexCatalog.ps1 -CatalogKind qwen38` 确定性生成：
 
@@ -18,7 +21,7 @@
 - Workspace 按量 Profile 不包含 preview、Token Plan 或其他候选；
 - 基础指令与 `model_messages` 复用同一发布版 `deepseek-v4-flash.json` 中的通用 Codex 0.146 指令，避免阿里云最小示例的空 `base_instructions` 覆盖 Codex Agent 行为；其余能力与限制由生成器白名单逐项声明，不随 DeepSeek 目录静默漂移。
 
-`qwen3.7-max-2026-06-08-codex.json` 是旧按量/Token Plan 兼容 ID 共用的 exact 单模型目录。两份 Manifest 保持各自套餐与 endpoint，但都不再暴露 preview 或多模型 fallback。
+所有 Qwen3.7 Max/Plus 云入口与目录均已退役；旧用户 Profile 或原生 `--model` 参数会失败关闭，不会自动改投 Qwen3.8 或其他模型。
 
 `qwen-main-v1-codex.json` 由同一生成器的 `-CatalogKind local` 模式生成，只包含本机 LocalGpuBroker 登记的 `qwen-main-v1`：
 

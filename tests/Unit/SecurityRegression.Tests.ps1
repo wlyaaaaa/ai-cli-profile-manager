@@ -184,7 +184,7 @@ Describe 'Live text evidence' {
             }
             $checks = [System.Collections.Generic.List[object]]::new()
             $plan = [pscustomobject]@{
-                engine = 'codex'; fileName = 'C:\fake\codex.exe'
+                engine = 'interpreter'; fileName = 'C:\fake\interpreter.exe'
                 argumentList = @(); removeEnvironment = @()
                 environmentDelta = @{
                     AICLI_CODEX_PROVIDER_KEY = 'CANARY_PROVIDER_VALUE_42'
@@ -197,6 +197,143 @@ Describe 'Live text evidence' {
             $result.Pass | Should -BeTrue
             $script:capturedSecretValues | Should -Contain 'CANARY_PROVIDER_VALUE_42'
             $script:capturedSecretValues | Should -Not -Contain 'public-setting'
+        }
+    }
+
+    It 'uses the Codex app-server harness and verified runtime identity for DeepSeek live text acceptance' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $script:harnessCall = $null
+            Mock Invoke-AiCliProfileCapture {
+                $script:harnessCall = [pscustomobject]@{
+                    ProfileId = $ProfileId
+                    ProjectPath = $ProjectPath
+                    StdInText = $StdInText
+                    SandboxPolicy = $SandboxPolicy
+                    NativeArgs = @($NativeArgs)
+                    MaxToolCalls = $MaxToolCalls
+                    EnforceToolCallLimit = [bool]$EnforceToolCallLimit
+                }
+                [pscustomobject]@{
+                    ExitCode = 0
+                    StdOut = "harness progress`nPONG`n"
+                    StdErr = ''
+                    limitUsage = [ordered]@{ toolCalls = 0 }
+                    runtimeCliPath = 'C:\fake\codex.exe'
+                    RuntimeIdentity = [ordered]@{
+                        model = 'deepseek-v4-flash'
+                        model_provider = 'aicli_deepseek'
+                        cli_version = '0.147.0'
+                        permission = [ordered]@{
+                            approval_policy = 'never'; requested_policy = 'danger-full-access'
+                            sandbox_boundary = 'codex-native'; sandbox_type = 'dangerFullAccess'
+                            permission_profile = ':danger-full-access'
+                        }
+                    }
+                }
+            }
+            Mock Invoke-AiCliChildCapture { throw 'legacy exec live path must not run' }
+            $checks = [System.Collections.Generic.List[object]]::new()
+            $plan = [pscustomobject]@{
+                engine = 'codex'; fileName = 'C:\fake\codex.exe'
+                argumentList = @(); removeEnvironment = @()
+                environmentDelta = @{ AICLI_CODEX_PROVIDER_KEY = 'CANARY' }
+                model = 'deepseek-v4-flash'; modelProvider = 'aicli_deepseek'
+            }
+
+            $result = Invoke-AiCliTextLiveTest -ProfileId 'codex-deepseek' `
+                -Plan $plan -WorkDir $Work -Checks $checks
+
+            $result.Pass | Should -BeTrue
+            $result.ExitCode | Should -Be 0
+            $result.RuntimeIdentity.model | Should -BeExactly 'deepseek-v4-flash'
+            $result.RuntimeIdentity.model_provider | Should -BeExactly 'aicli_deepseek'
+            $script:harnessCall.ProfileId | Should -BeExactly 'codex-deepseek'
+            $script:harnessCall.ProjectPath | Should -BeExactly $Work
+            $script:harnessCall.StdInText | Should -BeExactly (Get-AiCliPongLivePrompt)
+            $script:harnessCall.SandboxPolicy | Should -BeExactly 'danger-full-access'
+            $script:harnessCall.NativeArgs | Should -Be @('exec', '--json', '-')
+            $script:harnessCall.MaxToolCalls | Should -Be 0
+            $script:harnessCall.EnforceToolCallLimit | Should -BeTrue
+            Should -Invoke Invoke-AiCliProfileCapture -Times 1 -Exactly -Scope It
+            Should -Invoke Invoke-AiCliChildCapture -Times 0 -Exactly -Scope It
+        }
+    }
+
+    It 'uses the same full-access harness for a future non-DeepSeek Codex Profile' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $script:futureHarness = $null
+            Mock Invoke-AiCliProfileCapture {
+                $script:futureHarness = [pscustomobject]@{
+                    ProfileId = $ProfileId
+                    NativeArgs = @($NativeArgs)
+                    SandboxPolicy = $SandboxPolicy
+                    MaxToolCalls = $MaxToolCalls
+                    EnforceToolCallLimit = [bool]$EnforceToolCallLimit
+                }
+                [pscustomobject]@{
+                    ExitCode = 0
+                    StdOut = "PONG`n"
+                    limitUsage = [ordered]@{ toolCalls = 0 }
+                    runtimeCliPath = 'C:\fake\codex.exe'
+                    RuntimeIdentity = [ordered]@{
+                        model = 'future-codex-model'
+                        model_provider = 'future_provider'
+                        cli_version = '0.147.0'
+                        permission = [ordered]@{
+                            approval_policy = 'never'; requested_policy = 'danger-full-access'
+                            sandbox_boundary = 'codex-native'; sandbox_type = 'dangerFullAccess'
+                            permission_profile = ':danger-full-access'
+                        }
+                    }
+                }
+            }
+            Mock Invoke-AiCliChildCapture { throw 'direct Codex live path must never run' }
+            $checks = [System.Collections.Generic.List[object]]::new()
+            $plan = [pscustomobject]@{
+                engine = 'codex'; fileName = 'C:\fake\codex.exe'
+                argumentList = @(); removeEnvironment = @(); environmentDelta = @{}
+                model = 'future-codex-model'; modelProvider = 'future_provider'
+            }
+
+            $result = Invoke-AiCliTextLiveTest -ProfileId 'future-codex-profile' `
+                -Plan $plan -WorkDir $Work -Checks $checks
+
+            $result.Pass | Should -BeTrue
+            $script:futureHarness.NativeArgs | Should -Be @('exec', '--json', '-')
+            $script:futureHarness.SandboxPolicy | Should -BeExactly 'danger-full-access'
+            $script:futureHarness.MaxToolCalls | Should -Be 0
+            $script:futureHarness.EnforceToolCallLimit | Should -BeTrue
+            Should -Invoke Invoke-AiCliProfileCapture -Times 1 -Exactly -Scope It
+            Should -Invoke Invoke-AiCliChildCapture -Times 0 -Exactly -Scope It
+        }
+    }
+
+    It 'does not pass a Codex text acceptance after any tool call' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            Mock Invoke-AiCliProfileCapture {
+                [pscustomobject]@{
+                    ExitCode = 0; StdOut = "PONG`n"
+                    limitUsage = [ordered]@{ toolCalls = 1 }
+                    RuntimeIdentity = [ordered]@{
+                        model = 'future-codex-model'; model_provider = 'future_provider'
+                        cli_version = '0.147.0'
+                        permission = [ordered]@{
+                            approval_policy = 'never'; requested_policy = 'danger-full-access'
+                            sandbox_boundary = 'codex-native'; sandbox_type = 'dangerFullAccess'
+                            permission_profile = ':danger-full-access'
+                        }
+                    }
+                }
+            }
+            $checks = [Collections.Generic.List[object]]::new()
+            $plan = [pscustomobject]@{
+                engine = 'codex'; fileName = 'C:\fake\codex.exe'; argumentList = @()
+                removeEnvironment = @(); environmentDelta = @{}
+                model = 'future-codex-model'; modelProvider = 'future_provider'
+            }
+            $result = Invoke-AiCliTextLiveTest -ProfileId 'future-codex-profile' `
+                -Plan $plan -WorkDir $Work -Checks $checks
+            $result.Pass | Should -BeFalse
         }
     }
 
@@ -224,6 +361,45 @@ Describe 'Live text evidence' {
             } finally {
                 Set-AiCliDataRootOverride -Path $null
             }
+        }
+    }
+
+    It 'invalidates Codex text receipts without exact zero-tool evidence' {
+        InModuleScope AiCliProfileManager {
+            Mock Get-AiCliProfileCliIdentityEvidence {
+                [pscustomobject]@{
+                    FileName = 'C:\codex.exe'
+                    Version = 'codex-cli 0.147.0'
+                }
+            }
+            $profile = [ordered]@{ engine = 'codex' }
+            $base = [ordered]@{
+                productVersion = (Get-AiCliVersion)
+                level = 'text'
+                textPass = $true
+                cliPath = 'C:\codex.exe'
+                cliVersion = 'codex-cli 0.147.0'
+                permissionEvidence = 'runtime-identity'
+                runtimePermission = [ordered]@{
+                    approval_policy = 'never'
+                    requested_policy = 'danger-full-access'
+                    sandbox_boundary = 'codex-native'
+                    sandbox_type = 'dangerFullAccess'
+                    permission_profile = ':danger-full-access'
+                }
+            }
+            foreach ($value in @($null, 1, '0')) {
+                $record = [ordered]@{}
+                foreach ($key in $base.Keys) { $record[$key] = $base[$key] }
+                if ($null -ne $value) { $record['observedToolCalls'] = $value }
+                (Test-AiCliVerificationRecordCurrent `
+                    -Record $record -MergedProfile $profile).Current |
+                    Should -BeFalse
+            }
+            $base['observedToolCalls'] = 0
+            (Test-AiCliVerificationRecordCurrent `
+                -Record $base -MergedProfile $profile).Current |
+                Should -BeTrue
         }
     }
 }
@@ -315,7 +491,9 @@ Describe 'Installer safety' {
         $oldModulePath = $env:PSModulePath
         try {
             $env:PSModulePath = $moduleRoot
-            & (Join-Path $script:SecurityRepoRoot 'scripts\Install.ps1') -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration
+            & (Join-Path $script:SecurityRepoRoot 'scripts\Install.ps1') `
+                -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration `
+                -RetirementRootOverride (Join-Path $TestDrive 'retirement-root')
             $version = [string](Import-PowerShellDataFile -LiteralPath (
                 Join-Path $script:SecurityRepoRoot 'src\AiCliProfileManager\AiCliProfileManager.psd1'
             )).ModuleVersion
@@ -323,12 +501,57 @@ Describe 'Installer safety' {
             Test-Path -LiteralPath $installedManifest | Should -BeTrue
             $before = (Get-FileHash -LiteralPath $installedManifest -Algorithm SHA256).Hash
 
-            { & (Join-Path $script:SecurityRepoRoot 'scripts\Install.ps1') -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration } |
+            { & (Join-Path $script:SecurityRepoRoot 'scripts\Install.ps1') `
+                    -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration `
+                    -RetirementRootOverride (Join-Path $TestDrive 'retirement-root') } |
                 Should -Throw '*默认拒绝覆盖*'
             (Get-FileHash -LiteralPath $installedManifest -Algorithm SHA256).Hash | Should -Be $before
         } finally {
             $env:PSModulePath = $oldModulePath
         }
+    }
+}
+
+Describe 'Build output safety' {
+    It 'refuses a stale stage reparse point without touching its external target' {
+        $outDir = Join-Path $TestDrive 'build-output'
+        $outside = Join-Path $TestDrive 'outside-stage-target'
+        New-Item -ItemType Directory -Force -Path $outDir, $outside | Out-Null
+        $canary = Join-Path $outside 'keep.txt'
+        Set-Content -LiteralPath $canary -Value 'keep' -Encoding utf8
+        $junction = Join-Path $outDir 'stage-aicli-0.3.4'
+        New-Item -ItemType Junction -Path $junction -Target $outside | Out-Null
+
+        $output = & pwsh -NoLogo -NoProfile -File (
+            Join-Path $script:SecurityRepoRoot 'scripts\Build.ps1'
+        ) -OutDir $outDir 2>&1
+        $exitCode = $LASTEXITCODE
+
+        $exitCode | Should -Not -Be 0 -Because ($output -join "`n")
+        Test-Path -LiteralPath $junction | Should -BeTrue
+        Test-Path -LiteralPath $canary -PathType Leaf | Should -BeTrue
+    }
+
+    It 'refuses an output ancestor junction without touching its external target' {
+        $outside = Join-Path $TestDrive 'outside-build-ancestor'
+        $link = Join-Path $TestDrive 'build-output-link'
+        $outDir = Join-Path $link 'newdist'
+        $stale = Join-Path $outside 'newdist\stage-aicli-0.3.4'
+        New-Item -ItemType Directory -Force -Path $stale | Out-Null
+        $canary = Join-Path $stale 'keep.txt'
+        Set-Content -LiteralPath $canary -Value 'keep' -Encoding utf8
+        New-Item -ItemType Junction -Path $link -Target $outside | Out-Null
+
+        $output = & pwsh -NoLogo -NoProfile -File (
+            Join-Path $script:SecurityRepoRoot 'scripts\Build.ps1'
+        ) -OutDir $outDir 2>&1
+        $exitCode = $LASTEXITCODE
+
+        $exitCode | Should -Not -Be 0 -Because ($output -join "`n")
+        Test-Path -LiteralPath $link | Should -BeTrue
+        (Get-Content -LiteralPath $canary -Raw).Trim() | Should -BeExactly 'keep'
+        @(Get-ChildItem -LiteralPath (Join-Path $outside 'newdist') -Force).Count |
+            Should -Be 1
     }
 }
 

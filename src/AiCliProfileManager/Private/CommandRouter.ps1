@@ -5,7 +5,7 @@ function ConvertTo-AiCliTokenList {
     .SYNOPSIS
       Normalize CLI tokens into List[string] (single object — avoids PS array unwrap bugs).
       Critical: a single-element [string[]] often collapses to [string]; then $Tokens[0] is
-      the first character (e.g. 'c' from claude-qwen-paygo). Returning List avoids that.
+      the first character (e.g. 'c' from codex-deepseek). Returning List avoids that.
     #>
     param($Tokens)
     $list = [System.Collections.Generic.List[string]]::new()
@@ -141,6 +141,7 @@ function Invoke-AiCliRouter {
                         version = (Get-AiCliVersion)
                         capabilities = [ordered]@{
                             machineEventProjection = 'aicli.machine-event.v1'
+                            managedPublicWebSearch = 'public_web_search/bing-rss-v1'
                         }
                     })
                 } else {
@@ -305,9 +306,16 @@ function Invoke-AiCliProfileCommand {
             return (Get-AiCliExitCode Success)
         }
         'configure' {
-            $pos = Assert-AiCliTokenShape -Tokens $rest -MinPositionals 1 -MaxPositionals 1 -ValueOptions @('--id')
+            $pos = Assert-AiCliTokenShape -Tokens $rest -MinPositionals 1 -MaxPositionals 1 `
+                -Switches @('--reuse-existing-secret') `
+                -ValueOptions @('--id','--reuse-secret-from')
             $newId = Get-AiCliFlagValue -Tokens $rest -Name '--id'
-            Invoke-AiCliProfileConfigure -TemplateId $pos[0] -ProfileId $newId | Out-Null
+            $reuseSecretFrom = Get-AiCliFlagValue -Tokens $rest -Name '--reuse-secret-from'
+            Invoke-AiCliProfileConfigure `
+                -TemplateId $pos[0] `
+                -ProfileId $newId `
+                -ReuseExistingSecret:(Test-AiCliHasFlag $rest '--reuse-existing-secret') `
+                -ReuseSecretFrom $reuseSecretFrom | Out-Null
             return (Get-AiCliExitCode Success)
         }
         'set-default' {
@@ -347,11 +355,11 @@ function Invoke-AiCliRunCommand {
     try {
         $tokenList = ConvertTo-AiCliTokenList $Tokens
         if ($tokenList.Count -lt 1) {
-            throw '用法: aicli run <id> --stdin --json [--project <path>] [--sandbox-policy read-only|workspace-write] [--timeout-seconds <n>] [--max-steps <n>] [--max-tool-calls <n>] [--watchdog-only] [--max-output-chars <n>] [--event-file <absolute-jsonl-path>] [--authority-prelude-stdout] -- <native-args...>'
+            throw '用法: aicli run <id> --stdin --json [--project <path>] [--sandbox-policy danger-full-access|read-only|workspace-write] [--no-web-search] [--timeout-seconds <n>] [--max-steps <n>] [--max-tool-calls <n>] [--watchdog-only] [--max-output-chars <n>] [--event-file <absolute-jsonl-path>] [--authority-prelude-stdout] -- <native-args...>'
         }
         $split = Split-AiCliArgs -Tokens $tokenList
         $pos = Assert-AiCliTokenShape -Tokens $split.Before -MinPositionals 1 -MaxPositionals 1 `
-            -Switches @('--stdin','--json','--watchdog-only','--authority-prelude-stdout') `
+            -Switches @('--stdin','--json','--watchdog-only','--authority-prelude-stdout','--no-web-search') `
             -ValueOptions @('--project','--sandbox-policy','--timeout-seconds','--max-steps','--max-tool-calls','--max-output-chars','--event-file')
         if (-not (Test-AiCliHasFlag $split.Before '--stdin')) {
             throw '参数 --stdin 是 machine run 的必需项；任务正文不得放入命令行参数。'
@@ -360,9 +368,25 @@ function Invoke-AiCliRunCommand {
             throw '参数 --json 是 machine run 的必需项。'
         }
         $timeoutSecondsText = Get-AiCliFlagValue -Tokens $split.Before -Name '--timeout-seconds' -Default '120'
-        $sandboxPolicy = Get-AiCliFlagValue -Tokens $split.Before -Name '--sandbox-policy' -Default 'read-only'
-        if ($sandboxPolicy -notin @('read-only','workspace-write')) {
-            throw '参数 --sandbox-policy 只能是 read-only 或 workspace-write。'
+        $profileId = [string]$pos[0]
+        $resolvedForHarness = Get-AiCliResolvedProfile -Id $profileId
+        $isCodexHarness = [string](Get-AiCliProperty $resolvedForHarness 'engine') -eq 'codex'
+        $disableWebSearch = Test-AiCliHasFlag $split.Before '--no-web-search'
+        $sandboxPolicy = Get-AiCliFlagValue -Tokens $split.Before -Name '--sandbox-policy'
+        if ($isCodexHarness) {
+            if (-not [string]::IsNullOrWhiteSpace($sandboxPolicy) -and
+                $sandboxPolicy -ne 'danger-full-access') {
+                throw 'Codex harness 固定使用 danger-full-access；拒绝静默降级为其他权限。'
+            }
+            $sandboxPolicy = 'danger-full-access'
+        } else {
+            if ($disableWebSearch) {
+                throw '参数 --no-web-search 仅适用于 Codex harness。'
+            }
+            if ([string]::IsNullOrWhiteSpace($sandboxPolicy)) { $sandboxPolicy = 'read-only' }
+            if ($sandboxPolicy -notin @('read-only','workspace-write')) {
+                throw '非 Codex machine run 的 --sandbox-policy 只能是 read-only 或 workspace-write。'
+            }
         }
         $maxStepsText = Get-AiCliFlagValue -Tokens $split.Before -Name '--max-steps' -Default '20'
         $maxToolCallsText = Get-AiCliFlagValue -Tokens $split.Before -Name '--max-tool-calls' -Default '80'
@@ -398,7 +422,7 @@ function Invoke-AiCliRunCommand {
         }
         $watchdogOnly = Test-AiCliHasFlag $split.Before '--watchdog-only'
         $run = Invoke-AiCliProfileCapture `
-            -ProfileId ([string]$pos[0]) `
+            -ProfileId $profileId `
             -ProjectPath (Get-AiCliFlagValue -Tokens $split.Before -Name '--project') `
             -NativeArgs ([string[]]$native.ToArray()) `
             -StdInText $taskText `
@@ -411,6 +435,7 @@ function Invoke-AiCliRunCommand {
             -EnforceToolCallLimit:(-not $watchdogOnly) `
             -WatchdogOnly:$watchdogOnly `
             -MachineEventFile $machineEventFile `
+            -DisableWebSearch:$disableWebSearch `
             -AuthorityPreludeStdout:(Test-AiCliHasFlag $split.Before '--authority-prelude-stdout')
         $status = if ([int]$run.exitCode -eq 0 -and -not [bool]$run.timedOut) { '通过' } else { '不可用' }
         Write-AiCliJson (New-AiCliResult -Command 'run' -OverallStatus $status -Extra @{ run = $run })
@@ -620,7 +645,6 @@ function Invoke-AiCliSetup {
         '配置 Codex DeepSeek V4 Pro 0813',
         '配置 Codex Qwen3.8 Max Workspace 按量',
         '配置 Claude DeepSeek',
-        '配置 Claude 千问按量',
         '查看全部模板'
     )
     switch ($idx) {
@@ -628,8 +652,7 @@ function Invoke-AiCliSetup {
         2 { Invoke-AiCliProfileConfigure -TemplateId 'codex-deepseek-v4-pro' | Out-Null }
         3 { Invoke-AiCliProfileConfigure -TemplateId 'codex-qwen3-8-max-paygo' | Out-Null }
         4 { Invoke-AiCliProfileConfigure -TemplateId 'claude-deepseek' | Out-Null }
-        5 { Invoke-AiCliProfileConfigure -TemplateId 'claude-qwen-paygo' | Out-Null }
-        6 { Invoke-AiCliRouter -Tokens @('profile','list','--available') | Out-Null }
+        5 { Invoke-AiCliRouter -Tokens @('profile','list','--available') | Out-Null }
         default { Write-AiCliInfo '已结束 setup。' }
     }
     return (Get-AiCliExitCode Success)
@@ -639,13 +662,20 @@ function Invoke-AiCliInteractiveSelector {
     $settings = Get-AiCliSettings
     $choices = [System.Collections.Generic.List[string]]::new()
     $ids = [System.Collections.Generic.List[string]]::new()
-    if ($settings.lastProfileId) {
-        $choices.Add("最近: $($settings.lastProfileId)")
-        $ids.Add($settings.lastProfileId)
-    }
-    if ($settings.defaultProfileId -and $settings.defaultProfileId -ne $settings.lastProfileId) {
-        $choices.Add("默认: $($settings.defaultProfileId)")
-        $ids.Add($settings.defaultProfileId)
+    foreach ($entry in @(
+        [pscustomobject]@{ Label = '最近'; Id = [string]$settings.lastProfileId },
+        [pscustomobject]@{ Label = '默认'; Id = [string]$settings.defaultProfileId }
+    )) {
+        if ([string]::IsNullOrWhiteSpace($entry.Id) -or $ids -contains $entry.Id) { continue }
+        try {
+            $resolvedRecent = Get-AiCliResolvedProfile -Id $entry.Id
+            if (-not [bool](Get-AiCliProperty $resolvedRecent 'configured' $false)) { continue }
+            $choices.Add("$($entry.Label): $($entry.Id)")
+            $ids.Add($entry.Id)
+        } catch {
+            # A removed/retired/conflicting ID must not survive as a launchable
+            # interactive shortcut merely because it remains in old settings.
+        }
     }
     $list = Get-AiCliProfileList
     foreach ($p in $list) {

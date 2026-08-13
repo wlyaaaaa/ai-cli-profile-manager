@@ -449,6 +449,148 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         }
     }
 
+    It 'sends native danger-full-access on both thread/start and turn/start for every Codex model' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $script:BrokerSessionRepoRoot
+        } {
+            $fakeServer = Join-Path $Work 'fake-danger-full-access-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'danger-full-access-app-server-bridge.json'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' { [Console]::Out.WriteLine('{"id":1,"result":{}}') }
+        'initialized' {}
+        'thread/start' {
+            if (
+                [string]$message.params.permissions -ne ':danger-full-access' -or
+                [string]$message.params.approvalPolicy -ne 'never' -or
+                $message.params.ContainsKey('sandbox') -or
+                @($message.params.runtimeWorkspaceRoots).Count -ne 1
+            ) {
+                [Console]::Out.WriteLine('{"id":2,"error":{"code":-32602,"message":"thread danger-full-access contract missing"}}')
+                break
+            }
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.147.0"},"model":"future-model","modelProvider":"future_provider","cwd":"C:\\fake","approvalPolicy":"never","approvalsReviewer":"user","sandbox":{"type":"dangerFullAccess"},"activePermissionProfile":{"id":":danger-full-access"}}}')
+        }
+        'turn/start' {
+            if (
+                [string]$message.params.permissions -ne ':danger-full-access' -or
+                [string]$message.params.approvalPolicy -ne 'never' -or
+                $message.params.ContainsKey('sandboxPolicy') -or
+                @($message.params.runtimeWorkspaceRoots).Count -ne 1
+            ) {
+                [Console]::Out.WriteLine('{"id":3,"error":{"code":-32602,"message":"turn dangerFullAccess contract missing"}}')
+                break
+            }
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":1,"cachedInputTokens":0,"outputTokens":1,"totalTokens":2},"total":{"inputTokens":1,"cachedInputTokens":0,"outputTokens":1,"reasoningOutputTokens":0,"totalTokens":2},"modelContextWindow":1000000}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":""}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-1","type":"agentMessage","text":"STATIC_DANGER_OK"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"completed"}}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'danger-full-access'
+                expectedModel = 'future-model'
+                expectedModelProvider = 'future_provider'
+                requireRuntimeIdentity = $true
+                minimumCliVersion = '0.147.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot `
+                'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            $captured = Invoke-AiCliChildCapture `
+                -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'STATIC TASK' `
+                -EventProtocol codex-app-server -CloseStdIn -TimeoutMs 5000 `
+                -SandboxPolicy danger-full-access -RequireRuntimeIdentity `
+                -ExpectedRuntimeModel 'future-model' `
+                -ExpectedRuntimeModelProvider 'future_provider'
+
+            $captured.ExitCode | Should -Be 0
+            $captured.RuntimeIdentity.permission.requested_policy |
+                Should -BeExactly 'danger-full-access'
+            $captured.RuntimeIdentity.permission.sandbox_type |
+                Should -BeExactly 'dangerFullAccess'
+            $captured.StdOut | Should -Match 'STATIC_DANGER_OK'
+        }
+    }
+
+    It 'fails before turn/start when danger-full-access is not confirmed by thread/start' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $script:BrokerSessionRepoRoot
+        } {
+            $fakeServer = Join-Path $Work 'fake-danger-receipt-mismatch.ps1'
+            $bridgeConfig = Join-Path $Work 'danger-receipt-mismatch.json'
+            $methodLog = Join-Path $Work 'danger-receipt-methods.txt'
+            $escapedLog = $methodLog.Replace("'", "''")
+            @"
+while (`$null -ne (`$line = [Console]::In.ReadLine())) {
+    `$message = `$line | ConvertFrom-Json -AsHashtable -Depth 100
+    [IO.File]::AppendAllText('$escapedLog', ([string]`$message.method + "``n"))
+    switch ([string]`$message.method) {
+        'initialize' { [Console]::Out.WriteLine('{"id":1,"result":{}}') }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.147.0"},"model":"future-model","modelProvider":"future_provider","cwd":"C:\\fake","approvalPolicy":"never","approvalsReviewer":"user","sandbox":{"type":"readOnly","networkAccess":false}}}')
+        }
+        'turn/start' { [Console]::Out.WriteLine('{"id":3,"error":{"code":-32602,"message":"must not start"}}') }
+    }
+    [Console]::Out.Flush()
+}
+"@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'danger-full-access'
+                expectedModel = 'future-model'
+                expectedModelProvider = 'future_provider'
+                requireRuntimeIdentity = $true
+                minimumCliVersion = '0.147.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot `
+                'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            $captured = Invoke-AiCliChildCapture `
+                -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'STATIC TASK' `
+                -EventProtocol codex-app-server -CloseStdIn -TimeoutMs 5000 `
+                -SandboxPolicy danger-full-access -RequireRuntimeIdentity `
+                -ExpectedRuntimeModel 'future-model' `
+                -ExpectedRuntimeModelProvider 'future_provider'
+
+            $captured.ExitCode | Should -Be 74
+            $captured.ErrorCode |
+                Should -BeExactly 'codex_appserver.runtime_identity_mismatch'
+            @(Get-Content -LiteralPath $methodLog -ErrorAction SilentlyContinue) |
+                Should -Not -Contain 'turn/start'
+            $captured.RuntimeIdentity | Should -BeNullOrEmpty
+        }
+    }
+
     It 'fails before turn/start when actual thread/start identity is <Case>' -ForEach @(
         @{ Case = 'missing'; ActualProvider = $null; ExpectedCode = 'codex_appserver.runtime_identity_missing' }
         @{ Case = 'mismatched'; ActualProvider = 'wrong_provider'; ExpectedCode = 'codex_appserver.runtime_identity_mismatch' }
@@ -530,6 +672,63 @@ while (`$null -ne (`$line = [Console]::In.ReadLine())) {
         }
     }
 
+    It 'fails closed when app-server reports a runtime model reroute after exact identity binding' {
+        InModuleScope AiCliProfileManager -Parameters @{
+            Work = $TestDrive
+            RepoRoot = $script:BrokerSessionRepoRoot
+        } {
+            $fakeServer = Join-Path $Work 'fake-runtime-reroute-app-server.ps1'
+            $bridgeConfig = Join-Path $Work 'runtime-reroute-app-server-bridge.json'
+            @'
+while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $message = $line | ConvertFrom-Json -AsHashtable -Depth 100
+    switch ([string]$message.method) {
+        'initialize' { [Console]::Out.WriteLine('{"id":1,"result":{}}') }
+        'initialized' {}
+        'thread/start' {
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.147.0"},"model":"deepseek-v4-flash","modelProvider":"aicli_deepseek"}}')
+        }
+        'turn/start' {
+            [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"model/rerouted","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","fromModel":"deepseek-v4-flash","toModel":"fallback-model"}}')
+        }
+    }
+    [Console]::Out.Flush()
+}
+'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+            $config = [ordered]@{
+                fileName = (Get-Command pwsh.exe).Source
+                argumentList = @('-NoProfile', '-File', $fakeServer)
+                workingDirectory = $Work
+                sandboxBoundary = 'codex-native'
+                sandboxPolicy = 'read-only'
+                expectedModel = 'deepseek-v4-flash'
+                expectedModelProvider = 'aicli_deepseek'
+                requireRuntimeIdentity = $true
+                minimumCliVersion = '0.147.0'
+            }
+            [IO.File]::WriteAllText(
+                $bridgeConfig,
+                ($config | ConvertTo-Json -Depth 20),
+                [Text.UTF8Encoding]::new($false)
+            )
+            $bridge = Join-Path $RepoRoot `
+                'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
+            $captured = Invoke-AiCliChildCapture `
+                -FileName (Get-Command pwsh.exe).Source `
+                -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
+                -WorkingDirectory $Work -StdInText 'STATIC TASK' `
+                -EventProtocol codex-app-server -CloseStdIn -TimeoutMs 5000 `
+                -RequireRuntimeIdentity `
+                -ExpectedRuntimeModel 'deepseek-v4-flash' `
+                -ExpectedRuntimeModelProvider 'aicli_deepseek'
+
+            $captured.ExitCode | Should -Be 74
+            $captured.ErrorCode | Should -BeExactly 'codex_appserver.runtime_identity_mismatch'
+        }
+    }
+
     It 'injects the trusted local model and provider expectations into the app-server bridge config' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $package = Join-Path $Work 'tool\node_modules\@openai\codex'
@@ -602,7 +801,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                 [Console]::SetOut($writer)
                 $code = Invoke-AiCliRouter -StdInText 'STATIC TASK' -Tokens @(
                     'run', 'codex-ollama-main', '--project', $Work,
-                    '--stdin', '--json', '--sandbox-policy', 'workspace-write',
+                    '--stdin', '--json', '--sandbox-policy', 'danger-full-access',
                     '--max-output-chars', '1000000', '--authority-prelude-stdout',
                     '--timeout-seconds', '7200', '--watchdog-only',
                     '--event-file', $eventFile, '--', 'exec', '--json', '-'
@@ -618,7 +817,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     $StdInText -eq 'STATIC TASK' -and
                     $TimeoutMs -eq 7200000 -and
                     $MaxCaptureChars -eq 1000000 -and
-                    $SandboxPolicy -eq 'workspace-write' -and
+                    $SandboxPolicy -eq 'danger-full-access' -and
                     $WatchdogOnly -and $AuthorityPreludeStdout -and
                     -not $EnforceStepLimit -and -not $EnforceToolCallLimit -and
                     $MachineEventFile -eq $eventFile -and
@@ -696,7 +895,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                 [pscustomobject]@{
                     RuntimePath = (Join-Path $Work '.runtime'); FileName = 'C:\fake\codex.exe'
                     ArgumentList = @('exec','--json','-'); EnvironmentDelta = @{}
-                    StdInText = 'TASK'; UseOuterSandbox = $true; EventProtocol = 'codex-jsonl'
+                    StdInText = 'TASK'; UseOuterSandbox = $false; EventProtocol = 'codex-jsonl'
                     AdditionalReadRoots = @(); PrivateTaskPipeName = $null
                 }
             }
@@ -719,9 +918,9 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     RuntimeIdentity = [ordered]@{
                         model = 'qwen-main-v1'; model_provider = 'aicli_ollama_main'
                         cli_version = '0.147.0'; permission = [ordered]@{
-                            approval_policy = 'never'; requested_policy = 'workspace-write'
-                            sandbox_boundary = 'outer-codex'; sandbox_type = 'externalSandbox'
-                            permission_profile = ':workspace-write'
+                            approval_policy = 'never'; requested_policy = 'danger-full-access'
+                            sandbox_boundary = 'codex-native'; sandbox_type = 'dangerFullAccess'
+                            permission_profile = ':danger-full-access'
                         }
                     }
                 }
@@ -744,7 +943,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
 
             $result = Invoke-AiCliProfileCapture -ProfileId 'codex-ollama-main' `
                 -ProjectPath $Work -StdInText 'TASK' -TimeoutMs 7200000 `
-                -SandboxPolicy workspace-write -WatchdogOnly -AuthorityPreludeStdout
+                -SandboxPolicy danger-full-access -WatchdogOnly -AuthorityPreludeStdout
 
             @($script:Order) | Should -Be @(
                 'prelude', 'participant-start', 'close', 'tree-kill', 'terminal'
@@ -805,7 +1004,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     RuntimePath = (Join-Path $Work '.runtime'); FileName = 'C:\fake\codex.exe'
                     ArgumentList = @('exec','--json','-')
                     EnvironmentDelta = @{ AICLI_TEST = 'bound' }
-                    StdInText = 'TASK'; UseOuterSandbox = $true
+                    StdInText = 'TASK'; UseOuterSandbox = $false
                     EventProtocol = 'codex-jsonl'; AdditionalReadRoots = @()
                     PrivateTaskPipeName = $null
                 }
@@ -824,9 +1023,9 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     RuntimeIdentity = [ordered]@{
                         model = 'qwen-main-v1'; model_provider = 'aicli_ollama_main'
                         cli_version = '0.147.0'; permission = [ordered]@{
-                            approval_policy = 'never'; requested_policy = 'workspace-write'
-                            sandbox_boundary = 'outer-codex'; sandbox_type = 'externalSandbox'
-                            permission_profile = ':workspace-write'
+                            approval_policy = 'never'; requested_policy = 'danger-full-access'
+                            sandbox_boundary = 'codex-native'; sandbox_type = 'dangerFullAccess'
+                            permission_profile = ':danger-full-access'
                         }
                     }
                 }
@@ -848,7 +1047,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                 [Console]::SetOut($writer)
                 $code = Invoke-AiCliRouter -StdInText 'TASK' -Tokens @(
                     'run', 'codex-ollama-main', '--project', $Work,
-                    '--stdin', '--json', '--sandbox-policy', 'workspace-write',
+                    '--stdin', '--json', '--sandbox-policy', 'danger-full-access',
                     '--timeout-seconds', '7200', '--watchdog-only'
                 )
             } finally {

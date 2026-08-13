@@ -26,13 +26,13 @@ function Show-AiCliHelpRoot {
     Write-Host @"
 $name — 命令帮助
 
-功能：用 Profile 启动原生 Codex / Claude Code / Qwen Code / OpenCode / Open Interpreter，或供上层 AI 发起有界沙箱任务。
+功能：用 Profile 启动原生 Codex / Claude Code / Qwen Code / OpenCode / Open Interpreter，或供上层 AI 发起受硬预算监管的任务；Codex harness 始终是完全访问。
 
 常用命令：
   $cmd setup
   $cmd profile list
   $cmd start <profile> [--project <path>] [-- <native-args...>]
-  $cmd run <profile> --stdin --json --project <path> --sandbox-policy <read-only|workspace-write> -- <native-args...>
+  $cmd run <profile> --stdin --json --project <path> [--sandbox-policy <policy>] [--no-web-search] -- <native-args...>
   $cmd doctor [profile]
   $cmd test <profile> --live [--level text|tool|all] [--yes]
   $cmd proxy <ccp|cliproxy> status
@@ -49,6 +49,7 @@ $name — 命令帮助
   $cmd start codex-ollama-review --project <trusted-workspace>
 
 使用 $cmd profile list --available 查看 exact model 与默认 max；云 Profile 首次使用前只需配置一次 SecretRef。
+所有当前及未来 Codex harness 调用固定为原生 danger-full-access，并默认提供受管 public_web_search；显式较低权限会失败关闭，--no-web-search 只关闭搜索。
 
 详细手册见 docs/user/。
 "@
@@ -147,7 +148,9 @@ Claude 底栏「manual mode on」= 官方默认档，不是故障。
   --permission-mode bypassPermissions --dangerously-skip-permissions
 PowerShell 防吞参数：pwsh -File bin\aicli.ps1 --% start … -- --permission-mode …
 
-安全：公开项目不默认开启“完全访问/不询问”。需要时在原生 CLI 内显式设置。
+安全：交互式 `aicli start` 不替用户改写原生权限；面向上层程序的 `aicli run`
+对所有当前及未来 Codex 模型固定使用 `danger-full-access` 与 `approvalPolicy=never`，默认注册固定 HTTPS RSS 的受管 `public_web_search`，
+显式较低权限会失败关闭。该合同不按模型白名单分支，新增 Codex 模型自动继承。
 专文：docs/user/CLAUDE-PERMISSIONS-AND-QWEN.md
 '@
 }
@@ -195,9 +198,9 @@ function Show-AiCliHelpCommand {
     param([Parameter(Mandatory)][string]$Command)
     $rows = [ordered]@{
         setup     = @('首次引导与本机体检。','aicli setup','显示环境状态并选择要配置的 Profile。')
-        profile   = @('查看、配置、设默认值或删除用户 Profile。','aicli profile list --available；aicli profile configure <模板 ID>；aicli profile remove <ID>','删除最后一个引用某密钥的 Profile 时，也会删除对应 DPAPI 密钥文件。')
+        profile   = @('查看、配置、设默认值或删除用户 Profile。','aicli profile list --available；aicli profile configure <模板 ID> [--reuse-existing-secret | --reuse-secret-from <Profile ID>]；aicli profile remove <ID>','秘密复用只允许同一凭据域且不读取明文；删除最后一个引用某密钥的 Profile 时，也会删除对应 DPAPI 密钥文件。')
         start     = @('在指定项目目录中启动真实上游 CLI。','aicli start <精确 Profile ID> --project <项目路径>','第三方 Profile 封闭 Provider、模型、Responses、max 映射和 SecretRef；用户无需拼底层参数。')
-        run       = @('供上层程序通过 stdin 调用一个有界智能体任务。','aicli run <Profile ID> --stdin --json --project <路径> --sandbox-policy read-only|workspace-write -- <原生参数>','本地/第三方使用断网外层沙箱；官方 Codex 使用原生沙箱和隔离认证目录。只返回公开结果与结果侧元数据，不返回环境或密钥。')
+        run       = @('供上层程序通过 stdin 调用一个受墙钟、步数、工具和输出预算监管的任务；预算不等于权限沙箱。','aicli run <Profile ID> --stdin --json --project <路径> [--sandbox-policy <policy>] [--no-web-search] -- <原生参数>','所有当前及未来 Codex harness Profile 固定使用原生 danger-full-access，并默认提供固定 HTTPS RSS 的受管 public_web_search；显式较低权限会失败关闭，--no-web-search 只关闭搜索。回读 exact 运行时模型/Provider/权限身份，只返回公开结果与结果侧元数据，不返回环境或密钥。')
         doctor    = @('检查 CLI、Profile、端点、代理和配置冲突，不发送模型请求。','aicli doctor [Profile ID] [--json]','输出“通过 / 可用 / 可用但有限制 / 不可用”及下一步。')
         test      = @('通过目标 CLI 发送一次真实连通请求。','aicli test <Profile ID> --live --level text --yes','会消耗额度；最终正文必须严格匹配 PONG，未执行的工具测试不会冒充通过。')
         proxy     = @('安装、登录、启停和检查 ccp / CLIProxyAPI。','aicli proxy <ccp|cliproxy> status','只允许 loopback 监听；ChatGPT 通道为可选第三方方案。')

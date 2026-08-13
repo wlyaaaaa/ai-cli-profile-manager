@@ -32,7 +32,7 @@ Describe 'Exact third-party Codex Profiles' {
             })
         }
 
-        @($profiles).Count | Should -BeGreaterOrEqual 7
+        @($profiles).Count | Should -Be 5
         foreach ($manifest in @($profiles)) {
             $manifest.transport | Should -Be 'responses' -Because $manifest.id
             $manifest.flexible | Should -BeFalse -Because $manifest.id
@@ -125,6 +125,7 @@ Describe 'Exact third-party Codex Profiles' {
             $model.context_window | Should -Be 1048576 -Because $profileId
             $model.max_context_window | Should -Be 1048576 -Because $profileId
             $model.effective_context_window_percent | Should -Be 95 -Because $profileId
+            $model.default_reasoning_level | Should -Be 'max' -Because $profileId
             @($model.supported_reasoning_levels.effort) | Should -Be @('low', 'high', 'max') -Because $profileId
         }
     }
@@ -278,6 +279,89 @@ Describe 'Exact third-party Codex Profiles' {
             $plan.argumentList | Should -Contain 'model_providers.aicli_qwen38_max_paygo.env_key="AICLI_CODEX_PROVIDER_KEY"'
             $plan.environmentDelta.AICLI_CODEX_PROVIDER_KEY | Should -Be 'test-secret-never-serialize'
             ($plan.argumentList -join "`n") | Should -Not -Match 'test-secret-never-serialize|opaque-secret-ref'
+        }
+    }
+
+    It 'closes both DeepSeek Codex Profiles over exact identity, Responses and max in argv and managed TOML' {
+        $expected = @(
+            [ordered]@{
+                ProfileId = 'codex-deepseek'
+                Model = 'deepseek-v4-flash'
+                ProviderId = 'aicli_deepseek'
+                OtherModel = 'deepseek-v4-pro'
+            },
+            [ordered]@{
+                ProfileId = 'codex-deepseek-v4-pro'
+                Model = 'deepseek-v4-pro'
+                ProviderId = 'aicli_deepseek_v4_pro'
+                OtherModel = 'deepseek-v4-flash'
+            }
+        )
+
+        foreach ($spec in $expected) {
+            $profile = InModuleScope AiCliProfileManager -Parameters @{ ProfileId = $spec.ProfileId } {
+                Get-AiCliProviderManifest -Id $ProfileId
+            }
+            $profile = $profile | ConvertTo-Json -Depth 50 | ConvertFrom-Json -AsHashtable
+            $profile.secretConfigured = $true
+            $profile.secretRef = 'opaque-deepseek-secret-ref'
+
+            InModuleScope AiCliProfileManager -Parameters @{
+                Work = $TestDrive
+                Profile = $profile
+                Spec = $spec
+            } {
+                $script:managedToml = $null
+                Mock Resolve-AiCliCodexLaunchExecutable {
+                    [pscustomobject]@{ FileName = 'C:\fake\codex.exe'; PrefixArgs = @(); Kind = 'test' }
+                }
+                Mock Get-AiCliResolvedCliVersionEvidence {
+                    [pscustomobject]@{ Version = 'codex-cli 0.147.0'; FileName = 'C:\fake\codex.exe' }
+                }
+                Mock Publish-AiCliCodexModelCatalog {
+                    Join-Path $Work ($Spec.Model + '.json')
+                }
+                Mock Write-AiCliCodexManagedProfile {
+                    $script:managedToml = [string]$TomlBody
+                    [pscustomobject]@{
+                        CliProfileName = 'aicli-' + $Spec.ProfileId
+                        FilePath = (Join-Path $Work ($Spec.ProfileId + '.config.toml'))
+                        ContentHash = ('0' * 64)
+                    }
+                }
+                Mock Get-AiCliSecret { 'deepseek-secret-canary-never-serialize' }
+
+                $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work
+
+                $plan.model | Should -BeExactly $Spec.Model
+                $plan.modelProvider | Should -BeExactly $Spec.ProviderId
+                $plan.wire | Should -BeExactly 'responses'
+                $plan.endpoint | Should -BeExactly 'https://api.deepseek.com'
+                $plan.effort | Should -BeExactly 'max'
+                $plan.effectiveEffort | Should -BeExactly 'max'
+                $plan.argumentList | Should -Contain 'model_reasoning_effort="max"'
+                $plan.argumentList | Should -Contain ('model="' + $Spec.Model + '"')
+                $plan.argumentList | Should -Contain (
+                    'model_providers.' + $Spec.ProviderId + '.wire_api="responses"'
+                )
+                $plan.argumentList | Should -Contain (
+                    'model_providers.' + $Spec.ProviderId + '.env_key="AICLI_CODEX_PROVIDER_KEY"'
+                )
+                $plan.environmentDelta.AICLI_CODEX_PROVIDER_KEY |
+                    Should -BeExactly 'deepseek-secret-canary-never-serialize'
+                $script:managedToml | Should -Match (
+                    '(?m)^model = "' + [regex]::Escape($Spec.Model) + '"$'
+                )
+                $script:managedToml | Should -Match (
+                    '(?m)^model_provider = "' + [regex]::Escape($Spec.ProviderId) + '"$'
+                )
+                $script:managedToml | Should -Match '(?m)^model_reasoning_effort = "max"$'
+                $script:managedToml | Should -Match '(?m)^wire_api = "responses"\r?$'
+                $script:managedToml | Should -Match '(?m)^env_key = "AICLI_CODEX_PROVIDER_KEY"\r?$'
+                $allPublicText = ($plan.argumentList -join "`n") + "`n" + $script:managedToml
+                $allPublicText | Should -Not -Match 'deepseek-secret-canary-never-serialize|opaque-deepseek-secret-ref'
+                $allPublicText | Should -Not -Match ([regex]::Escape($Spec.OtherModel))
+            }
         }
     }
 }

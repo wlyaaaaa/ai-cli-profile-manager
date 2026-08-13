@@ -162,17 +162,15 @@ Describe 'Rust Open Interpreter adapter' {
 }
 
 Describe 'Rust Open Interpreter manifests' {
-    It 'declares the expected wire APIs and public Ollama endpoint' {
+    It 'declares the retained DeepSeek wire API and public Ollama endpoint' {
         $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-        $qwen = Get-Content -LiteralPath (Join-Path $repoRoot 'data\providers\oi-qwen-paygo.json') -Raw | ConvertFrom-Json
         $deepseek = Get-Content -LiteralPath (Join-Path $repoRoot 'data\providers\oi-deepseek.json') -Raw | ConvertFrom-Json
         $ollama = Get-Content -LiteralPath (Join-Path $repoRoot 'data\providers\oi-ollama.json') -Raw | ConvertFrom-Json
 
-        $qwen.wireApi | Should -Be 'responses'
         $deepseek.wireApi | Should -Be 'chat'
         $ollama.wireApi | Should -Be 'responses'
         $ollama.endpoint | Should -Be 'http://127.0.0.1:11434/v1'
         $ollama.models.primary | Should -Be 'qwen3-coder:30b'
-        @($qwen, $deepseek) | ForEach-Object { $_.auth.envKey | Should -Be 'AICLI_OI_PROVIDER_KEY' }
+        $deepseek.auth.envKey | Should -Be 'AICLI_OI_PROVIDER_KEY'
     }
 }

@@ -161,7 +161,8 @@ function New-AiCliCodexProviderToml {
     param(
         $MergedProfile,
         [string]$EnvKeyName = 'OPENAI_API_KEY',
-        [string]$ModelCatalogPath
+        [string]$ModelCatalogPath,
+        [string]$ReasoningEffort
     )
     $providerId = Get-AiCliProperty $MergedProfile 'codexProviderId'
     if (-not $providerId) { $providerId = 'aicli_' + ((Get-AiCliProperty $MergedProfile 'id') -replace '-', '_') }
@@ -190,6 +191,14 @@ function New-AiCliCodexProviderToml {
         ConvertTo-AiCliTomlString ([IO.Path]::GetFullPath($ModelCatalogPath))
     }
     $catalogLine = if ($catalogToml) { "model_catalog_json = $catalogToml`n" } else { '' }
+    $effortLine = if ([string]::IsNullOrWhiteSpace($ReasoningEffort)) {
+        ''
+    } else {
+        if ($ReasoningEffort -cnotin (Get-AiCliCodexEffortLevels)) {
+            throw "Codex reasoning effort 非法: $ReasoningEffort"
+        }
+        "model_reasoning_effort = $(ConvertTo-AiCliTomlString $ReasoningEffort)`n"
+    }
     $autoCompact = Get-AiCliCodexAutoCompactConfiguration -MergedProfile $MergedProfile
     $autoCompactLines = if ($autoCompact) {
         "model_auto_compact_token_limit = $($autoCompact.Limit)`n" +
@@ -218,7 +227,7 @@ function New-AiCliCodexProviderToml {
     $body = @"
 model = $modelToml
 model_provider = $providerToml
-$catalogLine$autoCompactLines
+$effortLine$catalogLine$autoCompactLines
 
 [model_providers.$providerId]
 name = $nameToml
@@ -567,7 +576,6 @@ function Build-AiCliCodexLaunchPlan {
     $configFiles = @()
     $authSourceFile = $null
     $sandboxBoundary = 'outer-codex'
-    $workspaceWriteValidated = $true
     $localGpuBrokerSession = $null
     $notes = @()
     $requestedEffort = Resolve-AiCliCodexEffort -MergedProfile $MergedProfile -NativeArgs $NativeArgs
@@ -600,7 +608,7 @@ function Build-AiCliCodexLaunchPlan {
             $authSourceFile = [IO.Path]::GetFullPath($authCandidate)
             $sandboxBoundary = 'codex-native'
             $notes += '机器入口仅复制 auth.json 到一次性 CODEX_HOME；不复制配置、规则、skills、sessions 或历史。'
-            $notes += '模型传输由官方 Codex CLI 联网；模型生成的命令仍由 Codex 原生沙箱限制。'
+            $notes += 'Codex harness 固定原生 danger-full-access；只应传入可信工作区与任务。'
         }
     }
     elseif ($provider -eq 'ollama' -or $id -eq 'codex-ollama') {
@@ -629,7 +637,8 @@ function Build-AiCliCodexLaunchPlan {
         }
         $modelCatalogPath = Publish-AiCliCodexModelCatalog -MergedProfile $MergedProfile
         $toml = New-AiCliCodexProviderToml -MergedProfile $merged2 `
-            -EnvKeyName 'AICLI_CODEX_PROVIDER_KEY' -ModelCatalogPath $modelCatalogPath
+            -EnvKeyName 'AICLI_CODEX_PROVIDER_KEY' -ModelCatalogPath $modelCatalogPath `
+            -ReasoningEffort $effort
         $written = Write-AiCliCodexManagedProfile -MergedProfile $merged2 -TomlBody $toml
         $cliArgs.Add('--profile') | Out-Null
         $cliArgs.Add($written.CliProfileName) | Out-Null
@@ -654,21 +663,17 @@ function Build-AiCliCodexLaunchPlan {
         foreach ($v in $script:AiCliCodexProviderVars) { $removeEnv += $v }
         $removeEnv += @('OPENAI_BASE_URL')
         if ($MachineRun) {
-            # The Codex process must retain network access to reach the remote
-            # Responses provider. Codex native sandboxing still constrains
-            # model-generated commands and can deny their network access.
+            # Every current/future Codex harness route uses native
+            # danger-full-access. The provider still requires network access;
+            # callers must supply only a trusted workspace and task.
             $sandboxBoundary = 'codex-native'
-            # Live Qwen Cloud tasks on 2026-07-28 proved that Codex 0.145
-            # accepted the turn but rejected every workspace write. Fail before
-            # provider invocation until that contract is independently fixed
-            # and re-accepted.
-            $workspaceWriteValidated = $false
         }
         $providerId = Get-AiCliProperty $MergedProfile 'codexProviderId'
         if (-not $providerId) { $providerId = 'aicli_' + ($id -replace '-', '_') }
         $modelCatalogPath = Publish-AiCliCodexModelCatalog -MergedProfile $MergedProfile
         $toml = New-AiCliCodexProviderToml -MergedProfile $MergedProfile `
-            -EnvKeyName 'AICLI_CODEX_PROVIDER_KEY' -ModelCatalogPath $modelCatalogPath
+            -EnvKeyName 'AICLI_CODEX_PROVIDER_KEY' -ModelCatalogPath $modelCatalogPath `
+            -ReasoningEffort $effort
         $written = Write-AiCliCodexManagedProfile -MergedProfile $MergedProfile -TomlBody $toml
         $cliArgs.Add('--profile') | Out-Null
         $cliArgs.Add($written.CliProfileName) | Out-Null
@@ -717,7 +722,7 @@ function Build-AiCliCodexLaunchPlan {
             configFiles = @($configFiles)
             authSourceFile = $authSourceFile
             sandboxBoundary = $sandboxBoundary
-            workspaceWriteValidated = $workspaceWriteValidated
+            harnessAccess = 'danger-full-access'
             localGpuBrokerSession = $localGpuBrokerSession
         }
     }

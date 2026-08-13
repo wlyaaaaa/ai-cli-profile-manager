@@ -15,6 +15,73 @@ function Test-AiCliManifestSafety {
     }
 }
 
+function Get-AiCliRetiredModelIds {
+    # Tombstones remain in code so stale user Profiles fail closed instead of
+    # silently selecting a replacement. They must never appear in a runnable
+    # provider Manifest or model catalog.
+    return @(
+        'qwen3.7-max',
+        'qwen3.7-max-2026-05-20',
+        'qwen3.7-max-2026-06-08',
+        'qwen3.7-max-preview',
+        'qwen3.7-plus',
+        'qwen3.7-plus-2026-05-26'
+    )
+}
+
+function Test-AiCliRetiredModelId {
+    param([string]$ModelId)
+    if ([string]::IsNullOrWhiteSpace($ModelId)) { return $false }
+    $normalized = $ModelId.Trim().Trim('"', "'")
+    $lower = $normalized.ToLowerInvariant()
+    if ($lower -match '^qwen3(?:\.|[-_])?7(?:[-_.])?(?:max|plus)(?:$|[-._:/+@])') {
+        return $true
+    }
+    if ($lower -match '^deepseek-v4(?:$|[-._:/+@])') {
+        return $normalized -cnotin @('deepseek-v4-flash', 'deepseek-v4-pro')
+    }
+    return $false
+}
+
+function Assert-AiCliModelIsActive {
+    param(
+        [string]$ModelId,
+        [string]$Context = '模型'
+    )
+    if ($ModelId -and $ModelId.Trim().Trim('"', "'") -match '^deepseek-v4(?:$|[-._:/+@])' -and
+        (Test-AiCliRetiredModelId -ModelId $ModelId)) {
+        throw "$Context 引用了已退役或未登记的 DeepSeek V4 模型 $ModelId；AICLI 只保留 API alias deepseek-v4-flash（DeepSeek-V4-Flash-0731）与 deepseek-v4-pro（DeepSeek-V4-Pro-0813）。"
+    }
+    if (Test-AiCliRetiredModelId -ModelId $ModelId) {
+        throw "$Context 引用了已退役的 Qwen3.7 云模型 $ModelId；AICLI 已移除对应入口且不会自动改投其他模型。"
+    }
+}
+
+function Assert-AiCliProfileDoesNotUseRetiredModel {
+    param(
+        [Parameter(Mandatory)]$Profile,
+        [string]$Context = 'Profile'
+    )
+    $models = Get-AiCliProperty $Profile 'models'
+    if ($null -ne $models) {
+        foreach ($field in @('primary','small','candidates','reserved')) {
+            foreach ($modelId in @((Get-AiCliProperty $models $field)) | Where-Object { $_ }) {
+                Assert-AiCliModelIsActive -ModelId ([string]$modelId) -Context $Context
+            }
+        }
+    }
+    $metadata = Get-AiCliProperty $Profile 'modelMetadata'
+    if ($metadata -is [System.Collections.IDictionary]) {
+        foreach ($modelId in $metadata.Keys) {
+            Assert-AiCliModelIsActive -ModelId ([string]$modelId) -Context $Context
+        }
+    } elseif ($null -ne $metadata) {
+        foreach ($property in $metadata.PSObject.Properties) {
+            Assert-AiCliModelIsActive -ModelId ([string]$property.Name) -Context $Context
+        }
+    }
+}
+
 function Assert-AiCliManifestCore {
     param($M)
     if ($M -isnot [System.Collections.IDictionary]) { throw 'Manifest 根节点必须是 JSON object。' }
@@ -136,6 +203,7 @@ function Assert-AiCliManifestCore {
     foreach ($modelId in @((Get-AiCliProperty $models 'reserved') | Where-Object { $_ })) {
         $null = Assert-AiCliModelId -Model ([string]$modelId)
     }
+    Assert-AiCliProfileDoesNotUseRetiredModel -Profile $M -Context "Manifest $id"
     $exactThirdPartyCodex = [string](Get-AiCliProperty $M 'engine') -ceq 'codex' -and
         [string](Get-AiCliProperty $M 'provider') -cin @('qwen','deepseek','ollama') -and
         -not [bool](Get-AiCliProperty $M 'hidden' $false)

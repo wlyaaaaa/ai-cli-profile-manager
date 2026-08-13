@@ -164,7 +164,9 @@ function Merge-AiCliProfile {
         [Parameter(Mandatory)]$Template,
         $UserProfile
     )
+    Assert-AiCliProfileDoesNotUseRetiredModel -Profile $Template -Context 'Provider 模板'
     if ($null -ne $UserProfile) {
+        Assert-AiCliProfileDoesNotUseRetiredModel -Profile $UserProfile -Context '用户 Profile'
         Assert-AiCliExactCodexUserProfileCompatible -Template $Template -UserProfile $UserProfile
     }
     $merged = [ordered]@{}
@@ -325,6 +327,7 @@ function Get-AiCliResolvedProfile {
         if ($userId -cne $Id) {
             throw "用户 Profile 文件名与内部 ID 不一致: $Id / $userId"
         }
+        Assert-AiCliProfileDoesNotUseRetiredModel -Profile $user -Context "用户 Profile $Id"
         $tid = Get-AiCliProperty $user 'templateId'
         if (-not $tid) { $tid = Get-AiCliProperty $user 'id' }
         $template = Get-AiCliProviderManifest -Id $tid
@@ -405,6 +408,80 @@ function Set-AiCliLastProfile {
     Save-AiCliSettings -Settings $s
 }
 
+function Resolve-AiCliReusableSecretRef {
+    param(
+        [Parameter(Mandatory)]$Template,
+        [Parameter(Mandatory)][string]$ProfileId,
+        $ExistingProfile,
+        [switch]$ReuseExistingSecret,
+        [string]$ReuseSecretFrom
+    )
+
+    if ($ReuseExistingSecret -and $ReuseSecretFrom) {
+        throw '--reuse-existing-secret 与 --reuse-secret-from 不能同时使用。'
+    }
+    if (-not $ReuseExistingSecret -and [string]::IsNullOrWhiteSpace($ReuseSecretFrom)) {
+        return $null
+    }
+    if (-not [bool](Get-AiCliProperty $Template 'requiresSecret' $false)) {
+        throw '当前模板不需要秘密，不能使用 SecretRef 复用选项。'
+    }
+
+    $getCredentialDomain = {
+        param($Profile)
+        $endpoint = [string](Get-AiCliProperty $Profile 'endpoint')
+        $hostName = ''
+        if (-not [string]::IsNullOrWhiteSpace($endpoint)) {
+            try { $hostName = ([Uri]$endpoint).DnsSafeHost.ToLowerInvariant() } catch {}
+        }
+        return ('{0}|{1}|{2}|{3}|{4}' -f
+            ([string](Get-AiCliProperty $Profile 'provider')).ToLowerInvariant(),
+            ([string](Get-AiCliProperty (Get-AiCliProperty $Profile 'auth') 'type')).ToLowerInvariant(),
+            ([string](Get-AiCliProperty $Profile 'plan')).ToLowerInvariant(),
+            ([string](Get-AiCliProperty $Profile 'region')).ToLowerInvariant(),
+            $hostName)
+    }
+    $targetDomain = & $getCredentialDomain $Template
+    $secretRef = $null
+    if ($ReuseExistingSecret) {
+        if ($null -eq $ExistingProfile) {
+            throw "Profile $ProfileId 尚无现有 SecretRef 可复用。"
+        }
+        $existingTemplateId = [string](Get-AiCliProperty $ExistingProfile 'templateId')
+        if ([string]::IsNullOrWhiteSpace($existingTemplateId)) {
+            throw "Profile $ProfileId 缺少可验证的模板身份，拒绝复用 SecretRef。"
+        }
+        $existingTemplate = Get-AiCliProviderManifest -Id $existingTemplateId
+        if ((& $getCredentialDomain $existingTemplate) -cne $targetDomain) {
+            throw "Profile $ProfileId 的原 Provider/认证域与目标不一致，拒绝复用 SecretRef。"
+        }
+        $secretRef = [string](Get-AiCliProperty $ExistingProfile 'secretRef')
+    } else {
+        $sourceId = Assert-AiCliSafeIdentifier -Id $ReuseSecretFrom -Kind '来源 Profile ID'
+        if ($sourceId -ceq $ProfileId) {
+            throw '复用当前 Profile 的 SecretRef 请使用 --reuse-existing-secret。'
+        }
+        $sourceRaw = Get-AiCliUserProfile -Id $sourceId
+        if ($null -eq $sourceRaw) {
+            throw "来源用户 Profile 不存在: $sourceId"
+        }
+        $source = Get-AiCliResolvedProfile -Id $sourceId
+        if ((& $getCredentialDomain $source) -cne $targetDomain) {
+            throw "来源 Profile $sourceId 与目标 Provider/认证域不兼容，拒绝复用 SecretRef。"
+        }
+        if (-not [bool](Get-AiCliProperty $source 'secretConfigured' $false)) {
+            throw "来源 Profile $sourceId 的 SecretRef 不可用。"
+        }
+        $secretRef = [string](Get-AiCliProperty $sourceRaw 'secretRef')
+    }
+
+    if ([string]::IsNullOrWhiteSpace($secretRef) -or
+        -not (Test-AiCliSecretExists -SecretId $secretRef)) {
+        throw '指定的现有 SecretRef 不存在或不可用。'
+    }
+    return $secretRef
+}
+
 function Resolve-AiCliQwenWorkspaceResponsesEndpoint {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Endpoint)
@@ -436,7 +513,9 @@ function Resolve-AiCliQwenWorkspaceResponsesEndpoint {
 function Invoke-AiCliProfileConfigure {
     param(
         [Parameter(Mandatory)][string]$TemplateId,
-        [string]$ProfileId
+        [string]$ProfileId,
+        [switch]$ReuseExistingSecret,
+        [string]$ReuseSecretFrom
     )
     $template = Get-AiCliProviderManifest -Id $TemplateId
     if (Get-AiCliProperty $template 'hidden' $false) {
@@ -515,13 +594,22 @@ function Invoke-AiCliProfileConfigure {
         }
     }
 
-    $secretRef = $null
+    $secretRef = Resolve-AiCliReusableSecretRef `
+        -Template $template `
+        -ProfileId $id `
+        -ExistingProfile $existing `
+        -ReuseExistingSecret:$ReuseExistingSecret `
+        -ReuseSecretFrom $ReuseSecretFrom
     $oldSecretRef = if ($existing) { Get-AiCliProperty $existing 'secretRef' } else { $null }
-    if ([bool](Get-AiCliProperty $template 'requiresSecret' $false)) {
+    $createdNewSecret = $false
+    if ($secretRef) {
+        Write-AiCliInfo '将复用现有 SecretRef；不会读取、回显或复制秘密值。'
+    } elseif ([bool](Get-AiCliProperty $template 'requiresSecret' $false)) {
         $plain = Read-AiCliSecret -Prompt '请输入 API Key（不回显，不会写入 Git 或日志）'
         if ([string]::IsNullOrEmpty($plain)) { throw '未录入密钥，配置已取消' }
         try {
             $secretRef = New-AiCliSecret -PlainText $plain -Label "$id-api-key"
+            $createdNewSecret = $true
         } finally {
             $plain = $null
         }
@@ -544,7 +632,7 @@ function Invoke-AiCliProfileConfigure {
     try {
         Save-AiCliUserProfile -Profile $userProf
     } catch {
-        if ($secretRef -and $secretRef -ne $oldSecretRef) {
+        if ($createdNewSecret -and $secretRef) {
             try { Remove-AiCliSecret -SecretId $secretRef } catch {}
         }
         throw

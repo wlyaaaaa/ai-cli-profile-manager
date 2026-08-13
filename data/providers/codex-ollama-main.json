@@ -31,5 +31,5 @@
   "virtualReady": true,
   "flexible": false,
   "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
-  "notes": "Machine run uses the native Codex workspace sandbox; the provider stays on the local broker with no cloud or fallback."
+  "notes": "Every Codex harness run uses native danger-full-access; the provider stays on the capability-bound local broker with no cloud or fallback."
 }

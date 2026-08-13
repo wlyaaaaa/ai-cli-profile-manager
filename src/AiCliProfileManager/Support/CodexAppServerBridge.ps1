@@ -13,6 +13,12 @@ $utf8NoBom = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = $utf8NoBom
 $OutputEncoding = $utf8NoBom
 
+$publicWebSearchSupport = Join-Path $PSScriptRoot 'PublicWebSearch.ps1'
+if (-not (Test-Path -LiteralPath $publicWebSearchSupport -PathType Leaf)) {
+    throw 'Managed public web search support is unavailable.'
+}
+. $publicWebSearchSupport
+
 function Get-BridgeProperty {
     param(
         [object]$Value,
@@ -271,6 +277,7 @@ function Throw-BridgeFailure {
             'codex_appserver.item_unfinished',
             'codex_appserver.command_status_invalid',
             'codex_appserver.command_metric_invalid',
+            'codex_appserver.web_search_request_invalid',
             'codex_appserver.server_request_unsupported'
         )]
         [string]$Code
@@ -317,6 +324,73 @@ function Receive-BridgeMessage {
     } catch {
         Throw-BridgeFailure -Code 'codex_appserver.protocol_line_invalid'
     }
+}
+
+function Invoke-BridgeServerRequest {
+    param([Parameter(Mandatory)][object]$Message)
+
+    $requestId = Get-BridgeProperty $Message 'id'
+    $method = [string](Get-BridgeProperty $Message 'method')
+    if ($null -eq $requestId -or $method -cne 'item/tool/call' -or
+        -not $script:WebSearchEnabled -or
+        -not $script:RuntimeIdentityVerified -or
+        [string]::IsNullOrWhiteSpace($script:ThreadId) -or
+        [string]::IsNullOrWhiteSpace($script:TurnId)) {
+        if ($null -ne $requestId) {
+            Send-BridgeMessage ([ordered]@{
+                id = $requestId
+                error = [ordered]@{
+                    code = -32601
+                    message = 'AICLI machine bridge rejected the server request.'
+                }
+            })
+        }
+        Throw-BridgeFailure -Code 'codex_appserver.server_request_unsupported'
+    }
+
+    $params = Get-BridgeProperty $Message 'params'
+    $arguments = Get-BridgeProperty $params 'arguments'
+    $callId = [string](Get-BridgeProperty $params 'callId')
+    $threadId = [string](Get-BridgeProperty $params 'threadId')
+    $turnId = [string](Get-BridgeProperty $params 'turnId')
+    $tool = [string](Get-BridgeProperty $params 'tool')
+    $namespace = Get-BridgeProperty $params 'namespace'
+    if ($params -isnot [System.Collections.IDictionary] -or
+        $arguments -isnot [System.Collections.IDictionary] -or
+        $callId -notmatch '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$' -or
+        $threadId -cne $script:ThreadId -or
+        $turnId -cne $script:TurnId -or
+        $tool -cne 'public_web_search' -or
+        ($null -ne $namespace -and
+            -not [string]::IsNullOrWhiteSpace([string]$namespace)) -or
+        $script:WebSearchCallIds.ContainsKey($callId)) {
+        Send-BridgeMessage ([ordered]@{
+            id = $requestId
+            error = [ordered]@{
+                code = -32602
+                message = 'AICLI rejected invalid public web search arguments.'
+            }
+        })
+        Throw-BridgeFailure -Code 'codex_appserver.web_search_request_invalid'
+    }
+    $script:WebSearchCallIds[$callId] = $true
+    try {
+        $result = Invoke-BridgePublicWebSearch -Arguments $arguments
+    } catch {
+        # Search provider/network failures are returned as a failed tool result.
+        # Never expose the query, response body, proxy details, or exception.
+        $result = [ordered]@{
+            success = $false
+            contentItems = @([ordered]@{
+                type = 'inputText'
+                text = '{"schemaVersion":1,"provider":"bing-rss-v1","error":"PUBLIC_WEB_SEARCH_UNAVAILABLE"}'
+            })
+        }
+    }
+    Send-BridgeMessage ([ordered]@{
+        id = $requestId
+        result = $result
+    })
 }
 
 function Test-BridgeVersionAtLeast {
@@ -551,7 +625,30 @@ function Assert-AndWriteBridgeRuntimeIdentity {
         Throw-BridgeFailure -Code 'codex_appserver.runtime_identity_mismatch'
     }
 
-    $sandboxType = if ($SandboxBoundary -eq 'outer-codex') {
+    if ($SandboxPolicy -eq 'danger-full-access') {
+        $actualApprovalPolicy = [string](
+            Get-BridgeProperty $ThreadResult 'approvalPolicy'
+        )
+        $actualSandbox = Get-BridgeProperty $ThreadResult 'sandbox'
+        $actualSandboxType = [string](
+            Get-BridgeProperty $actualSandbox 'type'
+        )
+        $actualPermissionProfile = Get-BridgeProperty `
+            $ThreadResult 'activePermissionProfile'
+        $actualPermissionProfileId = [string](
+            Get-BridgeProperty $actualPermissionProfile 'id'
+        )
+        if ($SandboxBoundary -ne 'codex-native' -or
+            $actualApprovalPolicy -ne 'never' -or
+            $actualSandboxType -ne 'dangerFullAccess' -or
+            $actualPermissionProfileId -ne ':danger-full-access') {
+            Throw-BridgeFailure -Code 'codex_appserver.runtime_identity_mismatch'
+        }
+    }
+
+    $sandboxType = if ($SandboxPolicy -eq 'danger-full-access') {
+        'dangerFullAccess'
+    } elseif ($SandboxBoundary -eq 'outer-codex') {
         'externalSandbox'
     } elseif ($SandboxPolicy -eq 'workspace-write') {
         'workspaceWrite'
@@ -569,7 +666,11 @@ function Assert-AndWriteBridgeRuntimeIdentity {
             requested_policy = $SandboxPolicy
             sandbox_boundary = $SandboxBoundary
             sandbox_type = $sandboxType
-            permission_profile = ':' + $SandboxPolicy
+            permission_profile = if ($SandboxPolicy -eq 'danger-full-access') {
+                $actualPermissionProfileId
+            } else {
+                ':' + $SandboxPolicy
+            }
         }
     })
 }
@@ -775,7 +876,28 @@ function Handle-BridgeNotification {
                 [string]::IsNullOrWhiteSpace($rawItemType)) {
                 Throw-BridgeFailure -Code 'codex_appserver.item_identity_invalid'
             }
-            $itemType = ConvertTo-BridgeItemType -ItemType $rawItemType
+            $dynamicTool = ''
+            $dynamicStatus = ''
+            $dynamicSuccess = $null
+            if ($rawItemType -eq 'dynamicToolCall') {
+                $dynamicTool = [string](Get-BridgeProperty $item 'tool')
+                $dynamicStatus = [string](Get-BridgeProperty $item 'status')
+                $dynamicSuccess = Get-BridgeProperty $item 'success'
+                $validDynamicLifecycle = if ($method -eq 'item/started') {
+                    $dynamicStatus -ceq 'inProgress' -and $null -eq $dynamicSuccess
+                } else {
+                    $dynamicStatus -cin @('completed', 'failed') -and
+                    $dynamicSuccess -is [bool]
+                }
+                if (-not $script:WebSearchEnabled -or
+                    $dynamicTool -cne 'public_web_search' -or
+                    -not $validDynamicLifecycle) {
+                    Throw-BridgeFailure -Code 'codex_appserver.item_lifecycle_invalid'
+                }
+                $itemType = 'web_search'
+            } else {
+                $itemType = ConvertTo-BridgeItemType -ItemType $rawItemType
+            }
             if ($method -eq 'item/started') {
                 Flush-BridgeAgentMessageDeltaBuffers
             } else {
@@ -840,6 +962,14 @@ function Handle-BridgeNotification {
             if ($method -eq 'item/completed' -and $itemType -eq 'agent_message') {
                 $safeItem['text'] = [string](Get-BridgeProperty $item 'text')
             }
+            if ($itemType -eq 'web_search') {
+                $safeItem['tool_name'] = 'public_web_search'
+                $safeItem['search_provider'] = 'bing-rss-v1'
+                $safeItem['search_status'] = $dynamicStatus
+                if ($null -ne $dynamicSuccess) {
+                    $safeItem['success'] = [bool]$dynamicSuccess
+                }
+            }
             if ($itemType -eq 'command_execution') {
                 $commandProjection = ConvertTo-BridgeCommandProjection `
                     -Item $item `
@@ -854,6 +984,11 @@ function Handle-BridgeNotification {
                 type = $method.Replace('/', '.')
                 item = $safeItem
             })
+        }
+        'model/rerouted' {
+            if ($script:RequireRuntimeIdentity) {
+                Throw-BridgeFailure -Code 'codex_appserver.runtime_identity_mismatch'
+            }
         }
         'turn/completed' {
             Assert-BridgeNotificationScope -Params $params
@@ -1181,6 +1316,8 @@ $script:FailureItemType = ''
 $script:CurrentNotificationMethod = ''
 $script:RequireRuntimeIdentity = $false
 $script:RuntimeIdentityVerified = $false
+$script:WebSearchEnabled = $false
+$script:WebSearchCallIds = @{}
 $serverErrorTask = $null
 $serverStarted = $false
 $bridgeExitCode = 1
@@ -1209,7 +1346,7 @@ try {
         Get-BridgeProperty $config 'sandboxPolicy' 'read-only'
     )
     if ($sandboxBoundary -notin @('outer-codex', 'codex-native') -or
-        $sandboxPolicy -notin @('read-only', 'workspace-write')) {
+        $sandboxPolicy -notin @('danger-full-access', 'read-only', 'workspace-write')) {
         throw 'Codex app-server bridge sandbox contract is invalid.'
     }
     $minimumCliVersion = [string](
@@ -1224,6 +1361,18 @@ try {
         throw 'Codex app-server runtime identity requirement is invalid.'
     }
     $script:RequireRuntimeIdentity = [bool]$requireRuntimeIdentityValue
+    $webSearchEnabledValue = Get-BridgeProperty $config 'webSearchEnabled' $false
+    if ($webSearchEnabledValue -isnot [bool]) {
+        throw 'Codex app-server web search setting is invalid.'
+    }
+    $script:WebSearchEnabled = [bool]$webSearchEnabledValue
+    if ($script:WebSearchEnabled -and (
+        $sandboxBoundary -cne 'codex-native' -or
+        $sandboxPolicy -cne 'danger-full-access' -or
+        -not $script:RequireRuntimeIdentity
+    )) {
+        throw 'Managed public web search requires verified danger-full-access.'
+    }
     $expectedModel = [string](Get-BridgeProperty $config 'expectedModel')
     $expectedModelProvider = [string](
         Get-BridgeProperty $config 'expectedModelProvider'
@@ -1309,7 +1458,7 @@ try {
             clientInfo = [ordered]@{
                 name = 'ai-cli-profile-manager'
                 title = 'AI CLI Profile Manager'
-                version = '0.3.4'
+                version = '0.3.5'
             }
             capabilities = [ordered]@{
                 # Codex 0.145 materializes the :workspace profile only when
@@ -1324,7 +1473,11 @@ try {
     Send-BridgeMessage ([ordered]@{ method = 'initialized' })
 
     $script:BridgeStage = 'thread_start'
-    $turnSandbox = if ($sandboxBoundary -eq 'outer-codex') {
+    $turnSandbox = if ($sandboxPolicy -eq 'danger-full-access') {
+        [ordered]@{
+            type = 'dangerFullAccess'
+        }
+    } elseif ($sandboxBoundary -eq 'outer-codex') {
         # The complete bridge/app-server process tree is already running under
         # `codex sandbox windows`. Declaring that boundary to app-server avoids
         # duplicate sandbox approval requests while `approvalPolicy=never`
@@ -1359,12 +1512,20 @@ try {
         approvalPolicy = 'never'
     }
     if ($sandboxBoundary -eq 'codex-native') {
-        $threadParams['permissions'] = if ($sandboxPolicy -eq 'workspace-write') {
-            ':workspace'
+        if ($sandboxPolicy -eq 'danger-full-access') {
+            # Select the named built-in profile so app-server returns
+            # activePermissionProfile=:danger-full-access. The legacy sandbox
+            # selector applies the same boundary but omits profile provenance.
+            $threadParams['permissions'] = ':danger-full-access'
+            $threadParams['runtimeWorkspaceRoots'] = @($workingDirectory)
         } else {
-            ':read-only'
+            $threadParams['permissions'] = if ($sandboxPolicy -eq 'workspace-write') {
+                ':workspace'
+            } else {
+                ':read-only'
+            }
+            $threadParams['runtimeWorkspaceRoots'] = @($workingDirectory)
         }
-        $threadParams['runtimeWorkspaceRoots'] = @($workingDirectory)
     } else {
         $threadParams['sandbox'] = 'danger-full-access'
     }
@@ -1375,6 +1536,9 @@ try {
     }
     if (-not [string]::IsNullOrWhiteSpace($model)) {
         $threadParams['model'] = $model
+    }
+    if ($script:WebSearchEnabled) {
+        $threadParams['dynamicTools'] = @(Get-BridgePublicWebSearchToolSpec)
     }
     Send-BridgeMessage ([ordered]@{
         id = 2
@@ -1426,7 +1590,9 @@ try {
         approvalPolicy = 'never'
     }
     if ($sandboxBoundary -eq 'codex-native') {
-        $turnParams['permissions'] = if ($sandboxPolicy -eq 'workspace-write') {
+        $turnParams['permissions'] = if ($sandboxPolicy -eq 'danger-full-access') {
+            ':danger-full-access'
+        } elseif ($sandboxPolicy -eq 'workspace-write') {
             ':workspace'
         } else {
             ':read-only'
@@ -1451,14 +1617,8 @@ try {
             Throw-BridgeFailure -Code 'codex_appserver.response_after_turn_unexpected'
         }
         if ($null -ne (Get-BridgeProperty $message 'id')) {
-            Send-BridgeMessage ([ordered]@{
-                id = Get-BridgeProperty $message 'id'
-                error = [ordered]@{
-                    code = -32601
-                    message = 'AICLI machine bridge does not accept server requests.'
-                }
-            })
-            Throw-BridgeFailure -Code 'codex_appserver.server_request_unsupported'
+            Invoke-BridgeServerRequest -Message $message
+            continue
         }
         Handle-BridgeNotification -Message $message
     }

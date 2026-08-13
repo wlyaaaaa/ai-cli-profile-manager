@@ -17,6 +17,30 @@ function Assert-AiCliLockedModelArgs {
     }
 }
 
+function Assert-AiCliNativeArgsDoNotUseRetiredModel {
+    param([string[]]$NativeArgs)
+    $expectModel = $false
+    foreach ($argument in @($NativeArgs)) {
+        $value = [string]$argument
+        if ($expectModel) {
+            Assert-AiCliModelIsActive -ModelId $value -Context '原生命令参数'
+            $expectModel = $false
+            continue
+        }
+        if ($value -in @('--model','-m','--fallback-model')) {
+            $expectModel = $true
+            continue
+        }
+        $candidate = $null
+        if ($value -cmatch '^--(?:fallback-)?model=(.+)$') { $candidate = $Matches[1] }
+        elseif ($value -cmatch '^-m(.+)$') { $candidate = $Matches[1] }
+        elseif ($value -cmatch '(?:^|\s)model\s*=\s*["'']?([^"''\s]+)') { $candidate = $Matches[1] }
+        if ($candidate) {
+            Assert-AiCliModelIsActive -ModelId $candidate -Context '原生命令参数'
+        }
+    }
+}
+
 function Build-AiCliLaunchPlan {
     param(
         [Parameter(Mandatory)][string]$ProfileId,
@@ -30,6 +54,7 @@ function Build-AiCliLaunchPlan {
         if (-not $tid) { $tid = $ProfileId }
         throw "Profile 未配置完成。下一步：aicli profile configure $tid"
     }
+    Assert-AiCliNativeArgsDoNotUseRetiredModel -NativeArgs $NativeArgs
     Assert-AiCliLockedModelArgs -MergedProfile $merged -NativeArgs $NativeArgs
     $project = Resolve-AiCliProjectPath -Project $ProjectPath
     $engine = Get-AiCliProperty $merged 'engine'
@@ -59,6 +84,7 @@ function Build-AiCliLaunchPlan {
         'opencode' { Build-AiCliOpenCodeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs; break }
         default { throw "未知引擎: $engine" }
     }
+    Assert-AiCliModelIsActive -ModelId ([string](Get-AiCliProperty $plan 'model')) -Context '最终启动计划'
     return (Apply-AiCliContextManagementPolicy -Plan $plan -MergedProfile $merged)
 }
 
@@ -303,14 +329,15 @@ function Invoke-AiCliProfileCapture {
         [string]$StdInText = $null,
         [int]$TimeoutMs = 120000,
         [int]$MaxCaptureChars = 1000000,
-        [ValidateSet('read-only','workspace-write')][string]$SandboxPolicy = 'read-only',
+        [ValidateSet('danger-full-access','read-only','workspace-write')][string]$SandboxPolicy = 'danger-full-access',
         [int]$MaxSteps = 20,
         [int]$MaxToolCalls = 80,
         [string]$MachineEventFile = $null,
         [switch]$EnforceStepLimit,
         [switch]$EnforceToolCallLimit,
         [switch]$WatchdogOnly,
-        [switch]$AuthorityPreludeStdout
+        [switch]$AuthorityPreludeStdout,
+        [switch]$DisableWebSearch
     )
     $enforceStepLimitEffective = if ($PSBoundParameters.ContainsKey('EnforceStepLimit')) {
         [bool]$EnforceStepLimit
@@ -323,10 +350,20 @@ function Invoke-AiCliProfileCapture {
         -not [bool]$WatchdogOnly
     }
     $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId -ProjectPath $ProjectPath -NativeArgs $NativeArgs -MachineRun
-    $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText $StdInText `
-        -Policy $SandboxPolicy -MaxSteps $MaxSteps -MaxToolCalls $MaxToolCalls
-    $started = [System.Diagnostics.Stopwatch]::StartNew()
     $engine = [string](Get-AiCliProperty $plan 'engine')
+    if ($engine -eq 'codex' -and $SandboxPolicy -ne 'danger-full-access') {
+        throw 'Codex harness requires danger-full-access for every current and future model.'
+    }
+    if ($engine -ne 'codex' -and $DisableWebSearch) {
+        throw '--no-web-search is supported only by Codex harness runs.'
+    }
+    if ($engine -eq 'codex' -and @($NativeArgs).Count -eq 0) {
+        $plan.argumentList = @((Get-AiCliProperty $plan 'argumentList')) + @('exec', '--json', '-')
+    }
+    $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText $StdInText `
+        -Policy $SandboxPolicy -MaxSteps $MaxSteps -MaxToolCalls $MaxToolCalls `
+        -DisableWebSearch:$DisableWebSearch
+    $started = [System.Diagnostics.Stopwatch]::StartNew()
     $defaultEventProtocol = if ($engine -eq 'codex') { 'codex-jsonl' } else { 'none' }
     $runtimeEventProtocol = [string](Get-AiCliProperty $runtime 'EventProtocol')
     $eventProtocol = if ([string]::IsNullOrWhiteSpace($runtimeEventProtocol)) {
@@ -343,7 +380,7 @@ function Invoke-AiCliProfileCapture {
     $receipt = $null
     $sessionConfiguration = Get-AiCliProperty `
         (Get-AiCliProperty $plan 'machineRuntime') 'localGpuBrokerSession'
-    $requireRuntimeIdentity = $null -ne $sessionConfiguration
+    $requireRuntimeIdentity = $engine -eq 'codex'
     try {
         if ($null -ne $sessionConfiguration) {
             $localGpuBrokerSession = Open-AiCliLocalGpuBrokerSession `
@@ -428,12 +465,25 @@ function Invoke-AiCliProfileCapture {
             } else { '' })
         if ($requireRuntimeIdentity) {
             $capturedIdentity = Get-AiCliProperty $captured 'RuntimeIdentity'
+            $capturedPermission = Get-AiCliProperty $capturedIdentity 'permission'
             if ($null -eq $capturedIdentity -or
                 [string](Get-AiCliProperty $capturedIdentity 'model') -cne
                     [string](Get-AiCliProperty $plan 'model') -or
                 [string](Get-AiCliProperty $capturedIdentity 'model_provider') -cne
-                    [string](Get-AiCliProperty $plan 'modelProvider')) {
-                throw 'LocalGpuBroker machine run has no matching verified runtime identity.'
+                    [string](Get-AiCliProperty $plan 'modelProvider') -or
+                [string](Get-AiCliProperty $capturedPermission 'approval_policy') -cne 'never' -or
+                [string](Get-AiCliProperty $capturedPermission 'requested_policy') -cne 'danger-full-access' -or
+                [string](Get-AiCliProperty $capturedPermission 'sandbox_boundary') -cne 'codex-native' -or
+                [string](Get-AiCliProperty $capturedPermission 'sandbox_type') -cne 'dangerFullAccess' -or
+                [string](Get-AiCliProperty $capturedPermission 'permission_profile') -cne ':danger-full-access') {
+                if ($null -ne $capturedIdentity -and
+                    [string](Get-AiCliProperty $capturedIdentity 'model') -ceq
+                        [string](Get-AiCliProperty $plan 'model') -and
+                    [string](Get-AiCliProperty $capturedIdentity 'model_provider') -ceq
+                        [string](Get-AiCliProperty $plan 'modelProvider')) {
+                    throw 'Codex machine run has no verified danger-full-access runtime permission identity.'
+                }
+                throw 'Codex machine run has no matching verified runtime identity.'
             }
         }
         $codexLimitsHard = $engine -eq 'codex' -and [bool](Get-AiCliProperty $captured 'LimitsHard' $false)
@@ -471,6 +521,19 @@ function Invoke-AiCliProfileCapture {
                 Get-AiCliProperty $captured 'Usage'
             )
             runtimeIdentity = Get-AiCliProperty $captured 'RuntimeIdentity'
+            runtimeCliPath = [string](Get-AiCliProperty $runtime 'TargetFileName' (
+                Get-AiCliProperty $runtime 'FileName'
+            ))
+            webSearch = [ordered]@{
+                enabled = [bool](Get-AiCliProperty $runtime 'WebSearchEnabled' $false)
+                provider = $(if ([bool](Get-AiCliProperty $runtime 'WebSearchEnabled' $false)) {
+                    'bing-rss-v1'
+                } else { $null })
+                searches = [int](Get-AiCliProperty $captured 'WebSearchCount' 0)
+                eventEvidence = $(if ([bool](Get-AiCliProperty $runtime 'WebSearchEnabled' $false)) {
+                    'runtime-lifecycle'
+                } else { 'disabled' })
+            }
             limitEnforcement = [ordered]@{
                 timeout = if ($cleanupConfirmed) { 'hard' } else { 'failed-closed' }
                 maxSteps = if (-not $enforceStepLimitEffective) {
@@ -546,6 +609,16 @@ function Invoke-AiCliProfileCapture {
             machineEventCount = 0
             usage = [ordered]@{}
             runtimeIdentity = $null
+            webSearch = [ordered]@{
+                enabled = [bool](Get-AiCliProperty $runtime 'WebSearchEnabled' $false)
+                provider = $(if ([bool](Get-AiCliProperty $runtime 'WebSearchEnabled' $false)) {
+                    'bing-rss-v1'
+                } else { $null })
+                searches = 0
+                eventEvidence = $(if ([bool](Get-AiCliProperty $runtime 'WebSearchEnabled' $false)) {
+                    'incomplete'
+                } else { 'disabled' })
+            }
             limitEnforcement = [ordered]@{
                 timeout = 'failed-closed'
                 maxSteps = if ($enforceStepLimitEffective) { 'failed-closed' } else { 'not-configured' }

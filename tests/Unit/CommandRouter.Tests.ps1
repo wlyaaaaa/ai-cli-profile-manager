@@ -25,6 +25,8 @@ Describe 'CommandRouter' {
         $payload = $writer.ToString() | ConvertFrom-Json
         $payload.version | Should -Be (Get-AiCliVersion)
         $payload.capabilities.machineEventProjection | Should -Be 'aicli.machine-event.v1'
+        $payload.capabilities.managedPublicWebSearch |
+            Should -BeExactly 'public_web_search/bing-rss-v1'
     }
 
     It 'unknown command returns 2' {
@@ -103,6 +105,31 @@ Describe 'CommandRouter' {
         (Invoke-AiCli -Tokens @('version','--definitely-invalid') -DataRoot $script:DataRoot) | Should -Be 2
         (Invoke-AiCli -Tokens @('native','codex-official','unexpected') -DataRoot $script:DataRoot) | Should -Be 2
         (Invoke-AiCli -Tokens @('profile','list','--definitely-invalid') -DataRoot $script:DataRoot) | Should -Be 2
+    }
+
+    It 'routes explicit SecretRef reuse options without accepting a secret value' {
+        InModuleScope AiCliProfileManager {
+            Mock Invoke-AiCliProfileConfigure {}
+
+            Invoke-AiCliProfileCommand -Tokens @(
+                'configure', 'codex-deepseek', '--reuse-existing-secret'
+            ) | Should -Be 0
+            Should -Invoke Invoke-AiCliProfileConfigure -Times 1 -Exactly -ParameterFilter {
+                $TemplateId -eq 'codex-deepseek' -and
+                $ReuseExistingSecret -and
+                -not $ReuseSecretFrom
+            }
+
+            Invoke-AiCliProfileCommand -Tokens @(
+                'configure', 'codex-deepseek-v4-pro',
+                '--reuse-secret-from', 'codex-deepseek'
+            ) | Should -Be 0
+            Should -Invoke Invoke-AiCliProfileConfigure -Times 1 -Exactly -ParameterFilter {
+                $TemplateId -eq 'codex-deepseek-v4-pro' -and
+                -not $ReuseExistingSecret -and
+                $ReuseSecretFrom -eq 'codex-deepseek'
+            }
+        }
     }
 
     It 'rejects an unknown help topic' {

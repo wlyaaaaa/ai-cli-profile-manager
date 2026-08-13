@@ -1,4 +1,6 @@
-﻿# Explicit live tests — never run without --live. Text tests disable tools and persistence.
+﻿# Explicit live tests — never run without --live. Codex text acceptance keeps
+# danger-full-access and passes only when no tool event was observed. The first
+# observed tool terminates the run, but this is not pre-execution prevention.
 
 function Test-AiCliExactPongOutput {
     [CmdletBinding()]
@@ -46,7 +48,20 @@ function Get-AiCliProfileCliIdentityEvidence {
     $engine = [string](Get-AiCliProperty $MergedProfile 'engine')
     try {
         $resolved = switch ($engine) {
-            'codex' { Resolve-AiCliCodexLaunchExecutable -MergedProfile $MergedProfile; break }
+            'codex' {
+                $npm = Resolve-AiCliCodexLaunchExecutable -MergedProfile $MergedProfile -MachineRun
+                $entry = @($npm.PrefixArgs | Where-Object {
+                    [string]$_ -match 'codex\.js$'
+                } | Select-Object -First 1)
+                if ($entry.Count -ne 1) { throw 'Codex machine entry is not uniquely resolved.' }
+                $native = Resolve-AiCliCodexNativeRuntimeFromEntry -EntryPath ([string]$entry[0])
+                [pscustomobject]@{
+                    FileName = $native.NativeExecutable
+                    PrefixArgs = @()
+                    Kind = 'npm-native'
+                }
+                break
+            }
             'claude' { Resolve-AiCliLaunchExecutable -Name 'claude'; break }
             'interpreter' { Resolve-AiCliInterpreterExecutable; break }
             default { $null }
@@ -65,6 +80,38 @@ function Test-AiCliVerificationRecordCurrent {
     )
     if ([string](Get-AiCliProperty $Record 'productVersion') -ne (Get-AiCliVersion)) {
         return [pscustomobject]@{ Current = $false; Reason = '产品版本已变化' }
+    }
+    if ([string](Get-AiCliProperty $MergedProfile 'engine') -eq 'codex') {
+        $permission = Get-AiCliProperty $Record 'runtimePermission'
+        if ([string](Get-AiCliProperty $Record 'permissionEvidence') -cne 'runtime-identity' -or
+            [string](Get-AiCliProperty $permission 'approval_policy') -cne 'never' -or
+            [string](Get-AiCliProperty $permission 'requested_policy') -cne 'danger-full-access' -or
+            [string](Get-AiCliProperty $permission 'sandbox_boundary') -cne 'codex-native' -or
+            [string](Get-AiCliProperty $permission 'sandbox_type') -cne 'dangerFullAccess' -or
+            [string](Get-AiCliProperty $permission 'permission_profile') -cne ':danger-full-access') {
+            return [pscustomobject]@{ Current = $false; Reason = 'Codex 验证记录缺少 danger-full-access 运行时权限证据' }
+        }
+        $recordLevel = [string](Get-AiCliProperty $Record 'level')
+        if ($recordLevel -in @('text', 'all') -or
+            [bool](Get-AiCliProperty $Record 'textPass' $false)) {
+            $observedToolCalls = Get-AiCliProperty $Record 'observedToolCalls'
+            $isInteger = (
+                $observedToolCalls -is [sbyte] -or
+                $observedToolCalls -is [byte] -or
+                $observedToolCalls -is [int16] -or
+                $observedToolCalls -is [uint16] -or
+                $observedToolCalls -is [int32] -or
+                $observedToolCalls -is [uint32] -or
+                $observedToolCalls -is [int64] -or
+                $observedToolCalls -is [uint64]
+            )
+            if (-not $isInteger -or [decimal]$observedToolCalls -ne 0) {
+                return [pscustomobject]@{
+                    Current = $false
+                    Reason = 'Codex 文本验证记录缺少零工具调用证据'
+                }
+            }
+        }
     }
     $recordedPath = [string](Get-AiCliProperty $Record 'cliPath')
     $recordedVersion = [string](Get-AiCliProperty $Record 'cliVersion')
@@ -104,10 +151,16 @@ function Invoke-AiCliLiveTest {
         [switch]$Json
     )
     $null = Assert-AiCliSafeIdentifier -Id $ProfileId -Kind 'Profile ID'
+    $merged = Get-AiCliResolvedProfile -Id $ProfileId
+    $liveEngine = [string](Get-AiCliProperty $merged 'engine')
     if (-not $Yes) {
         Write-AiCliWarn 'Live Test 会通过目标 CLI 向 Provider/模型发送真实请求，可能消耗 API 或订阅额度。'
         Write-AiCliInfo "Profile: $ProfileId  level: $Level"
-        Write-AiCliInfo '文本测试在临时空目录运行，禁用工具、持久化和项目配置；不记录提示或回复正文。'
+        if ($liveEngine -eq 'codex') {
+            Write-AiCliWarn 'Codex 文本验收在临时空目录运行并要求零工具调用；harness 仍是 danger-full-access，首个工具可能在事件被观测和终止前产生本机副作用，只应在明确授权时继续。'
+        } else {
+            Write-AiCliInfo '文本测试在临时空目录运行，禁用工具、持久化和项目配置；不记录提示或回复正文。'
+        }
         if (-not (Confirm-AiCliAction -Message '确认执行 Live Test？' -Yes:$false)) {
             return (Get-AiCliExitCode Cancelled)
         }
@@ -119,20 +172,27 @@ function Invoke-AiCliLiveTest {
     $overall = '不可用'
     $textPass = $false
     $textExitCode = $null
+    $textRuntimeIdentity = $null
+    $textRuntimeCliPath = $null
+    $textObservedToolCalls = $null
     $toolPass = $false
     $toolSkipped = $false
-    $merged = $null
     $plan = $null
     $failureSummary = $null
 
     try {
-        $merged = Get-AiCliResolvedProfile -Id $ProfileId
-        $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId -ProjectPath $tmp
+        $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId -ProjectPath $tmp `
+            -MachineRun:($liveEngine -eq 'codex')
 
         if ($Level -in @('text','all')) {
-            $textResult = Invoke-AiCliTextLiveTest -Plan $plan -WorkDir $tmp -Checks $checks
+            $textResult = Invoke-AiCliTextLiveTest -ProfileId $ProfileId `
+                -Plan $plan -WorkDir $tmp -Checks $checks
             $textPass = [bool]$textResult.Pass
             $textExitCode = $textResult.ExitCode
+            $textRuntimeIdentity = Get-AiCliProperty $textResult 'RuntimeIdentity'
+            $textRuntimeCliPath = [string](Get-AiCliProperty $textResult 'RuntimeCliPath')
+            $textObservedToolCalls = Get-AiCliProperty `
+                $textResult 'ObservedToolCalls'
         }
         if ($Level -in @('tool','all')) {
             $toolResult = Invoke-AiCliToolLiveTest -Plan $plan -WorkDir $tmp -Nonce ([guid]::NewGuid().ToString('N')) -Checks $checks
@@ -165,6 +225,7 @@ function Invoke-AiCliLiveTest {
                     result             = $recordResult
                     textPass           = $textPass
                     textExitCode       = $textExitCode
+                    observedToolCalls  = $textObservedToolCalls
                     toolPass           = $toolPass
                     toolSkipped        = $toolSkipped
                     timestampUtc       = (Get-Date).ToUniversalTime().ToString('o')
@@ -177,15 +238,33 @@ function Invoke-AiCliLiveTest {
                         $endpoint = [string](Get-AiCliProperty $merged 'endpoint')
                         if ($endpoint) { Get-AiCliContentHash -Text $endpoint } else { $null }
                     )
-                    model              = $(if ($plan) { Get-AiCliProperty $plan 'model' } else { Get-AiCliProperty $models 'primary' })
-                    modelProvider      = $(if ($plan) { Get-AiCliProperty $plan 'modelProvider' } else { $null })
+                    model              = $(if ($textRuntimeIdentity) {
+                        Get-AiCliProperty $textRuntimeIdentity 'model'
+                    } elseif ($plan) {
+                        Get-AiCliProperty $plan 'model'
+                    } else {
+                        Get-AiCliProperty $models 'primary'
+                    })
+                    modelProvider      = $(if ($textRuntimeIdentity) {
+                        Get-AiCliProperty $textRuntimeIdentity 'model_provider'
+                    } elseif ($plan) {
+                        Get-AiCliProperty $plan 'modelProvider'
+                    } else { $null })
+                    modelEvidence      = $(if ($textRuntimeIdentity) { 'runtime-identity' } elseif ($plan) { 'launch-plan' } else { $null })
+                    runtimeCliVersion  = $(if ($textRuntimeIdentity) { Get-AiCliProperty $textRuntimeIdentity 'cli_version' } else { $null })
+                    runtimePermission  = $(if ($textRuntimeIdentity) { Get-AiCliProperty $textRuntimeIdentity 'permission' } else { $null })
+                    permissionEvidence = $(if ($textRuntimeIdentity) { 'runtime-identity' } else { $null })
                     wire               = $(if ($plan) { Get-AiCliProperty $plan 'wire' } else { Get-AiCliProperty $merged 'transport' })
                     requestedEffort    = $(if ($plan) { Get-AiCliProperty $plan 'effort' } else { Get-AiCliProperty $merged 'defaultEffort' })
                     effectiveEffort    = $(if ($plan) { Get-AiCliProperty $plan 'effectiveEffort' } else { $null })
                     effortEvidence     = $(if ($plan) { 'launch-plan' } else { 'profile-default' })
                     attestedEffort     = $null
-                    cliPath            = $(if ($plan) { Get-AiCliProperty $plan 'fileName' } else { $null })
-                    cliVersion         = $(if ($plan) { Get-AiCliPlanVersionEvidence -Plan $plan } else { $null })
+                    cliPath            = $(if ($textRuntimeCliPath) { $textRuntimeCliPath } elseif ($plan) { Get-AiCliProperty $plan 'fileName' } else { $null })
+                    cliVersion         = $(if ($textRuntimeCliPath) {
+                        Get-AiCliPlanVersionEvidence -Plan ([pscustomobject]@{
+                            engine = 'codex'; fileName = $textRuntimeCliPath; argumentList = @()
+                        })
+                    } elseif ($plan) { Get-AiCliPlanVersionEvidence -Plan $plan } else { $null })
                     failureSummary     = $failureSummary
                 }
                 Set-AiCliVerificationRecord -ProfileId $ProfileId -Record $record
@@ -207,7 +286,7 @@ function Invoke-AiCliLiveTest {
 }
 
 function Invoke-AiCliTextLiveTest {
-    param($Plan, $WorkDir, $Checks)
+    param([string]$ProfileId, $Plan, $WorkDir, $Checks)
     if ($Plan -is [System.Array] -and $Plan.Count -gt 0) {
         $first = $Plan | Where-Object { $_ -is [System.Collections.IDictionary] -or $_.PSObject.Properties['fileName'] } | Select-Object -First 1
         if ($first) { $Plan = $first }
@@ -226,9 +305,33 @@ function Invoke-AiCliTextLiveTest {
     )
     $removeEnv = @((Get-AiCliProperty $Plan 'removeEnvironment') | ForEach-Object { [string]$_ })
     $timeoutMs = if ($engine -eq 'interpreter') { 90000 } else { 45000 }
+    $modelProvider = [string](Get-AiCliProperty $Plan 'modelProvider')
+    $useCodexHarness = $engine -eq 'codex'
+    $runtimeIdentity = $null
 
     try {
-        if ($engine -in @('codex','interpreter')) {
+        if ($useCodexHarness) {
+            if ([string]::IsNullOrWhiteSpace($ProfileId)) {
+                throw 'Codex Live Test requires an exact Profile ID.'
+            }
+            $r = Invoke-AiCliProfileCapture -ProfileId $ProfileId `
+                -ProjectPath $WorkDir -StdInText (Get-AiCliPongLivePrompt) `
+                -NativeArgs @('exec', '--json', '-') `
+                -TimeoutMs 120000 -SandboxPolicy danger-full-access `
+                -MaxToolCalls 0 -EnforceToolCallLimit
+            $runtimeIdentity = Get-AiCliProperty $r 'RuntimeIdentity'
+            if ($null -eq $runtimeIdentity -or
+                [string](Get-AiCliProperty $runtimeIdentity 'model') -cne
+                    [string](Get-AiCliProperty $Plan 'model') -or
+                [string](Get-AiCliProperty $runtimeIdentity 'model_provider') -cne
+                    $modelProvider) {
+                throw 'Codex harness returned no matching verified runtime identity.'
+            }
+            $toolCalls = [int](Get-AiCliProperty (Get-AiCliProperty $r 'limitUsage') 'toolCalls' -1)
+            $pass = ([int](Get-AiCliProperty $r 'ExitCode' -1) -eq 0) -and
+                $toolCalls -eq 0 -and
+                (Test-AiCliExactPongOutput -Text ([string](Get-AiCliProperty $r 'StdOut')))
+        } elseif ($engine -eq 'interpreter') {
             $prefix = @()
             $rest = @($argList)
             if ($engine -eq 'codex' -and $argList.Count -gt 0 -and $argList[0] -match 'codex\.js$') {
@@ -264,22 +367,46 @@ function Invoke-AiCliTextLiveTest {
         }
 
         if ($pass) {
-            $Checks.Add((New-AiCliCheck -Id 'live.text' -Status '通过' -Summary '目标 CLI 正常退出，最终模型正文严格匹配 PONG（正文未记录）')) | Out-Null
-            return [pscustomobject]@{ Pass = $true; ExitCode = $r.ExitCode }
+            $summary = if ($useCodexHarness) {
+                'Codex app-server harness 已验证 exact 运行时模型/Provider，最终模型正文严格匹配 PONG（正文未记录）'
+            } else {
+                '目标 CLI 正常退出，最终模型正文严格匹配 PONG（正文未记录）'
+            }
+            $Checks.Add((New-AiCliCheck -Id 'live.text' -Status '通过' -Summary $summary)) | Out-Null
+            return [pscustomobject]@{
+                Pass = $true
+                ExitCode = [int](Get-AiCliProperty $r 'ExitCode' 0)
+                RuntimeIdentity = $runtimeIdentity
+                RuntimeCliPath = [string](Get-AiCliProperty $r 'runtimeCliPath')
+                ObservedToolCalls = $(if ($useCodexHarness) { $toolCalls } else { $null })
+            }
         }
-        $Checks.Add((New-AiCliCheck -Id 'live.text' -Status '不可用' -Summary ("文本测试失败：exit={0} 或最终正文不匹配" -f $r.ExitCode))) | Out-Null
-        Write-AiCliLog -Level Warn -Message ("live text fail engine={0} exit={1}" -f $engine, $r.ExitCode)
-        return [pscustomobject]@{ Pass = $false; ExitCode = $r.ExitCode }
+        $exitCode = Get-AiCliProperty $r 'ExitCode'
+        $Checks.Add((New-AiCliCheck -Id 'live.text' -Status '不可用' -Summary ("文本测试失败：exit={0} 或最终正文不匹配" -f $exitCode))) | Out-Null
+        Write-AiCliLog -Level Warn -Message ("live text fail engine={0} exit={1}" -f $engine, $exitCode)
+        return [pscustomobject]@{
+            Pass = $false
+            ExitCode = $exitCode
+            RuntimeIdentity = $runtimeIdentity
+            RuntimeCliPath = [string](Get-AiCliProperty $r 'runtimeCliPath')
+            ObservedToolCalls = $(if ($useCodexHarness) { $toolCalls } else { $null })
+        }
     } catch {
         $safeMessage = Protect-AiCliExactSecretValues `
             -Text $_.Exception.Message -SecretValues $secretValues
         $Checks.Add((New-AiCliCheck -Id 'live.text' -Status '不可用' -Summary (Protect-AiCliSecretText $safeMessage))) | Out-Null
-        return [pscustomobject]@{ Pass = $false; ExitCode = $null }
+        return [pscustomobject]@{
+            Pass = $false
+            ExitCode = $null
+            RuntimeIdentity = $null
+            RuntimeCliPath = $null
+            ObservedToolCalls = $null
+        }
     }
 }
 
 function Invoke-AiCliToolLiveTest {
     param($Plan, $WorkDir, $Nonce, $Checks)
-    $Checks.Add((New-AiCliCheck -Id 'live.tool' -Status '可用但有限制' -Summary '0.1.0 尚未实现可证明隔离的工具调用测试，已明确跳过' -Limitation '未执行工具 Live Test')) | Out-Null
+    $Checks.Add((New-AiCliCheck -Id 'live.tool' -Status '可用但有限制' -Summary '当前版本尚未实现可证明隔离的工具调用测试，已明确跳过' -Limitation '未执行工具 Live Test')) | Out-Null
     return [pscustomobject]@{ Pass = $false; Skipped = $true }
 }

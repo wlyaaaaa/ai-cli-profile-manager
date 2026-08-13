@@ -1,6 +1,6 @@
 # AI CLI Profile Manager 使用手册
 
-适用版本：`0.3.4`（源码与安装目标；发布、安装和 Live 证据须分别核对）
+适用版本：`0.3.5`（源码与安装目标；发布、安装和 Live 证据须分别核对）
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
@@ -19,7 +19,7 @@ AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter �
 
 ### 1.2 安装本工具
 
-`0.3.4` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
+`0.3.5` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
 
 ```powershell
 $version = '<从 Releases 页面选择的已发布版本>'
@@ -61,6 +61,9 @@ pwsh -File .\scripts\Install.ps1 -Force
 2. 创建 `%LOCALAPPDATA%\aicli\bin\aicli.cmd` 与 `aicli.ps1` 垫片，并尝试加入用户 `PATH`。
 3. 尝试在当前用户 PowerShell 7 配置中加入模块自动导入块。
 4. 先验证临时候选版本，再替换目标版本；失败时恢复原版本。
+5. 升级到 `0.3.5` 时，先预检再隔离可证明由 AICLI 管理的 Qwen3.7 旧入口。
+
+退役迁移不会把 Qwen3.7 自动改投 Qwen3.8，也不读取、复制、移动或删除 SecretRef/密钥。身份、marker、body/state 哈希与内容寻址都闭合的旧用户 Profile、Codex TOML/catalog 和旧模块版本会移入可恢复目录 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。任何未知、用户改写或 reparse 项都会在任何安装变更前失败关闭；先审计该路径，不要盲目删除。
 
 新开一个 PowerShell 7 窗口后验证：
 
@@ -111,29 +114,30 @@ aicli start claude-official --project "D:\项目\演示"
 
 命令会立即启动一个新的原生 CLI 进程。父终端的 Provider 环境变量不会被永久修改。
 
-### 1.5 工作区日常用法（千问写代码）
+### 1.5 工作区日常用法（精确 Codex Profile）
 
-多数日常工程任务可以在**项目根目录**直接启动已配置好的千问 + Claude Code：
+在**受信任的项目根目录**用一条命令进入所需的精确 Codex CLI：
 
 ```powershell
 cd E:\你的项目
 # 例：cd C:\Work\my-project
 
-aicli start claude-qwen-paygo
+aicli start codex-qwen3-8-max-paygo --project (Get-Location)
+# 或 DeepSeek V4 Flash 0731 / Pro 0813
+aicli start codex-deepseek --project (Get-Location)
+aicli start codex-deepseek-v4-pro --project (Get-Location)
 ```
 
 说明：
 
-- 工作目录默认是**当前 shell 目录**；Claude 欢迎页左下角路径应与项目一致。不 `cd` 时用 `--project "路径"`。
-- 首次弹出 **Detected a custom API key** 时：走千问/百炼应选 **Yes**。界面上的 “No (recommended)” 是针对官方 claude.ai 订阅路径，不是本 Profile 的推荐。
-- 同千问三条引擎只按任务选（不按「熟哪个 CLI」）：
+- `--project` 必须是已经确认可信的工作区；Profile 自己封闭 Provider、模型、Responses wire、MAX 与 SecretRef。
+- Qwen3.7 Max/Plus 的模型身份、Profile、目录、导入和兼容入口已经永久退役，不能通过原生 `--model` 或 fallback 参数恢复。
+- DeepSeek Codex 只保留下列两个 exact 身份：
 
-| 任务 | 优先 Profile |
-|------|----------------|
-| 写代码、改仓库、工程对话 | `claude-qwen-paygo` |
-| 本机执行脚本/操作环境 | `oi-qwen-paygo`（需已装 Open Interpreter） |
-| Codex / Responses 工作流 | `codex-qwen-paygo` |
-| 拿不准 | `claude-qwen-paygo` |
+| 模型身份 | Profile |
+|----------|---------|
+| `deepseek-v4-flash` / `DeepSeek-V4-Flash-0731` | `codex-deepseek` |
+| `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813` | `codex-deepseek-v4-pro` |
 
 ### 1.6 安装或升级 aicli 之后必须用新会话
 
@@ -159,6 +163,10 @@ aicli version
 
 `aicli start` 每次根据模板和用户 Profile 重新生成启动计划，因此更新或重新安装上游 CLI 后，不需要把 Key 写进全局环境变量。Profile 切换只对**新进程**生效，不能在已经打开的会话中途热切换 Provider。
 
+`aicli run` 是供上层程序使用的 Codex harness，不等于交互式 `start`：所有当前和未来 Codex 模型固定使用原生 `danger-full-access` 与 `approvalPolicy=never`。规则按 `engine=codex` 生效，因此未来新增 Profile 自动继承；显式请求 `read-only` / `workspace-write` 会在模型调用前失败关闭。运行还必须回读 actual model、modelProvider 与 `dangerFullAccess` 权限身份，并拒绝任何模型重路由。只把受信任工作区交给该入口。
+
+同一通用规则默认注册受管 `public_web_search`：仅访问固定 `https://cn.bing.com/search` RSS，拒绝重定向、Cookie、模型指定 endpoint/Header/Key，并把结果标作不可信公共文本。Windows 系统代理只用于固定 HTTPS 出口且不提供默认凭据。事件和回执仅记录搜索生命周期、provider 与次数，不记录查询/结果正文；本次不需要网络时使用 `--no-web-search`，权限仍是 `danger-full-access`。
+
 ## 3. Profile 管理
 
 ### 3.1 命令总览
@@ -167,9 +175,9 @@ aicli version
 aicli profile list
 aicli profile list --available
 aicli profile list --available --json
-aicli profile show claude-qwen-paygo
-aicli profile configure claude-qwen-paygo
-aicli profile configure claude-qwen-paygo --id qwen-work
+aicli profile show codex-deepseek
+aicli profile configure codex-deepseek
+aicli profile configure codex-deepseek-v4-pro --reuse-secret-from codex-deepseek
 aicli profile set-default codex-official
 aicli profile remove qwen-work
 ```
@@ -191,24 +199,21 @@ aicli profile remove qwen-work
 |------|------|---------|
 | Codex | ChatGPT/OpenAI 官方登录 | `codex-official` |
 | Codex | Qwen3.8 Max Workspace 按量 Responses | `codex-qwen3-8-max-paygo` |
-| Codex | 千问 3.7 精确按量 / Token Plan Responses | `codex-qwen-paygo`、`codex-qwen-token-plan` |
 | Codex | DeepSeek V4 Flash 0731 / Pro 0813 Responses | `codex-deepseek`、`codex-deepseek-v4-pro` |
 | Codex | 本机精确 main / review | `codex-ollama-main`、`codex-ollama-review` |
 | Claude Code | Claude 官方登录 | `claude-official` |
 | Claude Code | DeepSeek V4 Flash | `claude-deepseek` |
-| Claude Code | 千问按量、Coding Plan、Token Plan | `claude-qwen-paygo`、`claude-qwen-coding-plan`、`claude-qwen-token-plan` |
 | Claude Code | 本机 Ollama | `claude-ollama` |
 | Claude Code | 自定义 Anthropic Messages 兼容端点 | `claude-custom` |
 | Claude Code | ChatGPT 第三方本地代理 | `claude-chatgpt-ccp`、`claude-chatgpt-cliproxy` |
-| Open Interpreter | 千问 Responses | `oi-qwen-paygo` |
 | Open Interpreter | DeepSeek V4 Flash Chat | `oi-deepseek` |
 | Open Interpreter | 本机 Ollama | `oi-ollama` |
 
 `codex-deepseek` 精确固定 API alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，`codex-deepseek-v4-pro` 精确固定 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`。两者均使用官方 [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 的 Responses wire、1M context、`low` / `high` / `max`，用户默认 `max`，并拒绝模型、Provider 与 fallback 覆盖。动态变化以 [DeepSeek Change Log](https://api-docs.deepseek.com/updates/) 为准；非 Codex 的 Claude Code / Open Interpreter DeepSeek 模板仍保持 Flash-only。
 
-`codex-qwen3-8-max-paygo` 只接受北京百炼 Workspace 按量 Responses endpoint，精确模型 `qwen3.8-max`、983616 context、95% 有效窗口和 262144 token 自动压缩阈值；不接 preview、通用 DashScope 或 Token Plan。用户选择 `max` 时，AICLI 保留 requested=`max`，并按官方映射发出 effective=`xhigh`。兼容入口 `codex-qwen-paygo` / `codex-qwen-token-plan` 也已收敛为唯一固定模型 `qwen3.7-max-2026-06-08`、Responses 与 `max`，不再暴露六候选或 preview fallback。
+`codex-qwen3-8-max-paygo` 只接受北京百炼 Workspace 按量 Responses endpoint，精确模型 `qwen3.8-max`、983616 context、95% 有效窗口和 262144 token 自动压缩阈值；不接 preview、通用 DashScope 或 Token Plan。用户选择 `max` 时，AICLI 保留 requested=`max`，并按官方映射发出 effective=`xhigh`。Qwen3.7 Max/Plus 全家族及其原有 Codex、Claude Code、Open Interpreter 入口已永久退役；旧用户 Profile 会失败关闭，不会重路由到 Qwen3.8。
 
-Claude Code `2.1.193+` 的 DeepSeek/千问 Profile 按最终 `--model` 精确注入模型窗口。DeepSeek Flash 为 `1000000`；千问按量常用 1M、Token Plan 按官方示例为 `983616`，Coding Plan 中 262K 模型单独保守声明。AICLI 不设置会提前压缩的 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`，也不默认禁用自动/手动压缩；未知或自定义模型不猜测。
+Claude Code `2.1.193+` 的 DeepSeek Profile 按最终 `--model` 精确注入 1000000 token 模型窗口。AICLI 不设置会提前压缩的 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`，也不默认禁用自动/手动压缩；未知或自定义模型不猜测。
 
 本机 `claude-ollama-main` 同样按 `qwen-main-v1=262144` 注入 MAX/AUTO；`codex-ollama-main` 使用独立的 262144 受管目录，不再采用 Codex 未知模型 272K 回退。任何第三方 Claude 模型未命中受管元数据时，AICLI 会清除父进程遗留的 MAX/AUTO、提前压缩百分比和两个禁压缩变量，再交给 Claude Code 的保守默认，避免把上一模型的窗口误套到未来模型。
 
@@ -223,14 +228,12 @@ aicli doctor codex-ollama
 
 ### 3.3 配置第三方 API
 
-以千问和 DeepSeek 为例：
+以 Qwen3.8 Max 与 DeepSeek 为例：
 
 ```powershell
-aicli profile configure claude-qwen-paygo
-aicli profile configure codex-qwen-paygo
 aicli profile configure codex-qwen3-8-max-paygo
 aicli profile configure codex-deepseek
-aicli profile configure codex-deepseek-v4-pro
+aicli profile configure codex-deepseek-v4-pro --reuse-secret-from codex-deepseek
 aicli profile configure claude-deepseek
 aicli profile configure oi-deepseek
 ```
@@ -253,7 +256,7 @@ aicli eject claude-deepseek --output .\export-claude-deepseek
 
 ```powershell
 aicli start claude-official -- --effort high
-aicli start claude-qwen-paygo -- --permission-mode acceptEdits
+aicli start claude-deepseek -- --permission-mode acceptEdits
 aicli start codex-official -- --model gpt-5.6-terra
 ```
 
@@ -261,7 +264,7 @@ aicli start codex-official -- --model gpt-5.6-terra
 
 ### 3.5 从 OpenClaw 安全导入（可选）
 
-如果 OpenClaw 已经保存了千问或 DeepSeek 配置，可以用发行包里的导入脚本减少重复录入。它默认只预览，不修改 Profile，也不显示 Key：
+如果 OpenClaw 已经保存了 DeepSeek 配置，可以用发行包里的导入脚本减少重复录入。它默认只预览，不修改 Profile，也不显示 Key；Qwen3.7 配置会被明确忽略：
 
 ```powershell
 pwsh -File .\scripts\Import-FromOpenClaw.ps1
@@ -285,7 +288,7 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply -Force
 ```
 
-脚本只接受能由 HTTPS 主机名证明身份的配置：千问必须指向阿里云百炼域名，DeepSeek 必须指向 `api.deepseek.com`。DeepSeek 导入会生成 `codex-deepseek`、`claude-deepseek`、`oi-deepseek` 三个 Flash-only Profile；不会创建 Pro、Qwen Code 或 OpenCode 路径。未知/OpenAI Base URL 会被拒绝，避免把某家的 Key 误送到另一家。导入的 Key 立即使用 Windows CurrentUser DPAPI 保存；输出、Profile JSON 和日志中都不出现明文。导入后运行 `aicli doctor <Profile ID>`，需要真实连通证据时再显式执行 Live Test。
+脚本只接受能由 HTTPS 主机名证明身份的 DeepSeek 配置，并要求主机为 `api.deepseek.com`。导入会生成 `codex-deepseek`、`codex-deepseek-v4-pro`、`claude-deepseek`、`oi-deepseek`；不会创建任何 Qwen3.7、Qwen Code 或 OpenCode 路径。未知/OpenAI Base URL 会被拒绝，避免把某家的 Key 误送到另一家。导入的 Key 立即使用 Windows CurrentUser DPAPI 保存；输出、Profile JSON 和日志中都不出现明文。导入后运行 `aicli doctor <Profile ID>`，需要真实连通证据时再显式执行 Live Test。
 
 ## 4. Doctor 与 Live Test
 
@@ -293,8 +296,8 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply -Force
 
 ```powershell
 aicli doctor
-aicli doctor claude-qwen-paygo
-aicli doctor claude-qwen-paygo --json
+aicli doctor codex-deepseek
+aicli doctor codex-deepseek --json
 ```
 
 Doctor 检查 CLI、Profile、秘密引用、端点、有效配置层、代理、端口和本机服务。它不发送模型生成请求，不应消耗模型额度。
@@ -317,7 +320,7 @@ aicli test claude-deepseek --live --level text --yes
 aicli test claude-deepseek --live --level all --yes --json
 ```
 
-`--live` 必须显式给出；没有 `--yes` 时会再次确认。文本测试在随机临时空目录中运行，禁用或隔离私人配置和工具，通过目标 CLI 发出最小请求，并要求正常退出且最终模型正文严格等于 `PONG`。提示和回复正文不写日志。
+`--live` 必须显式给出；没有 `--yes` 时会再次确认。文本测试在随机临时空目录中运行，通过目标 CLI 发出最小请求，并要求正常退出、最终模型正文严格等于 `PONG`，且观测到的工具调用数为 0。Codex 路径仍固定 `danger-full-access`；只要 app-server 报告首个工具事件就终止并判失败，但这不是执行前工具禁用，工具仍可能在事件被观测前产生本机副作用，只应在明确授权时执行。提示和回复正文不写日志。
 
 | 层级 | 含义 |
 |------|------|
@@ -346,9 +349,6 @@ aicli doctor
 ### 5.2 配置和启动
 
 ```powershell
-aicli profile configure oi-qwen-paygo
-aicli start oi-qwen-paygo
-
 aicli profile configure oi-deepseek
 aicli start oi-deepseek
 
@@ -380,21 +380,21 @@ manual → acceptEdits → plan
 启动时指定更松的日常写代码模式：
 
 ```powershell
-aicli start claude-qwen-paygo -- --permission-mode acceptEdits
+aicli start claude-deepseek -- --permission-mode acceptEdits
 ```
 
 完全绕过权限只适合外部已经隔离、没有不可信网络或文件的环境：
 
 ```powershell
-aicli start claude-qwen-paygo -- --permission-mode bypassPermissions --dangerously-skip-permissions
+aicli start claude-deepseek -- --permission-mode bypassPermissions --dangerously-skip-permissions
 ```
 
 PowerShell 有时会吞掉参数分隔用的 `--`，导致 `--permission-mode` 等并未传给 Claude。需要透传时优先：
 
 ```powershell
-pwsh -NoProfile -File $env:LOCALAPPDATA\aicli\bin\aicli.ps1 --% start claude-qwen-paygo -- --permission-mode acceptEdits
+pwsh -NoProfile -File $env:LOCALAPPDATA\aicli\bin\aicli.ps1 --% start claude-deepseek -- --permission-mode acceptEdits
 # 或开发仓库：
-pwsh -NoProfile -File <安装目录>\bin\aicli.ps1 --% start claude-qwen-paygo -- --permission-mode acceptEdits
+pwsh -NoProfile -File <安装目录>\bin\aicli.ps1 --% start claude-deepseek -- --permission-mode acceptEdits
 ```
 
 `bypassPermissions` 必须在新进程启动时启用。第三方模型通常不满足 Claude `auto` 模式的模型或账号条件；这不是 aicli 的故障。
@@ -473,6 +473,8 @@ aicli update guide self
 ```
 
 `update check` 和 `update guide` 只检查来源、版本并打印同渠道指引，不静默升级 Codex、Claude Code、Ollama 或本工具。识别来源后，应继续使用原安装渠道，避免 npm、WinGet 和原生安装器互相覆盖。
+
+从任何旧 AICLI 版本升级到 `0.3.5` 时，应使用同一发行包内的 `scripts\Install.ps1`；该安装器会完成 Qwen3.7 可验证遗留入口的可恢复隔离。如果预检报告未知或篡改项，安装在写入新版本前中止；请先备份并人工审计，不要绕过门禁。
 
 Open Interpreter Rust 可按上游支持使用：
 
@@ -572,7 +574,7 @@ Get-Command aicli | Format-List *
 确认参数写在 `--` 之后；在 PowerShell 中优先使用 `--%`（见上文 §6）。也可用：
 
 ```powershell
-& aicli @('start','claude-qwen-paygo','--','--permission-mode','acceptEdits')
+& aicli @('start','claude-deepseek','--','--permission-mode','acceptEdits')
 ```
 
 ### 找不到目标 CLI
@@ -618,14 +620,14 @@ aicli native claude-official
 
 Doctor 只报告冲突文件和字段名，不展示值。不要让 aicli 自动改写你的上游设置文件。
 
-### 千问 401、模型或套餐错误
+### Qwen3.8 或已退役 Qwen3.7 Profile 错误
 
-按量、Token Plan 与 Coding Plan 的 Key、地域和端点互不通用：
+Qwen3.8 只使用独立 Workspace 按量入口；Qwen3.7 Max/Plus 不再提供任何入口：
 
 ```powershell
-aicli profile show claude-qwen-paygo
-aicli profile configure claude-qwen-paygo
-aicli doctor claude-qwen-paygo
+aicli profile show codex-qwen3-8-max-paygo
+aicli profile configure codex-qwen3-8-max-paygo
+aicli doctor codex-qwen3-8-max-paygo
 ```
 
 ### Ollama 无法连接或模型不存在
@@ -661,11 +663,12 @@ aicli help [主题或命令]
 
 aicli profile list [--available] [--json]
 aicli profile show <Profile ID> [--json]
-aicli profile configure <模板 ID> [--id <新 Profile ID>]
+aicli profile configure <模板 ID> [--id <新 Profile ID>] [--reuse-existing-secret | --reuse-secret-from <Profile ID>]
 aicli profile set-default <Profile ID>
 aicli profile remove <Profile ID> [--yes]
 
 aicli start <Profile ID> [--project <项目路径>] [-- <原生参数...>]
+aicli run <Profile ID> --stdin --json --project <项目路径> [--sandbox-policy <policy>] [--no-web-search] [-- <原生参数...>]
 aicli native <Profile ID>
 aicli eject <Profile ID> [--output <新目录>]
 

@@ -91,9 +91,9 @@ Describe 'Profile' {
         }
     }
 
-    It 'fails closed instead of rerouting a legacy Singapore Qwen Profile to Beijing' {
+    It 'fails closed for a retired Qwen3.7 user Profile instead of rerouting it' {
         InModuleScope AiCliProfileManager {
-            $template = Get-AiCliProviderManifest -Id 'codex-qwen-paygo'
+            $template = Get-AiCliProviderManifest -Id 'claude-custom'
             $user = [ordered]@{
                 id = 'codex-qwen-paygo'
                 templateId = 'codex-qwen-paygo'
@@ -108,30 +108,31 @@ Describe 'Profile' {
             }
 
             { Merge-AiCliProfile -Template $template -UserProfile $user } |
-                Should -Throw '*与 exact 模板不一致*重新配置*'
+                Should -Throw '*已退役*Qwen3.7*'
         }
     }
 
-    It 'preserves a matching exact Profile SecretRef without allowing route drift' {
+    It 'preserves a matching DeepSeek exact Profile SecretRef without allowing route drift' {
         InModuleScope AiCliProfileManager {
             Mock Test-AiCliSecretExists { $true }
-            $template = Get-AiCliProviderManifest -Id 'codex-qwen-paygo'
+            $template = Get-AiCliProviderManifest -Id 'codex-deepseek'
             $user = [ordered]@{
-                id = 'codex-qwen-paygo'
-                templateId = 'codex-qwen-paygo'
-                region = 'cn-beijing'
+                id = 'codex-deepseek'
+                templateId = 'codex-deepseek'
+                region = 'global'
                 plan = 'paygo'
-                endpoint = 'https://dashscope.aliyuncs.com/compatible-mode/v1/'
+                endpoint = 'https://api.deepseek.com/'
                 models = [ordered]@{
-                    primary = 'qwen3.7-max-2026-06-08'
-                    small = 'qwen3.7-max-2026-06-08'
+                    primary = 'deepseek-v4-flash'
+                    small = 'deepseek-v4-flash'
+                    candidates = @('deepseek-v4-flash')
                 }
                 secretRef = 'opaque-existing-secret-ref'
             }
 
             $merged = Merge-AiCliProfile -Template $template -UserProfile $user
-            $merged.endpoint | Should -Be 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-            $merged.models.primary | Should -Be 'qwen3.7-max-2026-06-08'
+            $merged.endpoint | Should -Be 'https://api.deepseek.com'
+            $merged.models.primary | Should -Be 'deepseek-v4-flash'
             $merged.secretRef | Should -Be 'opaque-existing-secret-ref'
         }
     }
