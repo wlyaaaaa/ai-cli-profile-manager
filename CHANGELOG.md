@@ -27,6 +27,7 @@
 
 - Codex 文本 Live 现在按公开 run receipt 的 lower-camel schema 读取 `runtimeIdentity` / `exitCode` / `stdout`，并从未截断的安全 JSONL 最终 `item.completed/agent_message` 提取完整正文后逐字比较 `PONG`；附加行、首尾空白与截断回执均失败关闭，不再把 JSONL 整体误当纯文本，也不再因旧 child-capture 字段名把真实运行身份判空。
 - whole-receipt 秘密擦除后会恢复已在同一调用中严格验证的封闭公开 runtime identity 与 launch identity。兼容 key 与公开 Provider ID 存在子串重合时，不再把已验证的 `aicli_ollama_main` 误改成脱敏占位符；秘密值和 stdout/stderr 仍保持精确擦除。
+- Codex Live 计划未显式提供 `versionArgumentList` 时会正确回退到 `--version`，不再把 PowerShell 的 `$null` 管道结果误计为一个空参数；新生成的 Live 回执因此能持久绑定实际 CLI 路径与版本并通过后续 currentness 回读。
 
 ## [0.3.4] - 2026-08-13
 

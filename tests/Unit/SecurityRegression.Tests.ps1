@@ -145,6 +145,32 @@ Describe 'Live text evidence' {
         }
     }
 
+    It 'uses --version when a Live plan omits versionArgumentList' {
+        InModuleScope AiCliProfileManager {
+            Mock Invoke-AiCliChildCapture {
+                [pscustomobject]@{
+                    ExitCode = 0
+                    StdOut = "codex-cli 0.147.0`n"
+                    StdErr = ''
+                }
+            }
+            $plan = [pscustomobject]@{
+                engine = 'codex'
+                fileName = 'C:\fake\codex.exe'
+                argumentList = @()
+            }
+
+            Get-AiCliPlanVersionEvidence -Plan $plan |
+                Should -BeExactly 'codex-cli 0.147.0'
+            Should -Invoke Invoke-AiCliChildCapture -Times 1 -Exactly `
+                -ParameterFilter {
+                    $FileName -ceq 'C:\fake\codex.exe' -and
+                    @($ArgumentList).Count -eq 1 -and
+                    [string]$ArgumentList[0] -ceq '--version'
+                }
+        }
+    }
+
     It 'requires the final non-empty body line to equal PONG' {
         InModuleScope AiCliProfileManager {
             Test-AiCliExactPongOutput -Text "noise`nPONG`n" | Should -BeTrue

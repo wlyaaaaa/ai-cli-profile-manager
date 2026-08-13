@@ -50,7 +50,12 @@ function Get-AiCliPlanVersionEvidence {
     $engine = [string](Get-AiCliProperty $Plan 'engine')
     $fileName = [string](Get-AiCliProperty $Plan 'fileName')
     if ([string]::IsNullOrWhiteSpace($fileName)) { return $null }
-    $args = @((Get-AiCliProperty $Plan 'versionArgumentList') | ForEach-Object { [string]$_ })
+    # In PowerShell, @($null | ForEach-Object { [string]$_ }) produces one
+    # empty-string element. Filter null/blank values before deciding whether
+    # the plan supplied an explicit version invocation.
+    $args = @((Get-AiCliProperty $Plan 'versionArgumentList') |
+        Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+        ForEach-Object { [string]$_ })
     if ($args.Count -eq 0) {
         $args = @('--version')
         $planArgs = @((Get-AiCliProperty $Plan 'argumentList') | ForEach-Object { [string]$_ })
