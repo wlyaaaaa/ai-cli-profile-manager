@@ -381,6 +381,7 @@ function Invoke-AiCliProfileCapture {
     $sessionConfiguration = Get-AiCliProperty `
         (Get-AiCliProperty $plan 'machineRuntime') 'localGpuBrokerSession'
     $requireRuntimeIdentity = $engine -eq 'codex'
+    $verifiedPublicRuntimeIdentity = $null
     try {
         if ($null -ne $sessionConfiguration) {
             $localGpuBrokerSession = Open-AiCliLocalGpuBrokerSession `
@@ -484,6 +485,37 @@ function Invoke-AiCliProfileCapture {
                     throw 'Codex machine run has no verified danger-full-access runtime permission identity.'
                 }
                 throw 'Codex machine run has no matching verified runtime identity.'
+            }
+            # Preserve only the closed, non-secret identity surface after the
+            # whole-receipt exact-secret scrub below. A local compatibility key
+            # can legitimately equal a substring of a public Provider ID (for
+            # example, "ollama"); generic string replacement must not corrupt
+            # runtime attestation that has already passed the checks above.
+            $verifiedPublicRuntimeIdentity = [ordered]@{
+                model = [string](Get-AiCliProperty $capturedIdentity 'model')
+                model_provider = [string](
+                    Get-AiCliProperty $capturedIdentity 'model_provider'
+                )
+                cli_version = [string](
+                    Get-AiCliProperty $capturedIdentity 'cli_version'
+                )
+                permission = [ordered]@{
+                    approval_policy = [string](
+                        Get-AiCliProperty $capturedPermission 'approval_policy'
+                    )
+                    requested_policy = [string](
+                        Get-AiCliProperty $capturedPermission 'requested_policy'
+                    )
+                    sandbox_boundary = [string](
+                        Get-AiCliProperty $capturedPermission 'sandbox_boundary'
+                    )
+                    sandbox_type = [string](
+                        Get-AiCliProperty $capturedPermission 'sandbox_type'
+                    )
+                    permission_profile = [string](
+                        Get-AiCliProperty $capturedPermission 'permission_profile'
+                    )
+                }
             }
         }
         $codexLimitsHard = $engine -eq 'codex' -and [bool](Get-AiCliProperty $captured 'LimitsHard' $false)
@@ -705,6 +737,17 @@ function Invoke-AiCliProfileCapture {
         if ($safeReceiptJson -cne $receiptJson) {
             $receipt = $safeReceiptJson |
                 ConvertFrom-Json -Depth 50 -ErrorAction Stop
+        }
+    }
+    if ($verifiedPublicRuntimeIdentity) {
+        foreach ($publicField in ([ordered]@{
+            profileId = $ProfileId
+            model = [string](Get-AiCliProperty $plan 'model')
+            modelProvider = [string](Get-AiCliProperty $plan 'modelProvider')
+            runtimeIdentity = [pscustomobject]$verifiedPublicRuntimeIdentity
+        }).GetEnumerator()) {
+            $receipt | Add-Member -NotePropertyName $publicField.Key `
+                -NotePropertyValue $publicField.Value -Force
         }
     }
     return $receipt

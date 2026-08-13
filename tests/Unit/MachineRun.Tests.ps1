@@ -344,9 +344,16 @@ exit 0
                 }
             }
 
-            $null = Invoke-AiCliProfileCapture -ProfileId 'local' `
+            $result = Invoke-AiCliProfileCapture -ProfileId 'local' `
                 -ProjectPath $Work -NativeArgs @('exec', '--json', '-') `
                 -StdInText 'PRIVATE_TASK_CANARY' -SandboxPolicy danger-full-access
+
+            # The local compatibility key happens to equal a substring of the
+            # public Provider ID. Whole-receipt secret redaction must not erase
+            # the already verified runtime identity or top-level launch identity.
+            $result.runtimeIdentity.model | Should -BeExactly 'qwen-main-v1'
+            $result.runtimeIdentity.model_provider | Should -BeExactly 'aicli_ollama_main'
+            $result.modelProvider | Should -BeExactly 'aicli_ollama_main'
 
             Should -Invoke Invoke-AiCliChildCapture -Times 1 -Exactly `
                 -ParameterFilter {

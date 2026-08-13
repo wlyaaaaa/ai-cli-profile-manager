@@ -23,6 +23,11 @@
 
 - source、static、install、runtime 和 live 分层记录；只允许每个付费 DeepSeek exact Profile 一次最小 Live，失败不自动重试。Qwen3.8、本地 main/review 的旧回执不冒充 `0.3.5` 当前 Live。
 
+### 修正
+
+- Codex 文本 Live 现在按公开 run receipt 的 lower-camel schema 读取 `runtimeIdentity` / `exitCode` / `stdout`，并从未截断的安全 JSONL 最终 `item.completed/agent_message` 提取完整正文后逐字比较 `PONG`；附加行、首尾空白与截断回执均失败关闭，不再把 JSONL 整体误当纯文本，也不再因旧 child-capture 字段名把真实运行身份判空。
+- whole-receipt 秘密擦除后会恢复已在同一调用中严格验证的封闭公开 runtime identity 与 launch identity。兼容 key 与公开 Provider ID 存在子串重合时，不再把已验证的 `aicli_ollama_main` 误改成脱敏占位符；秘密值和 stdout/stderr 仍保持精确擦除。
+
 ## [0.3.4] - 2026-08-13
 
 本节仅记录已安装候选的历史事实：该版本引入 Qwen3.8 Max、DeepSeek Flash/Pro 和本地 main/review 的 exact Codex Profile，但仍保留了后续在 `0.3.5` 退役的 Qwen3.7 入口，也未包含本版的通用全访问 harness 与升级隔离。不得把 `0.3.4` 安装态或 Live 回执解释为 `0.3.5` 当前证据。

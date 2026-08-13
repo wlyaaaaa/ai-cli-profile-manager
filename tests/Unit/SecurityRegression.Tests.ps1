@@ -153,6 +153,27 @@ Describe 'Live text evidence' {
         }
     }
 
+    It 'extracts exact PONG only from the final safe Codex agent-message event' {
+        InModuleScope AiCliProfileManager {
+            $valid = @(
+                '{"type":"thread.started","thread_id":"019ffccf-e3e4-7133-ac71-20499a14f2a7"}'
+                '{"type":"item.completed","item":{"type":"agent_message","text":"PONG"}}'
+            ) -join "`n"
+            Test-AiCliExactPongOutput -Text (
+                Get-AiCliCodexFinalAgentMessageText -JsonLines $valid
+            ) | Should -BeTrue
+
+            Get-AiCliCodexFinalAgentMessageText -JsonLines "PONG`n" |
+                Should -BeNullOrEmpty
+            $notFinal = @(
+                '{"type":"item.completed","item":{"type":"agent_message","text":"PONG"}}'
+                '{"type":"thread.started","thread_id":"019ffccf-e3e4-7133-ac71-20499a14f2a7"}'
+            ) -join "`n"
+            Get-AiCliCodexFinalAgentMessageText -JsonLines $notFinal |
+                Should -BeNullOrEmpty
+        }
+    }
+
     It 'fails when a CLI prints PONG but exits nonzero' {
         $fake = Join-Path $TestDrive 'fake-claude-fail.ps1'
         Set-Content -LiteralPath $fake -Encoding utf8 -Value "Write-Output 'PONG'`nexit 23"
@@ -214,12 +235,16 @@ Describe 'Live text evidence' {
                     EnforceToolCallLimit = [bool]$EnforceToolCallLimit
                 }
                 [pscustomobject]@{
-                    ExitCode = 0
-                    StdOut = "harness progress`nPONG`n"
+                    exitCode = 0
+                    outputTruncated = $false
+                    stdout = @(
+                        '{"type":"thread.started","thread_id":"019ffccf-e3e4-7133-ac71-20499a14f2a7"}'
+                        '{"type":"item.completed","item":{"type":"agent_message","text":"PONG"}}'
+                    ) -join "`n"
                     StdErr = ''
                     limitUsage = [ordered]@{ toolCalls = 0 }
                     runtimeCliPath = 'C:\fake\codex.exe'
-                    RuntimeIdentity = [ordered]@{
+                    runtimeIdentity = [ordered]@{
                         model = 'deepseek-v4-flash'
                         model_provider = 'aicli_deepseek'
                         cli_version = '0.147.0'
@@ -271,11 +296,15 @@ Describe 'Live text evidence' {
                     EnforceToolCallLimit = [bool]$EnforceToolCallLimit
                 }
                 [pscustomobject]@{
-                    ExitCode = 0
-                    StdOut = "PONG`n"
+                    exitCode = 0
+                    outputTruncated = $false
+                    stdout = @(
+                        '{"type":"thread.started","thread_id":"019ffccf-e3e4-7133-ac71-20499a14f2a7"}'
+                        '{"type":"item.completed","item":{"type":"agent_message","text":"PONG"}}'
+                    ) -join "`n"
                     limitUsage = [ordered]@{ toolCalls = 0 }
                     runtimeCliPath = 'C:\fake\codex.exe'
-                    RuntimeIdentity = [ordered]@{
+                    runtimeIdentity = [ordered]@{
                         model = 'future-codex-model'
                         model_provider = 'future_provider'
                         cli_version = '0.147.0'
@@ -312,9 +341,14 @@ Describe 'Live text evidence' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             Mock Invoke-AiCliProfileCapture {
                 [pscustomobject]@{
-                    ExitCode = 0; StdOut = "PONG`n"
+                    exitCode = 0
+                    outputTruncated = $false
+                    stdout = @(
+                        '{"type":"thread.started","thread_id":"019ffccf-e3e4-7133-ac71-20499a14f2a7"}'
+                        '{"type":"item.completed","item":{"type":"agent_message","text":"PONG"}}'
+                    ) -join "`n"
                     limitUsage = [ordered]@{ toolCalls = 1 }
-                    RuntimeIdentity = [ordered]@{
+                    runtimeIdentity = [ordered]@{
                         model = 'future-codex-model'; model_provider = 'future_provider'
                         cli_version = '0.147.0'
                         permission = [ordered]@{
@@ -334,6 +368,57 @@ Describe 'Live text evidence' {
             $result = Invoke-AiCliTextLiveTest -ProfileId 'future-codex-profile' `
                 -Plan $plan -WorkDir $Work -Checks $checks
             $result.Pass | Should -BeFalse
+        }
+    }
+
+    It 'rejects non-exact or truncated Codex final agent text' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            Mock Invoke-AiCliProfileCapture {
+                $finalEvent = [ordered]@{
+                    type = 'item.completed'
+                    item = [ordered]@{
+                        type = 'agent_message'
+                        text = $script:codexFinalText
+                    }
+                } | ConvertTo-Json -Compress -Depth 10
+                [pscustomobject]@{
+                    exitCode = 0
+                    outputTruncated = $script:codexOutputTruncated
+                    stdout = @(
+                        '{"type":"thread.started","thread_id":"019ffccf-e3e4-7133-ac71-20499a14f2a7"}'
+                        $finalEvent
+                    ) -join "`n"
+                    limitUsage = [ordered]@{ toolCalls = 0 }
+                    runtimeIdentity = [ordered]@{
+                        model = 'future-codex-model'; model_provider = 'future_provider'
+                        cli_version = '0.147.0'
+                        permission = [ordered]@{
+                            approval_policy = 'never'; requested_policy = 'danger-full-access'
+                            sandbox_boundary = 'codex-native'; sandbox_type = 'dangerFullAccess'
+                            permission_profile = ':danger-full-access'
+                        }
+                    }
+                }
+            }
+            $plan = [pscustomobject]@{
+                engine = 'codex'; fileName = 'C:\fake\codex.exe'; argumentList = @()
+                removeEnvironment = @(); environmentDelta = @{}
+                model = 'future-codex-model'; modelProvider = 'future_provider'
+            }
+            $cases = @(
+                [ordered]@{ Text = "explanation`nPONG"; Truncated = $false }
+                [ordered]@{ Text = ' PONG'; Truncated = $false }
+                [ordered]@{ Text = "PONG`n"; Truncated = $false }
+                [ordered]@{ Text = 'PONG'; Truncated = $true }
+            )
+            foreach ($case in $cases) {
+                $script:codexFinalText = [string]$case.Text
+                $script:codexOutputTruncated = [bool]$case.Truncated
+                $checks = [Collections.Generic.List[object]]::new()
+                $result = Invoke-AiCliTextLiveTest -ProfileId 'future-codex-profile' `
+                    -Plan $plan -WorkDir $Work -Checks $checks
+                $result.Pass | Should -BeFalse
+            }
         }
     }
 

@@ -14,6 +14,33 @@ function Test-AiCliExactPongOutput {
     return ($lines[-1] -ceq 'PONG')
 }
 
+function Get-AiCliCodexFinalAgentMessageText {
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$JsonLines)
+
+    if ([string]::IsNullOrWhiteSpace($JsonLines)) { return $null }
+    $lines = @($JsonLines -split "`r?`n" | Where-Object {
+        -not [string]::IsNullOrWhiteSpace($_)
+    })
+    if ($lines.Count -eq 0) { return $null }
+    try {
+        $last = $lines[-1] | ConvertFrom-Json -Depth 20 -ErrorAction Stop
+    } catch {
+        return $null
+    }
+    if ([string](Get-AiCliProperty $last 'type') -cne 'item.completed') {
+        return $null
+    }
+    $item = Get-AiCliProperty $last 'item'
+    if ($null -eq $item -or
+        [string](Get-AiCliProperty $item 'type') -cne 'agent_message') {
+        return $null
+    }
+    $text = Get-AiCliProperty $item 'text'
+    if ($text -isnot [string]) { return $null }
+    return [string]$text
+}
+
 function Get-AiCliPongLivePrompt {
     return 'Output exactly PONG with no punctuation, whitespace, explanation, or tool calls.'
 }
@@ -319,7 +346,10 @@ function Invoke-AiCliTextLiveTest {
                 -NativeArgs @('exec', '--json', '-') `
                 -TimeoutMs 120000 -SandboxPolicy danger-full-access `
                 -MaxToolCalls 0 -EnforceToolCallLimit
-            $runtimeIdentity = Get-AiCliProperty $r 'RuntimeIdentity'
+            # Invoke-AiCliProfileCapture returns the public run-receipt schema,
+            # whose property names are deliberately lower camel case. Read the
+            # exact schema keys instead of the legacy child-capture casing.
+            $runtimeIdentity = Get-AiCliProperty $r 'runtimeIdentity'
             if ($null -eq $runtimeIdentity -or
                 [string](Get-AiCliProperty $runtimeIdentity 'model') -cne
                     [string](Get-AiCliProperty $Plan 'model') -or
@@ -328,9 +358,13 @@ function Invoke-AiCliTextLiveTest {
                 throw 'Codex harness returned no matching verified runtime identity.'
             }
             $toolCalls = [int](Get-AiCliProperty (Get-AiCliProperty $r 'limitUsage') 'toolCalls' -1)
-            $pass = ([int](Get-AiCliProperty $r 'ExitCode' -1) -eq 0) -and
+            $finalAgentText = Get-AiCliCodexFinalAgentMessageText `
+                -JsonLines ([string](Get-AiCliProperty $r 'stdout'))
+            $pass = ([int](Get-AiCliProperty $r 'exitCode' -1) -eq 0) -and
+                -not [bool](Get-AiCliProperty $r 'outputTruncated' $true) -and
                 $toolCalls -eq 0 -and
-                (Test-AiCliExactPongOutput -Text ([string](Get-AiCliProperty $r 'StdOut')))
+                $finalAgentText -is [string] -and
+                $finalAgentText -ceq 'PONG'
         } elseif ($engine -eq 'interpreter') {
             $prefix = @()
             $rest = @($argList)
@@ -375,13 +409,17 @@ function Invoke-AiCliTextLiveTest {
             $Checks.Add((New-AiCliCheck -Id 'live.text' -Status '通过' -Summary $summary)) | Out-Null
             return [pscustomobject]@{
                 Pass = $true
-                ExitCode = [int](Get-AiCliProperty $r 'ExitCode' 0)
+                ExitCode = [int](Get-AiCliProperty $r $(
+                    if ($useCodexHarness) { 'exitCode' } else { 'ExitCode' }
+                ) 0)
                 RuntimeIdentity = $runtimeIdentity
                 RuntimeCliPath = [string](Get-AiCliProperty $r 'runtimeCliPath')
                 ObservedToolCalls = $(if ($useCodexHarness) { $toolCalls } else { $null })
             }
         }
-        $exitCode = Get-AiCliProperty $r 'ExitCode'
+        $exitCode = Get-AiCliProperty $r $(
+            if ($useCodexHarness) { 'exitCode' } else { 'ExitCode' }
+        )
         $Checks.Add((New-AiCliCheck -Id 'live.text' -Status '不可用' -Summary ("文本测试失败：exit={0} 或最终正文不匹配" -f $exitCode))) | Out-Null
         Write-AiCliLog -Level Warn -Message ("live text fail engine={0} exit={1}" -f $engine, $exitCode)
         return [pscustomobject]@{
