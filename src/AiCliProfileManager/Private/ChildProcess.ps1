@@ -861,6 +861,8 @@ function Invoke-AiCliChildCapture {
     $safeContextUsage = [ordered]@{}
     $runtimeIdentity = $null
     $compactionCount = 0
+    $reasoningSummaryGroups = @{}
+    $reasoningSummaryGroupCount = 0
     $upstreamFailureSummary = 'Codex reported an upstream failure.'
     $termination = [pscustomobject]@{ Attempted = $false; Confirmed = $true; Method = 'none' }
     $knownEventTypes = @(
@@ -872,6 +874,7 @@ function Invoke-AiCliChildCapture {
         'item.started',
         'item.updated',
         'item.completed',
+        'reasoning.summary.delta',
         'context.usage.updated',
         'bridge.failed',
         'cleanup.failed',
@@ -1075,6 +1078,32 @@ function Invoke-AiCliChildCapture {
                         $protocolError += ' Process-tree cleanup could not be confirmed.'
                     }
                     break
+                }
+                $reasoningSummaryGroup = $null
+                $reasoningSummaryIndex = $null
+                $reasoningSummaryDelta = $null
+                if ($eventType -eq 'reasoning.summary.delta') {
+                    $summaryItemId = [string](Get-AiCliProperty $event 'item_id')
+                    $reasoningSummaryIndex = ConvertTo-AiCliBoundedInteger `
+                        -Value (Get-AiCliProperty $event 'summary_index') `
+                        -Minimum 0 -Maximum 10000
+                    $reasoningSummaryDelta = Get-AiCliProperty $event 'delta'
+                    if (
+                        [string]::IsNullOrWhiteSpace($summaryItemId) -or
+                        $null -eq $reasoningSummaryIndex -or
+                        $reasoningSummaryDelta -isnot [string]
+                    ) {
+                        $protocolValid = $false
+                        $protocolErrorCode = 'codex_appserver.item_identity_invalid'
+                        $protocolError = 'Codex emitted an invalid public reasoning summary delta.'
+                        $termination = Stop-AiCliProcessTree -Process $proc
+                        break
+                    }
+                    if (-not $reasoningSummaryGroups.ContainsKey($summaryItemId)) {
+                        $reasoningSummaryGroupCount++
+                        $reasoningSummaryGroups[$summaryItemId] = $reasoningSummaryGroupCount
+                    }
+                    $reasoningSummaryGroup = [long]$reasoningSummaryGroups[$summaryItemId]
                 }
                 if ($eventType -eq 'bridge.failed') {
                     $bridgeErrorCode = [string](
@@ -1380,6 +1409,34 @@ function Invoke-AiCliChildCapture {
                             Data = @{
                                 status = 'completed'
                                 compaction_count = $compactionCount
+                            }
+                        }
+                    } elseif ($eventType -eq 'reasoning.summary.delta') {
+                        $publicText = Protect-AiCliExactSecretValues `
+                            -Text ([string]$reasoningSummaryDelta) `
+                            -SecretValues $SecretValues
+                        $publicTextTruncated = $false
+                        if ($publicText.Length -gt 2000) {
+                            $publicText = $publicText.Substring(0, 2000)
+                            $publicTextTruncated = $true
+                        }
+                        if (-not [string]::IsNullOrEmpty($publicText)) {
+                            $summaryData = [ordered]@{
+                                status = 'updated'
+                                item_type = 'reasoning_summary'
+                                summary_group = $reasoningSummaryGroup
+                                summary_index = $reasoningSummaryIndex
+                                public_text = $publicText
+                                steps = $stepCount
+                                tool_calls = $toolCallCount
+                                events_seen = $eventsSeen
+                            }
+                            if ($publicTextTruncated) {
+                                $summaryData['public_text_truncated'] = $true
+                            }
+                            $machineEvent = @{
+                                Kind = 'reasoning.summary.delta'
+                                Data = $summaryData
                             }
                         }
                     } elseif ($isItemEvent -and $itemType -eq 'reasoning') {

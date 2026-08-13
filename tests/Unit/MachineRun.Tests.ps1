@@ -1273,6 +1273,24 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
             [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
             [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
             [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":3,"totalTokens":41},"total":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":3,"totalTokens":41},"modelContextWindow":262144}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"reason-public","type":"reasoning","summary":[]}}}')
+            [Console]::Out.WriteLine('{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"reason-public","summaryIndex":0,"delta":"正在核对公开配置。"}}')
+            [Console]::Out.WriteLine('{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"reason-public","delta":"继续核对公开路径。"}}')
+            [Console]::Out.WriteLine('{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"reason-public","summaryIndex":0,"delta":"公开摘要包含 PUBLIC_SECRET_CANARY。"}}')
+            $longSummary = [ordered]@{
+                method = 'item/reasoning/summaryTextDelta'
+                params = [ordered]@{
+                    threadId = '019f98ff-110f-7390-8d7b-d85d70bba89f'
+                    turnId = '019f98ff-110f-7390-8d7b-d85d70bba890'
+                    itemId = 'reason-public'
+                    summaryIndex = 0
+                    delta = ('长' * 2001)
+                }
+            }
+            [Console]::Out.WriteLine(($longSummary | ConvertTo-Json -Depth 10 -Compress))
+            [Console]::Out.WriteLine('{"method":"item/reasoning/textDelta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"reason-public","delta":"PRIVATE_RAW_REASONING_CANARY"}}')
+            [Console]::Out.WriteLine('{"method":"item/reasoning/summaryPartAdded","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"reason-public","summaryPart":"PRIVATE_UNKNOWN_SUMMARY_PART_CANARY"}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"reason-public","type":"reasoning","summary":["PUBLIC_SUMMARY_SOURCE_CANARY"]}}}')
             [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-progress","type":"agentMessage","text":""}}}')
             [Console]::Out.WriteLine('{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"message-progress","delta":"正在"}}')
             [Console]::Out.WriteLine('{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"message-progress","delta":"检查 acceptance.md"}}')
@@ -1309,12 +1327,29 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
             $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
                 -ArgumentList @('-NoProfile', '-File', $bridge, '-ConfigPath', $bridgeConfig) `
                 -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
-                -MachineEventFile $eventFile -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000
+                -MachineEventFile $eventFile -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000 `
+                -SecretValues @('PUBLIC_SECRET_CANARY')
 
             $result.ExitCode | Should -Be 0
-            $result.StepCount | Should -Be 0
+            $result.StepCount | Should -Be 1
             $result.StdOut | Should -Match 'FINAL_PUBLIC'
             $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
+            $reasoningSummary = @($events | Where-Object kind -eq 'reasoning.summary.delta')
+            $reasoningSummary.Count | Should -Be 4
+            @($reasoningSummary[0..2].public_text) | Should -Be @(
+                '正在核对公开配置。'
+                '继续核对公开路径。'
+                '公开摘要包含 ***REDACTED***。'
+            )
+            $reasoningSummary[0].summary_group | Should -Be 1
+            $reasoningSummary[0].summary_index | Should -Be 0
+            $reasoningSummary[1].summary_group | Should -Be 1
+            $reasoningSummary[1].summary_index | Should -Be 0
+            $reasoningSummary[2].summary_group | Should -Be 1
+            $reasoningSummary[2].summary_index | Should -Be 0
+            $reasoningSummary[0].PSObject.Properties.Name | Should -Not -Contain 'public_text_truncated'
+            $reasoningSummary[3].public_text.Length | Should -Be 2000
+            $reasoningSummary[3].public_text_truncated | Should -BeTrue
             $deltas = @($events | Where-Object kind -eq 'output.delta')
             $deltas.Count | Should -Be 3
             @($deltas.public_text) | Should -Be @(
@@ -1323,6 +1358,9 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 '文件已更新。'
             )
             @($events | Where-Object kind -eq 'output.completed').Count | Should -Be 1
+            (($result | ConvertTo-Json -Depth 10 -Compress) + "`n" +
+                (Get-Content -LiteralPath $eventFile -Raw -Encoding utf8)) |
+                Should -Not -Match 'PRIVATE_RAW_REASONING_CANARY|PRIVATE_UNKNOWN_SUMMARY_PART_CANARY|PUBLIC_SUMMARY_SOURCE_CANARY'
         }
     }
 

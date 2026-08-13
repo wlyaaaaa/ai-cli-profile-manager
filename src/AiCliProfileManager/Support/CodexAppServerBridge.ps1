@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+﻿#Requires -Version 7.0
 
 [CmdletBinding()]
 param(
@@ -701,6 +701,47 @@ function Handle-BridgeNotification {
             Assert-BridgeNotificationScope -Params $params
             $turn = Get-BridgeProperty $params 'turn'
             Write-BridgeTurnStarted -Turn $turn
+        }
+        'item/reasoning/summaryTextDelta' {
+            $itemId = [string](Get-BridgeProperty $params 'itemId')
+            $delta = Get-BridgeProperty $params 'delta'
+            $rawSummaryIndex = Get-BridgeProperty $params 'summaryIndex'
+            $summaryIndex = if ($null -eq $rawSummaryIndex) {
+                0L
+            } else {
+                ConvertTo-BridgeInt64 $rawSummaryIndex
+            }
+            if (
+                [string]::IsNullOrWhiteSpace($itemId) -or
+                $itemId.Length -gt 512 -or
+                $delta -isnot [string] -or
+                $null -eq $summaryIndex -or
+                $summaryIndex -lt 0 -or
+                $summaryIndex -gt 10000
+            ) {
+                Throw-BridgeFailure -Code 'codex_appserver.item_identity_invalid'
+            }
+            if ($delta.Length -gt 8192) {
+                Throw-BridgeFailure -Code 'codex_appserver.item_identity_invalid'
+            }
+            if (-not $script:ItemStates.ContainsKey($itemId)) {
+                Throw-BridgeFailure -Code 'codex_appserver.item_lifecycle_invalid'
+            }
+            $itemState = $script:ItemStates[$itemId]
+            if (
+                [string]$itemState['type'] -ne 'reasoning' -or
+                [string]$itemState['state'] -ne 'started'
+            ) {
+                Throw-BridgeFailure -Code 'codex_appserver.item_lifecycle_invalid'
+            }
+            if (-not [string]::IsNullOrEmpty([string]$delta)) {
+                Write-BridgeJson ([ordered]@{
+                    type = 'reasoning.summary.delta'
+                    item_id = $itemId
+                    summary_index = $summaryIndex
+                    delta = [string]$delta
+                })
+            }
         }
         'item/agentMessage/delta' {
             $itemId = [string](Get-BridgeProperty $params 'itemId')
