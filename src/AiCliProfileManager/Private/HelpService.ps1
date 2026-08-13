@@ -41,6 +41,15 @@ $name — 命令帮助
   $cmd help setup|profile|start|run|doctor|test|proxy|update|native|eject|uninstall
   $cmd help compact|model|effort|permissions|resume|compare
 
+精确第三方 Codex 一键入口：
+  $cmd start codex-qwen3-8-max-paygo --project <trusted-workspace>
+  $cmd start codex-deepseek --project <trusted-workspace>
+  $cmd start codex-deepseek-v4-pro --project <trusted-workspace>
+  $cmd start codex-ollama-main --project <trusted-workspace>
+  $cmd start codex-ollama-review --project <trusted-workspace>
+
+使用 $cmd profile list --available 查看 exact model 与默认 max；云 Profile 首次使用前只需配置一次 SecretRef。
+
 详细手册见 docs/user/。
 "@
 }
@@ -78,8 +87,10 @@ function Show-AiCliHelpModel {
   Claude:  /model
 
 或在启动时：
-  aicli start <profile> -- --model <id>     # 视上游 CLI 支持而定
-  aicli start codex-ollama -- -m <model>
+  aicli start codex-official -- --model <id>  # 仅 flexible Profile
+
+第三方 exact Codex Profile（Qwen / DeepSeek / 本地 main/review）由 Profile 固定模型；
+不接受 --model、-m 或 --fallback-model。请选择另一个精确 Profile。
 
 执行后：后续请求使用新模型；已产生的历史仍占用上下文。
 
@@ -100,6 +111,13 @@ function Show-AiCliHelpEffort {
   Claude:  /effort   或相关思考设置
 
 执行后：影响后续推理强度；不同厂商语义不完全等价，aicli 不会伪装成“完全相同”。
+
+对受管第三方 Codex Profile，用户看到的 max 始终表示该模型当前支持的最高思考档：
+  - Qwen3.8 Max: max → 原生 xhigh
+  - DeepSeek V4 Flash/Pro: max → 原生 max
+  - 本地 qwen-main/review: max → 目录最高档 max
+
+启动计划会解析、固定并记录 requested/effective effort；它们是发出的计划值，不冒充供应商回读。只有取得独立证明时 attested effort 才会有值。
 
 生效：通常下一请求。
 
@@ -178,7 +196,7 @@ function Show-AiCliHelpCommand {
     $rows = [ordered]@{
         setup     = @('首次引导与本机体检。','aicli setup','显示环境状态并选择要配置的 Profile。')
         profile   = @('查看、配置、设默认值或删除用户 Profile。','aicli profile list --available；aicli profile configure <模板 ID>；aicli profile remove <ID>','删除最后一个引用某密钥的 Profile 时，也会删除对应 DPAPI 密钥文件。')
-        start     = @('在指定项目目录中启动真实上游 CLI。','aicli start <Profile ID> --project <项目路径> -- <原生参数>','Provider、模型和密钥只注入该子进程。')
+        start     = @('在指定项目目录中启动真实上游 CLI。','aicli start <精确 Profile ID> --project <项目路径>','第三方 Profile 封闭 Provider、模型、Responses、max 映射和 SecretRef；用户无需拼底层参数。')
         run       = @('供上层程序通过 stdin 调用一个有界智能体任务。','aicli run <Profile ID> --stdin --json --project <路径> --sandbox-policy read-only|workspace-write -- <原生参数>','本地/第三方使用断网外层沙箱；官方 Codex 使用原生沙箱和隔离认证目录。只返回公开结果与结果侧元数据，不返回环境或密钥。')
         doctor    = @('检查 CLI、Profile、端点、代理和配置冲突，不发送模型请求。','aicli doctor [Profile ID] [--json]','输出“通过 / 可用 / 可用但有限制 / 不可用”及下一步。')
         test      = @('通过目标 CLI 发送一次真实连通请求。','aicli test <Profile ID> --live --level text --yes','会消耗额度；最终正文必须严格匹配 PONG，未执行的工具测试不会冒充通过。')

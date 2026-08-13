@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-qwen3-8-max-paygo",
+  "displayName": "Codex + Qwen3.8 Max（百炼 Workspace 按量）",
+  "engine": "codex",
+  "provider": "qwen",
+  "plan": "paygo",
+  "region": "cn-beijing",
+  "transport": "responses",
+  "endpoint": null,
+  "workspaceBaseUrlRequired": true,
+  "codexProviderId": "aicli_qwen38_max_paygo",
+  "codexModelCatalog": "qwen3.8-max-codex.json",
+  "codexAutoCompactTokenLimit": 262144,
+  "codexAutoCompactTokenLimitScope": "total",
+  "requiresSecret": true,
+  "virtualReady": false,
+  "auth": {
+    "type": "api-key",
+    "envKey": "AICLI_CODEX_PROVIDER_KEY"
+  },
+  "models": {
+    "primary": "qwen3.8-max",
+    "small": "qwen3.8-max",
+    "candidates": [
+      "qwen3.8-max"
+    ]
+  },
+  "defaultEffort": "max",
+  "effortLevels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ],
+  "effortMap": {
+    "high": "xhigh",
+    "max": "xhigh"
+  },
+  "flexible": false,
+  "capabilities": {
+    "tools": true,
+    "contextStats": true,
+    "images": true,
+    "streaming": true,
+    "effort": true
+  },
+  "compatibility": {
+    "minCliVersion": "0.144.0",
+    "modelVersion": "qwen3.8-max",
+    "apiStatus": "available"
+  },
+  "dataDestination": "阿里云百炼北京 Workspace 按量 Responses API",
+  "notes": "精确模型 qwen3.8-max。用户档位 max 映射为该模型当前原生最高档 xhigh；运行时同时固定 Responses、Workspace endpoint、模型目录与 262144 token 自动压缩阈值。",
+  "sources": [
+    "https://help.aliyun.com/zh/model-studio/codex",
+    "https://help.aliyun.com/zh/model-studio/models",
+    "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses"
+  ]
+}

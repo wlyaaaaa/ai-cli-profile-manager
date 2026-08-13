@@ -45,7 +45,7 @@ $text = [Console]::In.ReadToEnd()
             Mock Invoke-AiCliChildCapture {
                 [pscustomobject]@{
                     ExitCode = 0
-                    StdOut = '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}'
+                    StdOut = '{"type":"item.completed","item":{"type":"agent_message","text":"CANARY_SECRET done"}}'
                     StdErr = ''
                     TimedOut = $false
                     DurationMs = 123
@@ -89,9 +89,12 @@ $text = [Console]::In.ReadToEnd()
             $result.limitHit | Should -BeNullOrEmpty
             $result.PSObject.Properties.Name | Should -Not -Contain 'environmentDelta'
             ($result | ConvertTo-Json -Depth 10) | Should -Not -Match 'CANARY_SECRET'
+            $result.effortEvidence | Should -Be 'launch-plan'
+            $result.attestedEffort | Should -BeNullOrEmpty
             Should -Invoke Invoke-AiCliChildCapture -Times 1 -Exactly -ParameterFilter {
                 $StdInText -eq 'TASK' -and $TimeoutMs -eq 9000 -and $MaxCaptureChars -eq 4096 -and
-                $SandboxWorkspace -eq $Work -and $EventProtocol -eq 'codex-jsonl'
+                $SandboxWorkspace -eq $Work -and $EventProtocol -eq 'codex-jsonl' -and
+                $SecretValues -contains 'CANARY_SECRET'
             }
         }
     }

@@ -42,6 +42,58 @@ Describe 'CommandRouter' {
         $code | Should -Be 0
     }
 
+    It 'discovers exact Codex Profile identities and max mappings in list JSON' {
+        $oldOut = [Console]::Out
+        $writer = [IO.StringWriter]::new()
+        try {
+            [Console]::SetOut($writer)
+            $code = Invoke-AiCli -Tokens @('profile', 'list', '--available', '--json') -DataRoot $script:DataRoot
+        } finally {
+            [Console]::SetOut($oldOut)
+        }
+        $code | Should -Be 0
+        $profiles = @((($writer.ToString() | ConvertFrom-Json).profiles))
+        foreach ($expected in @(
+            @{ id = 'codex-qwen3-8-max-paygo'; model = 'qwen3.8-max'; requested = 'max'; effective = 'xhigh' },
+            @{ id = 'codex-deepseek'; model = 'deepseek-v4-flash'; requested = 'max'; effective = 'max' },
+            @{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; requested = 'max'; effective = 'max' },
+            @{ id = 'codex-ollama-main'; model = 'qwen-main-v1'; requested = 'max'; effective = 'max' },
+            @{ id = 'codex-ollama-review'; model = 'qwen-review-v1'; requested = 'max'; effective = 'max' }
+        )) {
+            $row = @($profiles | Where-Object id -eq $expected.id)
+            $row.Count | Should -Be 1 -Because $expected.id
+            $row[0].model | Should -Be $expected.model -Because $expected.id
+            $row[0].wire | Should -Be 'responses' -Because $expected.id
+            $row[0].requestedEffort | Should -Be $expected.requested -Because $expected.id
+            $row[0].effectiveEffort | Should -Be $expected.effective -Because $expected.id
+        }
+    }
+
+    It 'shows runtime status and the max to native mapping in text list output' {
+        $text = (& {
+            Invoke-AiCli -Tokens @('profile', 'list', '--available') -DataRoot $script:DataRoot | Out-Null
+        } 6>&1 | Out-String)
+
+        $text | Should -Match '状态'
+        $text | Should -Match 'codex-qwen3-8-max-paygo.*max→xhigh.*不可用'
+        $text | Should -Match 'codex-deepseek-v4-pro.*max.*不可用'
+    }
+
+    It 'advertises one-command exact Profile starts in help' {
+        $help = (& {
+            Invoke-AiCli -Tokens @('help') -DataRoot $script:DataRoot | Out-Null
+        } 6>&1 | Out-String)
+        foreach ($id in @(
+            'codex-qwen3-8-max-paygo',
+            'codex-deepseek',
+            'codex-deepseek-v4-pro',
+            'codex-ollama-main',
+            'codex-ollama-review'
+        )) {
+            $help | Should -Match ([regex]::Escape("aicli start $id --project"))
+        }
+    }
+
     It 'help compare works' {
         $code = Invoke-AiCli -Tokens @('help', 'compare') -DataRoot $script:DataRoot
         $code | Should -Be 0

@@ -22,7 +22,8 @@ function Assert-AiCliManifestCore {
         'schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi',
         'endpoint','models','auth','proxyRef','capabilities','compatibility','sources','codexProviderId',
         'interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','modelMetadata',
-        'defaultEffort','effortLevels','flexible','autoRun','modelPrefix','codexModelCatalog'
+        'defaultEffort','effortLevels','effortMap','flexible','autoRun','modelPrefix','codexModelCatalog',
+        'workspaceBaseUrlRequired','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope'
     )
     foreach ($key in $M.Keys) {
         if ($allowed -notcontains [string]$key) { throw "Manifest 未知字段: $key ($($M.id))" }
@@ -43,11 +44,79 @@ function Assert-AiCliManifestCore {
     }
     if ([string]::IsNullOrWhiteSpace([string](Get-AiCliProperty $M 'displayName'))) { throw "Manifest displayName 不能为空 ($id)" }
     if ([string]::IsNullOrWhiteSpace([string](Get-AiCliProperty $M 'dataDestination'))) { throw "Manifest dataDestination 不能为空 ($id)" }
-    foreach ($field in @('requiresSecret','virtualReady','hidden','flexible')) {
+    foreach ($field in @('requiresSecret','virtualReady','hidden','flexible','workspaceBaseUrlRequired')) {
         if (Test-AiCliMapHasKey -Map $M -Key $field) {
             $value = Get-AiCliProperty $M $field
             if ($value -isnot [bool]) { throw "Manifest $field 必须是 boolean ($id)" }
         }
+    }
+    $defaultEffort = [string](Get-AiCliProperty $M 'defaultEffort')
+    $effortLevels = @()
+    if (Test-AiCliMapHasKey -Map $M -Key 'effortLevels') {
+        $rawEffortLevels = if ($M -is [System.Collections.IDictionary]) { $M['effortLevels'] } else { $M.effortLevels }
+        if ($rawEffortLevels -is [string] -or
+            $rawEffortLevels -is [System.Collections.IDictionary] -or
+            $rawEffortLevels -isnot [System.Collections.IEnumerable]) {
+            throw "Manifest effortLevels 必须是 array ($id)"
+        }
+        foreach ($effortLevel in @($rawEffortLevels)) {
+            $normalizedEffort = [string]$effortLevel
+            if ($normalizedEffort -cnotmatch '^[a-z][a-z0-9_-]{0,31}$') {
+                throw "Manifest effortLevels 包含非法值 ($id)"
+            }
+            if ($effortLevels -ccontains $normalizedEffort) {
+                throw "Manifest effortLevels 包含重复值: $normalizedEffort ($id)"
+            }
+            $effortLevels += $normalizedEffort
+        }
+        if ($effortLevels.Count -eq 0) { throw "Manifest effortLevels 不能为空 ($id)" }
+        if ($defaultEffort -and $effortLevels -cnotcontains $defaultEffort) {
+            throw "Manifest defaultEffort 必须进入 effortLevels ($id)"
+        }
+    }
+    $effortMap = Get-AiCliProperty $M 'effortMap'
+    if ($null -ne $effortMap) {
+        if ($effortMap -isnot [System.Collections.IDictionary]) {
+            throw "Manifest effortMap 必须是 object ($id)"
+        }
+        if ($effortLevels.Count -eq 0) {
+            throw "Manifest effortMap 需要 effortLevels ($id)"
+        }
+        foreach ($requestedEffort in @($effortMap.Keys)) {
+            $requestedEffort = [string]$requestedEffort
+            $effectiveEffort = [string](Get-AiCliProperty $effortMap $requestedEffort)
+            if ($effortLevels -cnotcontains $requestedEffort) {
+                throw "Manifest effortMap 请求档位不在 effortLevels: $requestedEffort ($id)"
+            }
+            if ($effectiveEffort -cnotmatch '^[a-z][a-z0-9_-]{0,31}$') {
+                throw "Manifest effortMap 有效档位非法: $requestedEffort ($id)"
+            }
+        }
+    }
+    $workspaceBaseUrlRequired = [bool](Get-AiCliProperty $M 'workspaceBaseUrlRequired' $false)
+    if ($workspaceBaseUrlRequired) {
+        if ([string](Get-AiCliProperty $M 'engine') -cne 'codex' -or
+            [string](Get-AiCliProperty $M 'provider') -cne 'qwen' -or
+            [string](Get-AiCliProperty $M 'plan') -cne 'paygo' -or
+            [string](Get-AiCliProperty $M 'transport') -cne 'responses' -or
+            -not [string]::IsNullOrWhiteSpace([string](Get-AiCliProperty $M 'endpoint'))) {
+            throw "Manifest workspaceBaseUrlRequired 仅允许 endpoint=null 的 Qwen Codex paygo Responses Profile ($id)"
+        }
+    }
+    $autoCompactLimit = Get-AiCliProperty $M 'codexAutoCompactTokenLimit'
+    $autoCompactScope = [string](Get-AiCliProperty $M 'codexAutoCompactTokenLimitScope')
+    if ($null -ne $autoCompactLimit) {
+        if ([string](Get-AiCliProperty $M 'engine') -cne 'codex' -or
+            ($autoCompactLimit -isnot [byte] -and $autoCompactLimit -isnot [int16] -and
+             $autoCompactLimit -isnot [int32] -and $autoCompactLimit -isnot [int64]) -or
+            [long]$autoCompactLimit -lt 32768 -or [long]$autoCompactLimit -gt 4194304) {
+            throw "Manifest codexAutoCompactTokenLimit 非法 ($id)"
+        }
+        if ($autoCompactScope -notin @('total','body_after_prefix')) {
+            throw "Manifest codexAutoCompactTokenLimitScope 无效 ($id)"
+        }
+    } elseif ($autoCompactScope) {
+        throw "Manifest codexAutoCompactTokenLimitScope 需要 codexAutoCompactTokenLimit ($id)"
     }
     $endpoint = Get-AiCliProperty $M 'endpoint'
     if ($null -ne $endpoint -and -not [string]::IsNullOrWhiteSpace([string]$endpoint)) {
@@ -66,6 +135,41 @@ function Assert-AiCliManifestCore {
     }
     foreach ($modelId in @((Get-AiCliProperty $models 'reserved') | Where-Object { $_ })) {
         $null = Assert-AiCliModelId -Model ([string]$modelId)
+    }
+    $exactThirdPartyCodex = [string](Get-AiCliProperty $M 'engine') -ceq 'codex' -and
+        [string](Get-AiCliProperty $M 'provider') -cin @('qwen','deepseek','ollama') -and
+        -not [bool](Get-AiCliProperty $M 'hidden' $false)
+    if ($exactThirdPartyCodex) {
+        $primaryModel = [string](Get-AiCliProperty $models 'primary')
+        $smallModel = [string](Get-AiCliProperty $models 'small')
+        $candidateModels = @(
+            (Get-AiCliProperty $models 'candidates') |
+                Where-Object { $_ } |
+                ForEach-Object { [string]$_ }
+        )
+        $reservedModels = @((Get-AiCliProperty $models 'reserved') | Where-Object { $_ })
+        if ([string](Get-AiCliProperty $M 'transport') -cne 'responses' -or
+            [bool](Get-AiCliProperty $M 'flexible' $true) -or
+            [string]::IsNullOrWhiteSpace($primaryModel) -or
+            $smallModel -cne $primaryModel -or
+            $candidateModels.Count -ne 1 -or
+            $candidateModels[0] -cne $primaryModel -or
+            $reservedModels.Count -ne 0) {
+            throw "公开第三方 Codex Profile 必须是 Responses 单模型 exact/no-fallback 合同 ($id)"
+        }
+        if ($defaultEffort -cne 'max' -or $effortLevels -cnotcontains 'max') {
+            throw "公开第三方 Codex Profile 必须默认用户最高档 max ($id)"
+        }
+        $requiresSecret = [bool](Get-AiCliProperty $M 'requiresSecret' $false)
+        $providerName = [string](Get-AiCliProperty $M 'provider')
+        if ($providerName -in @('qwen','deepseek')) {
+            $auth = Get-AiCliProperty $M 'auth'
+            if (-not $requiresSecret -or
+                [string](Get-AiCliProperty $auth 'type') -cne 'api-key' -or
+                [string](Get-AiCliProperty $auth 'envKey') -cne 'AICLI_CODEX_PROVIDER_KEY') {
+                throw "远程 exact Codex Profile 必须通过 AICLI_CODEX_PROVIDER_KEY SecretRef 注入 ($id)"
+            }
+        }
     }
     $modelMetadata = Get-AiCliProperty $M 'modelMetadata'
     if ($null -ne $modelMetadata) {
@@ -224,6 +328,25 @@ function Assert-AiCliManifestCore {
                 $null = Assert-AiCliModelId -Model $slug
                 $slug
             })
+            if ($effortLevels.Count -gt 0) {
+                foreach ($catalogModel in $catalogModels) {
+                    $catalogSlug = [string](Get-AiCliProperty $catalogModel 'slug')
+                    $catalogEfforts = @(
+                        @((Get-AiCliProperty $catalogModel 'supported_reasoning_levels')) |
+                            ForEach-Object { [string](Get-AiCliProperty $_ 'effort') }
+                    )
+                    if ($catalogEfforts.Count -eq 0) {
+                        throw "Codex reasoning catalog 缺少 effort: $catalogSlug ($id)"
+                    }
+                    foreach ($requestedEffort in $effortLevels) {
+                        $effectiveEffort = [string](Get-AiCliProperty $effortMap $requestedEffort)
+                        if (-not $effectiveEffort) { $effectiveEffort = $requestedEffort }
+                        if ($catalogEfforts -cnotcontains $effectiveEffort) {
+                            throw "Codex reasoning effort 不在 catalog 中: $requestedEffort -> $effectiveEffort / $catalogSlug ($id)"
+                        }
+                    }
+                }
+            }
             $candidateModels = @((Get-AiCliProperty $models 'candidates') | Where-Object { $_ } | ForEach-Object { [string]$_ })
             if ($candidateModels.Count -eq 0) {
                 throw "带 model catalog 的 Codex Manifest 必须声明 models.candidates ($id)"

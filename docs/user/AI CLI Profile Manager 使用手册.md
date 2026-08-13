@@ -1,6 +1,6 @@
 # AI CLI Profile Manager 使用手册
 
-适用版本：`0.3.3`（本地/源码目标，未发布 Release）
+适用版本：`0.3.4`（源码与安装目标；发布、安装和 Live 证据须分别核对）
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
@@ -19,7 +19,7 @@ AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter �
 
 ### 1.2 安装本工具
 
-`0.3.3` 当前尚未发布 Release；从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
+`0.3.4` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
 
 ```powershell
 $version = '<从 Releases 页面选择的已发布版本>'
@@ -185,15 +185,15 @@ aicli profile remove qwen-work
 
 删除型命令会先确认。使用 `--yes` 可跳过交互确认。删除最后一个引用某密钥的用户 Profile 时，也会删除本工具保存的对应 DPAPI 密钥文件；不会删除上游官方登录。
 
-### 3.2 首版公开 Profile
+### 3.2 当前公开 Profile
 
 | 引擎 | 场景 | Profile |
 |------|------|---------|
 | Codex | ChatGPT/OpenAI 官方登录 | `codex-official` |
-| Codex | 千问按量 Responses | `codex-qwen-paygo` |
-| Codex | 千问 Token Plan Responses | `codex-qwen-token-plan` |
-| Codex | DeepSeek V4 Flash Responses（public beta） | `codex-deepseek` |
-| Codex | 本机 Ollama | `codex-ollama` |
+| Codex | Qwen3.8 Max Workspace 按量 Responses | `codex-qwen3-8-max-paygo` |
+| Codex | 千问 3.7 精确按量 / Token Plan Responses | `codex-qwen-paygo`、`codex-qwen-token-plan` |
+| Codex | DeepSeek V4 Flash 0731 / Pro 0813 Responses | `codex-deepseek`、`codex-deepseek-v4-pro` |
+| Codex | 本机精确 main / review | `codex-ollama-main`、`codex-ollama-review` |
 | Claude Code | Claude 官方登录 | `claude-official` |
 | Claude Code | DeepSeek V4 Flash | `claude-deepseek` |
 | Claude Code | 千问按量、Coding Plan、Token Plan | `claude-qwen-paygo`、`claude-qwen-coding-plan`、`claude-qwen-token-plan` |
@@ -204,9 +204,9 @@ aicli profile remove qwen-work
 | Open Interpreter | DeepSeek V4 Flash Chat | `oi-deepseek` |
 | Open Interpreter | 本机 Ollama | `oi-ollama` |
 
-`codex-deepseek` 固定 DeepSeek 官方 2026-07-31 [Codex public beta](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 与 [Responses API](https://api-docs.deepseek.com/guides/responses_api/) 路径：模型 `deepseek-v4-flash`、Responses、1M context、Codex CLI `0.144.0+`，默认 reasoning effort 为 `high`，可选 `low` / `high` / `max`。`deepseek-v4-pro` 仅作未来扩展的 `reserved` 元数据，当前不可选；官方支持后再接入。动态变化以 [DeepSeek Change Log](https://api-docs.deepseek.com/updates) 为准。千问 Coding Plan 与纯 Chat Completions 仍不属于 Codex 路径。
+`codex-deepseek` 精确固定 API alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，`codex-deepseek-v4-pro` 精确固定 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`。两者均使用官方 [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 的 Responses wire、1M context、`low` / `high` / `max`，用户默认 `max`，并拒绝模型、Provider 与 fallback 覆盖。动态变化以 [DeepSeek Change Log](https://api-docs.deepseek.com/updates/) 为准；非 Codex 的 Claude Code / Open Interpreter DeepSeek 模板仍保持 Flash-only。
 
-`codex-qwen-paygo` 与 `codex-qwen-token-plan` 现在共用非空基础指令的受管千问目录：现有六个候选都声明 `context_window=max_context_window=983616`、95% 有效窗口，Codex 自动在约 90%（约 885K）触发客户端保护；不再使用未知模型的 272K 回退。默认模型、套餐和付费选择没有改变，`ultra` 不再被误列为千问 effort。
+`codex-qwen3-8-max-paygo` 只接受北京百炼 Workspace 按量 Responses endpoint，精确模型 `qwen3.8-max`、983616 context、95% 有效窗口和 262144 token 自动压缩阈值；不接 preview、通用 DashScope 或 Token Plan。用户选择 `max` 时，AICLI 保留 requested=`max`，并按官方映射发出 effective=`xhigh`。兼容入口 `codex-qwen-paygo` / `codex-qwen-token-plan` 也已收敛为唯一固定模型 `qwen3.7-max-2026-06-08`、Responses 与 `max`，不再暴露六候选或 preview fallback。
 
 Claude Code `2.1.193+` 的 DeepSeek/千问 Profile 按最终 `--model` 精确注入模型窗口。DeepSeek Flash 为 `1000000`；千问按量常用 1M、Token Plan 按官方示例为 `983616`，Coding Plan 中 262K 模型单独保守声明。AICLI 不设置会提前压缩的 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`，也不默认禁用自动/手动压缩；未知或自定义模型不猜测。
 
@@ -228,7 +228,9 @@ aicli doctor codex-ollama
 ```powershell
 aicli profile configure claude-qwen-paygo
 aicli profile configure codex-qwen-paygo
+aicli profile configure codex-qwen3-8-max-paygo
 aicli profile configure codex-deepseek
+aicli profile configure codex-deepseek-v4-pro
 aicli profile configure claude-deepseek
 aicli profile configure oi-deepseek
 ```
@@ -252,7 +254,7 @@ aicli eject claude-deepseek --output .\export-claude-deepseek
 ```powershell
 aicli start claude-official -- --effort high
 aicli start claude-qwen-paygo -- --permission-mode acceptEdits
-aicli start codex-ollama -- -m qwen3:8b
+aicli start codex-official -- --model gpt-5.6-terra
 ```
 
 与本工具启动计划冲突的 Provider、认证、`--profile`、`--settings` 或 `-c` 覆盖会被拒绝。不要用透传参数绕过 Profile 的安全边界。

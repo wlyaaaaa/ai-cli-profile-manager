@@ -173,8 +173,17 @@ function Invoke-AiCliLiveTest {
                     engine             = (Get-AiCliProperty $merged 'engine')
                     provider           = (Get-AiCliProperty $merged 'provider')
                     transport          = (Get-AiCliProperty $merged 'transport')
-                    endpoint           = (Get-AiCliProperty $merged 'endpoint')
-                    model              = (Get-AiCliProperty $models 'primary')
+                    endpointFingerprint = $(
+                        $endpoint = [string](Get-AiCliProperty $merged 'endpoint')
+                        if ($endpoint) { Get-AiCliContentHash -Text $endpoint } else { $null }
+                    )
+                    model              = $(if ($plan) { Get-AiCliProperty $plan 'model' } else { Get-AiCliProperty $models 'primary' })
+                    modelProvider      = $(if ($plan) { Get-AiCliProperty $plan 'modelProvider' } else { $null })
+                    wire               = $(if ($plan) { Get-AiCliProperty $plan 'wire' } else { Get-AiCliProperty $merged 'transport' })
+                    requestedEffort    = $(if ($plan) { Get-AiCliProperty $plan 'effort' } else { Get-AiCliProperty $merged 'defaultEffort' })
+                    effectiveEffort    = $(if ($plan) { Get-AiCliProperty $plan 'effectiveEffort' } else { $null })
+                    effortEvidence     = $(if ($plan) { 'launch-plan' } else { 'profile-default' })
+                    attestedEffort     = $null
                     cliPath            = $(if ($plan) { Get-AiCliProperty $plan 'fileName' } else { $null })
                     cliVersion         = $(if ($plan) { Get-AiCliPlanVersionEvidence -Plan $plan } else { $null })
                     failureSummary     = $failureSummary
@@ -212,6 +221,9 @@ function Invoke-AiCliTextLiveTest {
     $argList = @((Get-AiCliProperty $Plan 'argumentList') | ForEach-Object { [string]$_ })
     $envDelta = Get-AiCliProperty $Plan 'environmentDelta'
     if ($null -eq $envDelta) { $envDelta = @{} }
+    $secretValues = @(
+        Get-AiCliEnvironmentSecretValues -EnvironmentDelta $envDelta
+    )
     $removeEnv = @((Get-AiCliProperty $Plan 'removeEnvironment') | ForEach-Object { [string]$_ })
     $timeoutMs = if ($engine -eq 'interpreter') { 90000 } else { 45000 }
 
@@ -233,7 +245,8 @@ function Invoke-AiCliTextLiveTest {
             ) + @($rest) + @((Get-AiCliPongLivePrompt))
             $r = Invoke-AiCliChildCapture -FileName $fileName -ArgumentList $fullArgs `
                 -EnvironmentDelta $envDelta -RemoveEnvironment $removeEnv `
-                -WorkingDirectory $WorkDir -TimeoutMs $timeoutMs -CloseStdIn
+                -WorkingDirectory $WorkDir -TimeoutMs $timeoutMs -CloseStdIn `
+                -SecretValues $secretValues
             $body = if (Test-Path -LiteralPath $lastMessage) { Get-Content -LiteralPath $lastMessage -Raw -Encoding utf8 } else { '' }
             $pass = ($r.ExitCode -eq 0) -and (Test-AiCliExactPongOutput -Text $body)
         } elseif ($engine -eq 'claude') {
@@ -243,7 +256,8 @@ function Invoke-AiCliTextLiveTest {
             )
             $r = Invoke-AiCliChildCapture -FileName $fileName -ArgumentList $fullArgs `
                 -EnvironmentDelta $envDelta -RemoveEnvironment $removeEnv `
-                -WorkingDirectory $WorkDir -TimeoutMs $timeoutMs -CloseStdIn
+                -WorkingDirectory $WorkDir -TimeoutMs $timeoutMs -CloseStdIn `
+                -SecretValues $secretValues
             $pass = ($r.ExitCode -eq 0) -and (Test-AiCliExactPongOutput -Text ([string]$r.StdOut))
         } else {
             throw "未知 Live Test 引擎: $engine"
@@ -257,7 +271,9 @@ function Invoke-AiCliTextLiveTest {
         Write-AiCliLog -Level Warn -Message ("live text fail engine={0} exit={1}" -f $engine, $r.ExitCode)
         return [pscustomobject]@{ Pass = $false; ExitCode = $r.ExitCode }
     } catch {
-        $Checks.Add((New-AiCliCheck -Id 'live.text' -Status '不可用' -Summary (Protect-AiCliSecretText $_.Exception.Message))) | Out-Null
+        $safeMessage = Protect-AiCliExactSecretValues `
+            -Text $_.Exception.Message -SecretValues $secretValues
+        $Checks.Add((New-AiCliCheck -Id 'live.text' -Status '不可用' -Summary (Protect-AiCliSecretText $safeMessage))) | Out-Null
         return [pscustomobject]@{ Pass = $false; ExitCode = $null }
     }
 }

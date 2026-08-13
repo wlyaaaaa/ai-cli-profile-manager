@@ -21,6 +21,7 @@
   "notes": "公开模板使用 Ollama 默认端口 11434；其他端口和模型请配置用户 Profile。wire_api=responses。",
   "schemaVersion": 1,
   "virtualReady": true,
+  "hidden": true,
   "defaultEffort": "medium",
   "models": {
     "small": "qwen3:8b",

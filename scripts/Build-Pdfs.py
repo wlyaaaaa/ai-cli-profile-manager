@@ -18,7 +18,7 @@ import markdown
 from pypdf import PdfReader, PdfWriter
 
 
-VERSION = "0.3.3"
+VERSION = "0.3.4"
 REPOSITORY_BLOB = "https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main"
 DOCS = {
     "docs/user/AI CLI Profile Manager 使用手册.md": "AI CLI Profile Manager 使用手册",

@@ -5,7 +5,7 @@ $script:AiCliBrand = [ordered]@{
     ProductName   = 'AI CLI Profile Manager'
     CommandName   = 'aicli'
     ModuleName    = 'AiCliProfileManager'
-    Version       = '0.3.3'
+    Version       = '0.3.4'
     SchemaVersion = 1
     License       = 'MIT'
     HomeHint      = 'Local PowerShell module; GitHub remote not required for first install'
@@ -80,7 +80,9 @@ $script:AiCliClaudeProviderVars = @(
 $script:AiCliCodexProviderVars = @(
     'OPENAI_API_KEY',
     'OPENAI_BASE_URL',
-    'CODEX_API_KEY'
+    'CODEX_API_KEY',
+    'DASHSCOPE_API_KEY',
+    'QWEN_API_KEY'
 )
 
 # Reserved Codex provider IDs that must not be overridden by custom templates

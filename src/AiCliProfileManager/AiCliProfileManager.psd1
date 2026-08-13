@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AiCliProfileManager.psm1'
-    ModuleVersion     = '0.3.3'
+    ModuleVersion     = '0.3.4'
     GUID              = 'a1c11c11-0a11-4c11-b111-a1c110110011'
     Author            = 'AI CLI Profile Manager Contributors'
     CompanyName       = 'Independent'
@@ -16,7 +16,7 @@
             Tags         = @('Codex', 'Claude', 'QwenCode', 'OpenCode', 'OpenInterpreter', 'Ollama', 'Qwen', 'DeepSeek', 'CLI', 'Windows', 'Profile', 'Sandbox')
             LicenseUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager'
-            ReleaseNotes = '0.3.3：新增 DeepSeek V4 Flash 0731 的 Codex Responses Profile 与受管模型目录；DeepSeek Pro 仅预留且不可选择。'
+            ReleaseNotes = '0.3.4：新增精确 Qwen3.8 Max、DeepSeek V4 Flash/Pro Codex Responses Profile；统一用户 max 为各模型最高思考档，并锁定模型、SecretRef 与无 fallback 启动合同。'
         }
     }
 }

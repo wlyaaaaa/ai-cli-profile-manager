@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
-  "id": "codex-deepseek",
-  "displayName": "Codex + DeepSeek V4 Flash 0731",
+  "id": "codex-deepseek-v4-pro",
+  "displayName": "Codex + DeepSeek V4 Pro 0813",
   "engine": "codex",
   "provider": "deepseek",
   "plan": "paygo",
   "region": "global",
   "transport": "responses",
   "endpoint": "https://api.deepseek.com",
-  "codexProviderId": "aicli_deepseek",
-  "codexModelCatalog": "deepseek-v4-flash.json",
+  "codexProviderId": "aicli_deepseek_v4_pro",
+  "codexModelCatalog": "deepseek-v4-pro.json",
   "requiresSecret": true,
   "virtualReady": false,
   "auth": {
@@ -17,10 +17,10 @@
     "envKey": "AICLI_CODEX_PROVIDER_KEY"
   },
   "models": {
-    "primary": "deepseek-v4-flash",
-    "small": "deepseek-v4-flash",
+    "primary": "deepseek-v4-pro",
+    "small": "deepseek-v4-pro",
     "candidates": [
-      "deepseek-v4-flash"
+      "deepseek-v4-pro"
     ]
   },
   "defaultEffort": "max",
@@ -39,14 +39,14 @@
   },
   "compatibility": {
     "minCliVersion": "0.144.0",
-    "modelVersion": "DeepSeek-V4-Flash-0731",
-    "apiStatus": "available"
+    "modelVersion": "DeepSeek-V4-Pro-0813",
+    "apiStatus": "ga"
   },
   "dataDestination": "DeepSeek API",
-  "notes": "精确 DeepSeek V4 Flash Profile：API alias deepseek-v4-flash，对应官方版本 DeepSeek-V4-Flash-0731；Responses wire 与 max effort 固定。DeepSeek V4 Pro 使用独立 codex-deepseek-v4-pro Profile。",
+  "notes": "精确 DeepSeek V4 Pro Profile：API alias deepseek-v4-pro，对应官方版本 DeepSeek-V4-Pro-0813；Responses wire 与 max effort 固定。",
   "sources": [
-    "https://api-docs.deepseek.com/updates/",
     "https://api-docs.deepseek.com/quick_start/agent_integrations/codex/",
-    "https://api-docs.deepseek.com/guides/responses_api/"
+    "https://api-docs.deepseek.com/quick_start/pricing/",
+    "https://api-docs.deepseek.com/updates/"
   ]
 }

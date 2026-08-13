@@ -56,6 +56,26 @@ function ConvertTo-AiCliTomlString {
     return ($Value | ConvertTo-Json -Compress)
 }
 
+function Get-AiCliCodexAutoCompactConfiguration {
+    param([Parameter(Mandatory)]$MergedProfile)
+    $rawLimit = Get-AiCliProperty $MergedProfile 'codexAutoCompactTokenLimit'
+    if ($null -eq $rawLimit) { return $null }
+    if ($rawLimit -isnot [byte] -and $rawLimit -isnot [int16] -and
+        $rawLimit -isnot [int32] -and $rawLimit -isnot [int64]) {
+        throw 'Codex 自动压缩阈值必须是整数。'
+    }
+    $limit = [long]$rawLimit
+    if ($limit -lt 32768 -or $limit -gt 4194304) {
+        throw "Codex 自动压缩阈值超出允许范围: $limit"
+    }
+    $scope = [string](Get-AiCliProperty $MergedProfile 'codexAutoCompactTokenLimitScope')
+    if ([string]::IsNullOrWhiteSpace($scope)) { $scope = 'total' }
+    if ($scope -notin @('total','body_after_prefix')) {
+        throw "Codex 自动压缩计数范围无效: $scope"
+    }
+    return [pscustomobject]@{ Limit = $limit; Scope = $scope }
+}
+
 function Add-AiCliCodexProviderOverrides {
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$ArgumentList,
@@ -67,6 +87,9 @@ function Add-AiCliCodexProviderOverrides {
     )
     $null = Assert-AiCliSafeIdentifier -Id $ProviderId -Kind 'Codex Provider ID'
     $endpoint = [string](Get-AiCliProperty $MergedProfile 'endpoint')
+    if ([bool](Get-AiCliProperty $MergedProfile 'workspaceBaseUrlRequired' $false)) {
+        $endpoint = Resolve-AiCliQwenWorkspaceResponsesEndpoint -Endpoint $endpoint
+    }
     Assert-AiCliEndpointSafe -Url $endpoint
     if ([string]::IsNullOrWhiteSpace($Model)) {
         $Model = [string](Get-AiCliProperty (Get-AiCliProperty $MergedProfile 'models') 'primary')
@@ -75,7 +98,14 @@ function Add-AiCliCodexProviderOverrides {
     $name = [string](Get-AiCliProperty $MergedProfile 'displayName')
     $localGpuBrokerSession = Get-AiCliLocalGpuBrokerSessionConfiguration `
         -MergedProfile $MergedProfile
-    $shellExcludes = @($EnvironmentKey, 'OPENAI_API_KEY', 'CODEX_API_KEY')
+    $autoCompact = Get-AiCliCodexAutoCompactConfiguration -MergedProfile $MergedProfile
+    $shellExcludes = @(
+        $EnvironmentKey,
+        'OPENAI_API_KEY',
+        'CODEX_API_KEY',
+        'DASHSCOPE_API_KEY',
+        'QWEN_API_KEY'
+    )
     if ($localGpuBrokerSession) {
         $shellExcludes += Get-AiCliLocalGpuBrokerShellExcludes
     }
@@ -102,6 +132,10 @@ function Add-AiCliCodexProviderOverrides {
     if (-not [string]::IsNullOrWhiteSpace($ModelCatalogPath)) {
         $fullCatalogPath = [IO.Path]::GetFullPath($ModelCatalogPath)
         $overrides += 'model_catalog_json=' + (ConvertTo-AiCliTomlString $fullCatalogPath)
+    }
+    if ($autoCompact) {
+        $overrides += "model_auto_compact_token_limit=$($autoCompact.Limit)"
+        $overrides += 'model_auto_compact_token_limit_scope=' + (ConvertTo-AiCliTomlString $autoCompact.Scope)
     }
     foreach ($override in $overrides) {
         [void]$ArgumentList.Add('-c')
@@ -136,6 +170,9 @@ function New-AiCliCodexProviderToml {
     }
     $name = Get-AiCliProperty $MergedProfile 'displayName'
     $base = Get-AiCliProperty $MergedProfile 'endpoint'
+    if ([bool](Get-AiCliProperty $MergedProfile 'workspaceBaseUrlRequired' $false)) {
+        $base = Resolve-AiCliQwenWorkspaceResponsesEndpoint -Endpoint ([string]$base)
+    }
     $model = Get-AiCliProperty (Get-AiCliProperty $MergedProfile 'models') 'primary'
     if (-not $model) { $model = 'gpt-5.4' }
 
@@ -153,13 +190,24 @@ function New-AiCliCodexProviderToml {
         ConvertTo-AiCliTomlString ([IO.Path]::GetFullPath($ModelCatalogPath))
     }
     $catalogLine = if ($catalogToml) { "model_catalog_json = $catalogToml`n" } else { '' }
+    $autoCompact = Get-AiCliCodexAutoCompactConfiguration -MergedProfile $MergedProfile
+    $autoCompactLines = if ($autoCompact) {
+        "model_auto_compact_token_limit = $($autoCompact.Limit)`n" +
+            "model_auto_compact_token_limit_scope = $(ConvertTo-AiCliTomlString $autoCompact.Scope)`n"
+    } else { '' }
     $localGpuBrokerSession = Get-AiCliLocalGpuBrokerSessionConfiguration `
         -MergedProfile $MergedProfile
     $providerHeaderLine = if ($localGpuBrokerSession) {
         'env_http_headers = { "X-LocalGpuBroker-Lease-Id" = "AICLI_LOCAL_GPU_BROKER_LEASE_ID", ' +
             '"X-LocalGpuBroker-Capability" = "AICLI_LOCAL_GPU_BROKER_CAPABILITY" }' + "`n"
     } else { '' }
-    $shellExcludes = @($EnvKeyName, 'OPENAI_API_KEY', 'CODEX_API_KEY')
+    $shellExcludes = @(
+        $EnvKeyName,
+        'OPENAI_API_KEY',
+        'CODEX_API_KEY',
+        'DASHSCOPE_API_KEY',
+        'QWEN_API_KEY'
+    )
     if ($localGpuBrokerSession) {
         $shellExcludes += Get-AiCliLocalGpuBrokerShellExcludes
     }
@@ -170,7 +218,7 @@ function New-AiCliCodexProviderToml {
     $body = @"
 model = $modelToml
 model_provider = $providerToml
-$catalogLine
+$catalogLine$autoCompactLines
 
 [model_providers.$providerId]
 name = $nameToml
@@ -213,6 +261,15 @@ function Publish-AiCliCodexModelCatalog {
     }
     if (@($catalog.models).Count -eq 0) {
         throw "Codex model catalog 为空: $catalogName"
+    }
+    $autoCompact = Get-AiCliCodexAutoCompactConfiguration -MergedProfile $MergedProfile
+    if ($autoCompact) {
+        foreach ($catalogModel in @($catalog.models)) {
+            $catalogLimit = Get-AiCliProperty $catalogModel 'auto_compact_token_limit'
+            if ($null -eq $catalogLimit -or [long]$catalogLimit -ne $autoCompact.Limit) {
+                throw "Codex model catalog 自动压缩阈值与 Profile 不一致: $catalogName"
+            }
+        }
     }
 
     $sha = [Security.Cryptography.SHA256]::Create()
@@ -384,13 +441,25 @@ function Resolve-AiCliCodexEffort {
     return $e
 }
 
+function Resolve-AiCliCodexEffectiveEffort {
+    param(
+        [Parameter(Mandatory)]$MergedProfile,
+        [Parameter(Mandatory)][string]$RequestedEffort
+    )
+    $effortMap = Get-AiCliProperty $MergedProfile 'effortMap'
+    $effective = [string](Get-AiCliProperty $effortMap $RequestedEffort)
+    if ([string]::IsNullOrWhiteSpace($effective)) { return $RequestedEffort }
+    return $effective
+}
+
 function Resolve-AiCliCodexModel {
     param($MergedProfile, [string[]]$NativeArgs)
-    if (Get-AiCliLocalGpuBrokerSessionConfiguration -MergedProfile $MergedProfile) {
+    if (-not [bool](Get-AiCliProperty $MergedProfile 'flexible' $true) -or
+        (Get-AiCliLocalGpuBrokerSessionConfiguration -MergedProfile $MergedProfile)) {
         foreach ($argument in @($NativeArgs)) {
             if ([string]$argument -eq '--fallback-model' -or
                 ([string]$argument).StartsWith('--fallback-model=', [StringComparison]::Ordinal)) {
-                throw 'Local Codex fallback models are disabled; the selected broker route is exact.'
+                throw 'Codex fallback models are disabled; the selected Profile route is exact.'
             }
         }
     }
@@ -501,7 +570,8 @@ function Build-AiCliCodexLaunchPlan {
     $workspaceWriteValidated = $true
     $localGpuBrokerSession = $null
     $notes = @()
-    $effort = Resolve-AiCliCodexEffort -MergedProfile $MergedProfile -NativeArgs $NativeArgs
+    $requestedEffort = Resolve-AiCliCodexEffort -MergedProfile $MergedProfile -NativeArgs $NativeArgs
+    $effort = Resolve-AiCliCodexEffectiveEffort -MergedProfile $MergedProfile -RequestedEffort $requestedEffort
     $model = Resolve-AiCliCodexModel -MergedProfile $MergedProfile -NativeArgs $NativeArgs
 
     if ($provider -eq 'openai' -or $id -eq 'codex-official') {
@@ -515,7 +585,7 @@ function Build-AiCliCodexLaunchPlan {
         $cliArgs.Add('-c') | Out-Null
         $cliArgs.Add('model_provider="openai"') | Out-Null
         $notes += '使用官方 ChatGPT 登录与真实 CODEX_HOME，不生成派生配置。'
-        $notes += "默认模型 $model；思考等级 $effort（low/medium/high/xhigh/ultra/max）。"
+        $notes += "默认模型 $model；思考等级 $requestedEffort（有效档位 $effort）。"
         if ($id -eq 'codex-spark-xhigh') {
             $notes += '该 Profile 精确固定 gpt-5.3-codex-spark / xhigh；文本型、Codex CLI/桌面可用，API 与图像输入不属于此路径。'
         } else {
@@ -576,7 +646,7 @@ function Build-AiCliCodexLaunchPlan {
             -ModelCatalogPath $modelCatalogPath
         if ($modelCatalogPath) { $configFiles += $modelCatalogPath }
         $notes += "本机 Ollama 兼容网关: $endpoint"
-        $notes += "模型: $model；wire_api=responses；思考等级 $effort"
+        $notes += "模型: $model；wire_api=responses；思考等级 $requestedEffort（有效档位 $effort）"
         $notes += '公开模板使用 Ollama 默认 11434；其他本机网关请配置独立用户 Profile。'
     }
     else {
@@ -616,7 +686,7 @@ function Build-AiCliCodexLaunchPlan {
             -ModelCatalogPath $modelCatalogPath
         if ($modelCatalogPath) { $configFiles += $modelCatalogPath }
         $notes += "派生 Profile 文件: $($written.FilePath)"
-        $notes += "wire_api = responses；思考等级 $effort（上游若不支持会忽略或报错）。"
+        $notes += "wire_api = responses；思考等级 $requestedEffort（有效档位 $effort）。"
         $notes += '已清除父终端 OPENAI_BASE_URL/KEY，避免污染第三方 Profile。'
     }
 
@@ -636,7 +706,8 @@ function Build-AiCliCodexLaunchPlan {
         configFiles       = @($configFiles)
         notes             = @($notes)
         proxyRef          = $null
-        effort            = $effort
+        effort            = $requestedEffort
+        effectiveEffort   = $effort
         model             = $model
         modelProvider     = $(if ($provider -eq 'openai' -or $id -eq 'codex-official') { 'openai' } else { $providerId })
         endpoint          = $(if ($provider -eq 'openai' -or $id -eq 'codex-official') { $null } else { [string](Get-AiCliProperty $MergedProfile 'endpoint') })

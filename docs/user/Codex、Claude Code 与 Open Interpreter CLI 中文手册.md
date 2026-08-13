@@ -1,6 +1,6 @@
 # Codex、Claude Code 与 Open Interpreter CLI 中文手册
 
-适用版本：AI CLI Profile Manager `0.3.3`（本地/源码目标，未发布 Release）
+适用版本：AI CLI Profile Manager `0.3.4`（source/install/runtime/live 分层验收）
 用途：帮助中文用户直接使用原生 Codex CLI、Claude Code 和当前官方 Rust Open Interpreter。
 
 > aicli 只负责选择 Profile 并启动原生 CLI。本手册保留上游英文命令，便于复制和搜索。上游版本会变化；某条命令不在当前 CLI 的 `/help` 或斜杠菜单中时，以当前官方界面为准。
@@ -57,9 +57,9 @@ aicli start codex-official -- --model gpt-5.6-sol
 
 第三方 Codex Profile 的 Provider 配置由 aicli 管理。不要透传 `-c`、`--config` 或 `--profile` 覆盖 Provider；这些参数与启动计划冲突，会被拒绝。
 
-DeepSeek Codex public beta 使用 `codex-deepseek`：固定 `deepseek-v4-flash`、Responses 与 1M context，要求 Codex CLI `0.144.0+`，默认 `high`，支持 `low` / `high` / `max`。`deepseek-v4-pro` 当前仅预留且不可选。AICLI 用 DPAPI 保存 Key，受管配置只写 `env_key`；不要照抄官方示例里的明文 `experimental_bearer_token`。
+DeepSeek Codex 使用两个 exact Profile：`codex-deepseek` 固定 API alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，`codex-deepseek-v4-pro` 固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`。两者都是 Responses、1M context、默认用户档 `max`，且不接受模型、Provider 或 fallback 覆盖。AICLI 用 DPAPI 保存 Key，受管配置只写 `env_key`；不要照抄官方示例里的明文 `experimental_bearer_token`。
 
-千问 Codex 按量与 Token Plan 共用受管 `qwen3.7-codex.json`：六个现有候选都声明 `983616` token 输入窗口、95% 有效窗口与客户端派生的晚压缩阈值，默认模型仍是 `qwen3.7-max-2026-06-08`。这修复了 Codex 把未知 slug 回退为 272K、约 244.8K 就压缩的问题；当前目录约在 885K 才触发保护。现代 Codex 路径仍只接 Responses；Coding Plan 的旧 Chat 路线没有伪装成 Responses Profile。
+Qwen3.8 Max 使用独立 `codex-qwen3-8-max-paygo`：精确 `qwen3.8-max`、Workspace 按量 Responses、983616 context、95% 有效窗口、262144 token 自动压缩阈值。用户档 `max` 映射为模型原生最高 `xhigh`；计划和回执同时显示 requested/effective。它拒绝 preview、通用 DashScope 与 Token Plan。原有 `codex-qwen-paygo` / `codex-qwen-token-plan` 各自保持套餐隔离，并收敛为固定 `qwen3.7-max-2026-06-08` 的单模型 Responses Profile。
 
 ### 2.2 权限、沙箱和计划模式
 

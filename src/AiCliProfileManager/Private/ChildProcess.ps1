@@ -44,6 +44,27 @@ function Protect-AiCliExactSecretValues {
     return $safe
 }
 
+function Get-AiCliEnvironmentSecretValues {
+    [CmdletBinding()]
+    param([System.Collections.IDictionary]$EnvironmentDelta = @{})
+
+    $values = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::Ordinal
+    )
+    if ($null -eq $EnvironmentDelta) { return @() }
+    foreach ($key in $EnvironmentDelta.Keys) {
+        $name = [string]$key
+        if ($name -notmatch '(?i)(api_?key|token|secret|password|authorization|credential|capability|(?:^|_)key$|lease(?:_id)?$)') {
+            continue
+        }
+        $value = [string]$EnvironmentDelta[$key]
+        if (-not [string]::IsNullOrEmpty($value)) {
+            [void]$values.Add($value)
+        }
+    }
+    return @($values | Sort-Object Length -Descending)
+}
+
 function New-AiCliProcessStartInfo {
     [CmdletBinding()]
     param(

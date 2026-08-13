@@ -45,6 +45,8 @@
     "sources": { "type": "array", "items": { "type": "string", "format": "uri" } },
     "codexProviderId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
     "codexModelCatalog": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,126}\\.json$" },
+    "codexAutoCompactTokenLimit": { "type": "integer", "minimum": 32768, "maximum": 4194304 },
+    "codexAutoCompactTokenLimitScope": { "enum": ["total", "body_after_prefix"] },
     "interpreterProviderId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
     "requiresSecret": { "type": "boolean" },
     "virtualReady": { "type": "boolean" },
@@ -53,7 +55,13 @@
     "hidden": { "type": "boolean" },
     "defaultEffort": { "type": ["string", "null"] },
     "effortLevels": { "type": "array", "items": { "type": "string" } },
+    "effortMap": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_-]{0,31}$" },
+      "additionalProperties": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,31}$" }
+    },
     "flexible": { "type": "boolean" },
+    "workspaceBaseUrlRequired": { "type": "boolean" },
     "autoRun": { "type": "boolean" },
     "modelPrefix": { "type": ["string", "null"] }
   }

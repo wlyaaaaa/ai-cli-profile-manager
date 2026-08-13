@@ -45,4 +45,14 @@ Describe 'Redaction' {
         $o.apiKey | Should -Be '***REDACTED***'
         $o.model | Should -Be 'x'
     }
+
+    It 'redacts Qwen Workspace identifiers while preserving the endpoint family' {
+        $workspaceId = 'ws-sensitive-workspace-123'
+        $safe = Protect-AiCliSecretText (
+            "https://$workspaceId.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+        )
+
+        $safe | Should -Not -Match ([regex]::Escape($workspaceId))
+        $safe | Should -Be 'https://ws-***.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
+    }
 }

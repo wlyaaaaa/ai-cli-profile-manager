@@ -17,7 +17,11 @@ function Protect-AiCliSecretText {
         [string]$Text
     )
     if ([string]::IsNullOrEmpty($Text)) { return $Text }
-    $result = $Text
+    $result = [regex]::Replace(
+        $Text,
+        '(?i)(https://)ws-[a-z0-9][a-z0-9-]*(\.cn-beijing\.maas\.aliyuncs\.com)',
+        '$1ws-***$2'
+    )
     foreach ($pat in $script:AiCliRedactionPatterns) {
         $result = [regex]::Replace($result, $pat, {
             param($m)

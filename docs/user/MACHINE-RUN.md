@@ -19,8 +19,10 @@ $task | aicli run codex-ollama-main `
 | Profile | 智能体 | 端点/模型 |
 | --- | --- | --- |
 | `codex-spark-xhigh` | Codex CLI（官方登录） | OpenAI / `gpt-5.3-codex-spark` / 默认 `xhigh` |
-| `codex-deepseek` | Codex CLI（DeepSeek public beta；machine 仅 `read-only`） | Responses / `deepseek-v4-flash` / 1M context / 默认 `high` |
-| `codex-ollama-main` | Codex CLI | `127.0.0.1:32100` / `qwen-main-v1` / 262144 受管目录 |
+| `codex-qwen3-8-max-paygo` | Codex CLI（百炼 Workspace；machine 仅 `read-only`） | Responses / `qwen3.8-max` / requested `max` → effective `xhigh` |
+| `codex-deepseek` | Codex CLI（machine 仅 `read-only`） | Responses / `deepseek-v4-flash` / Flash 0731 / 1M / `max` |
+| `codex-deepseek-v4-pro` | Codex CLI（machine 仅 `read-only`） | Responses / `deepseek-v4-pro` / Pro 0813 / 1M / `max` |
+| `codex-ollama-main` | Codex CLI | `127.0.0.1:32100` / `qwen-main-v1` / 262144 / `max` |
 | `claude-ollama-main` | Claude Code | 同上；MAX/AUTO 262144（Claude Code 2.1.193+） |
 | `qwen-code-ollama-main` | Qwen Code | 同上 |
 | `opencode-ollama-main` | OpenCode | 同上；262144 context / 8192 output / 20000 compaction reserve |
@@ -31,11 +33,11 @@ $task | aicli run codex-ollama-main `
 - 官方或需模型传输联网的 Codex machine run 使用 Codex CLI 原生 app-server 沙箱。对已完成写权限验收的官方 Codex 路径，`workspace-write` 不是只传一个 sandbox 名称：AICLI 会在 `thread/start` 与 `turn/start` 都传入 `permissions=:workspace`，并用唯一的 `runtimeWorkspaceRoots` 精确绑定请求 `cwd`；回执必须同时证明 `workspaceWrite`、`:workspace` 和同一根路径。空根、根漂移或模型调用前的写探针失败都会提前终止。
 - 原生 Codex 的 `approvalPolicy` 固定为 `never`；app-server 发起审批或用户输入 RPC 时失败关闭，不会自动批准或等待交互。
 - 远程 Qwen Cloud Agent route 当前禁用，不再做付费复测。此前标成 Flash/Plus 的 Codex Agent 记录因 app-server 重建时丢失模型覆盖，实际使用了 Profile 主模型 Max；旧身份与能力结论已撤回，不能用于比较 Flash、Plus 或 Max。
-- `codex-deepseek` 只允许 `deepseek-v4-flash`；`deepseek-v4-pro` 是不可选的 reserved 项。Key 由 DPAPI 解封后仅以 `env_key` 对应的受管环境变量注入目标 Codex 子进程，不进入参数或模型目录。该 Profile 的 machine route 当前只开放 `read-only`；`workspace-write` 因第三方远程 Codex 写权限尚未验收而在模型请求前失败关闭。Qwen Code/OpenCode 的 DeepSeek 远程 route 因禁网沙箱与 egress relay 缺口未开放。
+- `codex-deepseek` 与 `codex-deepseek-v4-pro` 分别只允许 Flash 0731 / Pro 0813 的官方 API alias；Qwen3.8 Max 也只允许自己的 Workspace 按量 route。Key 由 DPAPI 解封后仅以 `env_key` 对应的受管环境变量注入目标 Codex 子进程，不进入参数或模型目录。第三方远程 Codex machine route 当前只开放 `read-only`；`workspace-write` 因写权限尚未验收而在模型请求前失败关闭。Qwen Code/OpenCode 的 DeepSeek 远程 route 因禁网沙箱与 egress relay 缺口未开放。
 - 本地 Ollama Codex 及其他适用本地引擎使用强制 Windows 外层沙箱，网络关闭；内层 CLI 的自动批准不会扩大到沙箱之外。Codex 外层沙箱固定从同一 npm 安装包解析 Node 启动器、原生 `codex.exe` 与 `codex-windows-sandbox-setup.exe`，并要求 helper 唯一存在；不得按 PATH 或修改时间混用 Desktop Codex 的另一版本。Codex app-server 由该 npm 包内的原生 `codex.exe` 直接承载，避免短生命周期 Node 启动器破坏进程树清理确认。
 - machine child 的父环境从 Windows、PowerShell、Node/TLS 运行所需的 allowlist 重建，不继承完整父环境或调试变量。受管运行计划仍可通过 `EnvironmentDelta` 显式注入目标 Profile 必需的 Provider/运行时变量，因此调用方不得把无关变量放入该显式增量。
 - 官方云端 Codex machine run 同时忽略用户配置和规则。一次性 `CODEX_HOME` 只复制现有 `auth.json`，不需要付费 API Key；不会复制 `config.toml`、rules、skills、sessions 或 history，运行后清理。
-- 对已开放该策略的 Profile，`workspace-write` 允许修改指定工作区，因此应传入隔离 worktree 或暂存目录，canonical raw 数据只读保留在边界外；`codex-deepseek` 当前不在该集合中。
+- 对已开放该策略的 Profile，`workspace-write` 允许修改指定工作区，因此应传入隔离 worktree 或暂存目录，canonical raw 数据只读保留在边界外；当前 Qwen/DeepSeek 第三方远程 Codex Profile 均不在该集合中。
 - `read-only` 让 CLI 在一次性运行目录写自身状态，来源工作区只读；任务结束后清理运行目录。
 - 无法建立对应沙箱时直接失败，不切换到无沙箱执行，也不改用另一个 Profile。
 - Qwen Code/OpenCode 是 machine-only；交互式 `start` 会拒绝这两个 Profile。
@@ -56,7 +58,7 @@ $task | aicli run codex-ollama-main `
 - 其他 CLI 只有在自身回执能证明相同硬边界时才可被上层当作有限预算 runner；`upstream` 或 `not-enforced` 不能冒充 `hard`。
 - CLI 更新不应直接等同于受管 machine runtime 晋升。稳定策略是保留 last-known-good 活跃槽，把新版本放入候选槽，先校验包内可执行文件与资源闭包、版本/协议探测、禁网沙箱和少量本地 smoke，再原子切换；任何失败都继续使用旧槽。当前版本已经实施运行时原子绑定和失败关闭，但尚未提供四套 CLI 通用的自动候选槽安装器，因此在该安装器完成前，更新后仍需按当前版本与 Profile 指纹重新验收。
 
-`0.3.3` 当前是本地/源码目标，包含上述 `workspace-write`、环境隔离和 DeepSeek Flash-only 变更，但尚未发布 GitHub Release。源代码验收必须明确使用仓库入口并在回执中保留来源；正式安装/晋升前，不得把 source 结果宣称为 released current。
+`0.3.4` 是当前源码与安装目标，包含 exact Qwen/DeepSeek/local Codex Profile、MAX 映射、`workspace-write` 和环境隔离。源代码验收必须明确使用仓库入口并在回执中保留来源；正式安装/晋升前，不得把 source 结果宣称为 installed 或 runtime current。
 
 2026-07-29 的 Spark 源代码入口真实任务证明工作区写权限已生效；但 `code_repair` 在硬上限 `maxSteps=80` 下到达 `81/80` 并终止，确定性得分为 `2/9`。这属于模型/Agent 能力验收不通过，不是权限链仍然只读，也不应通过重复复测改变结论。
 

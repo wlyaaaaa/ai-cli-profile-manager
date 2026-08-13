@@ -106,9 +106,16 @@ function Show-AiCliNative {
     foreach ($n in @((Get-AiCliProperty $plan 'notes') | ForEach-Object { $_ })) { Write-Host "  - $n" }
     Write-Host ("数据去向: {0}" -f (Get-AiCliProperty $merged 'dataDestination'))
     $effort = Get-AiCliProperty $plan 'effort'
+    $effectiveEffort = Get-AiCliProperty $plan 'effectiveEffort'
     $model = Get-AiCliProperty $plan 'model'
     if ($model) { Write-Host ("模型: {0}" -f $model) }
-    if ($effort) { Write-Host ("思考等级: {0}" -f $effort) }
+    if ($effort) {
+        if ($effectiveEffort -and $effectiveEffort -ne $effort) {
+            Write-Host ("思考等级: {0}（供应商有效档位: {1}）" -f $effort, $effectiveEffort)
+        } else {
+            Write-Host ("思考等级: {0}" -f $effort)
+        }
+    }
     Write-Host ''
 }
 
@@ -329,7 +336,9 @@ function Invoke-AiCliProfileCapture {
     }
     $localGpuBrokerSession = $null
     $localGpuBrokerBindingObservation = $null
-    $localGpuBrokerSecretValues = @()
+    $captureSecretValues = @(
+        Get-AiCliEnvironmentSecretValues -EnvironmentDelta $runtime.EnvironmentDelta
+    )
     $beforeProcessTreeStop = $null
     $receipt = $null
     $sessionConfiguration = Get-AiCliProperty `
@@ -348,8 +357,14 @@ function Invoke-AiCliProfileCapture {
             Set-AiCliLocalGpuBrokerSessionEnvironment `
                 -EnvironmentDelta $runtime.EnvironmentDelta `
                 -Session $localGpuBrokerSession
-            $localGpuBrokerSecretValues = @(
-                [string]$localGpuBrokerSession.Capability
+            $captureSecretValues = @(
+                @($captureSecretValues) +
+                @(
+                    [string]$localGpuBrokerSession.Capability
+                    [string]$localGpuBrokerSession.LeaseId
+                ) |
+                    Where-Object { -not [string]::IsNullOrEmpty([string]$_) } |
+                    Sort-Object -Unique
             )
             $beforeProcessTreeStop = New-AiCliLocalGpuBrokerBeforeStopAction `
                 -Session $localGpuBrokerSession
@@ -403,9 +418,7 @@ function Invoke-AiCliProfileCapture {
             } else {
                 $null
             }) `
-            -SecretValues @($(if ($localGpuBrokerSession) {
-                [string]$localGpuBrokerSession.Capability
-            })) `
+            -SecretValues $captureSecretValues `
             -RequireRuntimeIdentity:$requireRuntimeIdentity `
             -ExpectedRuntimeModel $(if ($requireRuntimeIdentity) {
                 [string](Get-AiCliProperty $plan 'model')
@@ -427,9 +440,15 @@ function Invoke-AiCliProfileCapture {
         $cleanupConfirmed = [bool](Get-AiCliProperty $captured 'CleanupConfirmed' $true)
         $receipt = [pscustomobject]@{
             profileId = $ProfileId
+            profileFingerprint = [string](Get-AiCliProperty $plan 'profileFingerprint')
             engine = $engine
             model = [string](Get-AiCliProperty $plan 'model')
             modelProvider = [string](Get-AiCliProperty $plan 'modelProvider')
+            wire = [string](Get-AiCliProperty $plan 'wire')
+            requestedEffort = [string](Get-AiCliProperty $plan 'effort')
+            effectiveEffort = [string](Get-AiCliProperty $plan 'effectiveEffort')
+            effortEvidence = 'launch-plan'
+            attestedEffort = $null
             exitCode = [int]$captured.ExitCode
             stdout = [string]$captured.StdOut
             stderr = [string]$captured.StdErr
@@ -494,9 +513,15 @@ function Invoke-AiCliProfileCapture {
     } catch [System.TimeoutException] {
         $receipt = [pscustomobject]@{
             profileId = $ProfileId
+            profileFingerprint = [string](Get-AiCliProperty $plan 'profileFingerprint')
             engine = [string](Get-AiCliProperty $plan 'engine')
             model = [string](Get-AiCliProperty $plan 'model')
             modelProvider = [string](Get-AiCliProperty $plan 'modelProvider')
+            wire = [string](Get-AiCliProperty $plan 'wire')
+            requestedEffort = [string](Get-AiCliProperty $plan 'effort')
+            effectiveEffort = [string](Get-AiCliProperty $plan 'effectiveEffort')
+            effortEvidence = 'launch-plan'
+            attestedEffort = $null
             exitCode = (Get-AiCliExitCode Unavailable)
             stdout = ''
             stderr = 'Child process exceeded the configured wall timeout.'
@@ -541,10 +566,10 @@ function Invoke-AiCliProfileCapture {
             if ($WatchdogOnly) { 'watchdog-only' } else { 'explicit-limits' }
         )
     } catch {
-        if ($localGpuBrokerSecretValues.Count -gt 0) {
+        if ($captureSecretValues.Count -gt 0) {
             $safeMessage = Protect-AiCliExactSecretValues `
                 -Text $_.Exception.Message `
-                -SecretValues $localGpuBrokerSecretValues
+                -SecretValues $captureSecretValues
             throw [InvalidOperationException]::new($safeMessage)
         }
         throw
@@ -586,10 +611,10 @@ function Invoke-AiCliProfileCapture {
                 }
             }
         } catch {
-            if ($localGpuBrokerSecretValues.Count -gt 0) {
+            if ($captureSecretValues.Count -gt 0) {
                 $safeMessage = Protect-AiCliExactSecretValues `
                     -Text $_.Exception.Message `
-                    -SecretValues $localGpuBrokerSecretValues
+                    -SecretValues $captureSecretValues
                 throw [InvalidOperationException]::new($safeMessage)
             }
             throw
@@ -600,10 +625,10 @@ function Invoke-AiCliProfileCapture {
             }
         }
     }
-    if ($receipt -and $localGpuBrokerSecretValues.Count -gt 0) {
+    if ($receipt -and $captureSecretValues.Count -gt 0) {
         $receiptJson = $receipt | ConvertTo-Json -Depth 50 -Compress
         $safeReceiptJson = Protect-AiCliExactSecretValues `
-            -Text $receiptJson -SecretValues $localGpuBrokerSecretValues
+            -Text $receiptJson -SecretValues $captureSecretValues
         if ($safeReceiptJson -cne $receiptJson) {
             $receipt = $safeReceiptJson |
                 ConvertFrom-Json -Depth 50 -ErrorAction Stop

@@ -1309,7 +1309,7 @@ try {
             clientInfo = [ordered]@{
                 name = 'ai-cli-profile-manager'
                 title = 'AI CLI Profile Manager'
-                version = '0.3.3'
+                version = '0.3.4'
             }
             capabilities = [ordered]@{
                 # Codex 0.145 materializes the :workspace profile only when

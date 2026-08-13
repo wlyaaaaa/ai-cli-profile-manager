@@ -44,7 +44,7 @@ Describe 'Manifest' {
         $all.Contains('codex-deepseek') | Should -BeTrue
     }
 
-    It 'exposes only the supported DeepSeek Flash model to Codex and reserves Pro' {
+    It 'exposes the exact supported DeepSeek Flash model through its isolated catalog' {
         $all = Import-AiCliProviderManifests
         $manifest = $all['codex-deepseek']
 
@@ -54,29 +54,33 @@ Describe 'Manifest' {
         $manifest.endpoint | Should -Be 'https://api.deepseek.com'
         $manifest.models.primary | Should -Be 'deepseek-v4-flash'
         @($manifest.models.candidates) | Should -Be @('deepseek-v4-flash')
-        @($manifest.models.reserved) | Should -Contain 'deepseek-v4-pro'
+        @($manifest.models.reserved) | Should -BeNullOrEmpty
         $manifest.codexModelCatalog | Should -Be 'deepseek-v4-flash.json'
 
         $catalogPath = Join-Path $root 'data\model-catalogs\deepseek-v4-flash.json'
         $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json
         @($catalog.models).Count | Should -Be 1
         $catalog.models[0].slug | Should -Be 'deepseek-v4-flash'
-        $catalog.models[0].context_window | Should -Be 1000000
-        $catalog.models[0].max_context_window | Should -Be 1000000
+        $catalog.models[0].context_window | Should -Be 1048576
+        $catalog.models[0].max_context_window | Should -Be 1048576
         $catalog.models[0].minimal_client_version | Should -Be '0.144.0'
         @($catalog.models[0].supported_reasoning_levels.effort) | Should -Be @('low', 'high', 'max')
         (Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8) | Should -Not -Match 'deepseek-v4-pro'
+        $manifest.defaultEffort | Should -Be 'max'
+        $manifest.compatibility.modelVersion | Should -Be 'DeepSeek-V4-Flash-0731'
     }
 
-    It 'keeps every current DeepSeek template Flash-only and reserves Pro' {
+    It 'keeps non-Codex DeepSeek templates Flash-only while Codex Pro stays isolated' {
         $all = Import-AiCliProviderManifests
-        foreach ($id in @('codex-deepseek', 'claude-deepseek', 'oi-deepseek')) {
+        foreach ($id in @('claude-deepseek', 'oi-deepseek')) {
             $manifest = $all[$id]
             $manifest.models.primary | Should -Be 'deepseek-v4-flash' -Because $id
             $manifest.models.small | Should -Be 'deepseek-v4-flash' -Because $id
             @($manifest.models.candidates) | Should -Be @('deepseek-v4-flash') -Because $id
             @($manifest.models.reserved) | Should -Contain 'deepseek-v4-pro' -Because $id
         }
+        $all['codex-deepseek-v4-pro'].models.primary | Should -Be 'deepseek-v4-pro'
+        @($all['codex-deepseek-v4-pro'].models.candidates) | Should -Be @('deepseek-v4-pro')
     }
 
     It 'binds third-party Claude and OpenCode profiles to exact model context metadata' {
@@ -93,17 +97,21 @@ Describe 'Manifest' {
         $all['opencode-ollama-main'].modelMetadata.'qwen-main-v1'.compactionReserveTokens | Should -Be 20000
     }
 
-    It 'uses one complete non-empty Qwen Codex model catalog without changing the default model' {
+    It 'locks the legacy Qwen Codex entries to one exact pinned model' {
         $all = Import-AiCliProviderManifests
         $paygo = $all['codex-qwen-paygo']
         $tokenPlan = $all['codex-qwen-token-plan']
-        $paygo.codexModelCatalog | Should -Be 'qwen3.7-codex.json'
-        $tokenPlan.codexModelCatalog | Should -Be 'qwen3.7-codex.json'
+        $paygo.codexModelCatalog | Should -Be 'qwen3.7-max-2026-06-08-codex.json'
+        $tokenPlan.codexModelCatalog | Should -Be 'qwen3.7-max-2026-06-08-codex.json'
         $paygo.models.primary | Should -Be 'qwen3.7-max-2026-06-08'
+        $paygo.models.small | Should -Be 'qwen3.7-max-2026-06-08'
+        @($paygo.models.candidates) | Should -Be @('qwen3.7-max-2026-06-08')
+        $paygo.flexible | Should -BeFalse
+        $paygo.defaultEffort | Should -Be 'max'
         @($paygo.effortLevels) | Should -Be @('low', 'medium', 'high', 'xhigh', 'max')
         @($paygo.effortLevels) | Should -Not -Contain 'ultra'
 
-        $catalogPath = Join-Path $root 'data\model-catalogs\qwen3.7-codex.json'
+        $catalogPath = Join-Path $root 'data\model-catalogs\qwen3.7-max-2026-06-08-codex.json'
         $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100
         $candidateSlugs = @($paygo.models.candidates | Select-Object -Unique | Sort-Object)
         $catalogSlugs = @($catalog.models.slug | Sort-Object)
@@ -118,6 +126,8 @@ Describe 'Manifest' {
             $model.supports_parallel_tool_calls | Should -BeFalse
             @($model.input_modalities) | Should -Be @('text')
         }
+        (Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8) |
+            Should -Not -Match '(?i)preview|qwen3\.7-plus'
     }
 
     It 'rebuilds the Qwen Codex catalog deterministically from the checked-in baseline' {
@@ -129,6 +139,44 @@ Describe 'Manifest' {
 
         (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
             Should -Be (Get-FileHash -LiteralPath (Join-Path $root 'data\model-catalogs\qwen3.7-codex.json') -Algorithm SHA256).Hash
+    }
+
+    It 'rebuilds the exact Qwen3.7 Max catalog deterministically' {
+        $generated = Join-Path $TestDrive 'qwen3.7-max-2026-06-08-codex.json'
+        & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') `
+            -CatalogKind qwen37max -OutputCatalog $generated | Out-Null
+
+        $checkedIn = Join-Path $root 'data\model-catalogs\qwen3.7-max-2026-06-08-codex.json'
+        Assert-CanonicalCatalogBytes -Path $generated
+        Assert-CanonicalCatalogBytes -Path $checkedIn
+        (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath $checkedIn -Algorithm SHA256).Hash
+    }
+
+    It 'rebuilds the exact Qwen3.8 Max catalog deterministically' {
+        $generated = Join-Path $TestDrive 'qwen3.8-max-codex.json'
+        & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') `
+            -CatalogKind qwen38 -OutputCatalog $generated | Out-Null
+
+        $checkedIn = Join-Path $root 'data\model-catalogs\qwen3.8-max-codex.json'
+        Assert-CanonicalCatalogBytes -Path $generated
+        Assert-CanonicalCatalogBytes -Path $checkedIn
+        (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath $checkedIn -Algorithm SHA256).Hash
+    }
+
+    It 'rebuilds both exact DeepSeek catalogs deterministically' {
+        foreach ($model in @('flash', 'pro')) {
+            $generated = Join-Path $TestDrive "deepseek-v4-$model.json"
+            & (Join-Path $root 'scripts\Build-DeepSeekCodexCatalog.ps1') `
+                -Model $model -OutputCatalog $generated | Out-Null
+
+            $checkedIn = Join-Path $root "data\model-catalogs\deepseek-v4-$model.json"
+            Assert-CanonicalCatalogBytes -Path $generated
+            Assert-CanonicalCatalogBytes -Path $checkedIn
+            (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
+                Should -Be (Get-FileHash -LiteralPath $checkedIn -Algorithm SHA256).Hash -Because $model
+        }
     }
 
     It 'binds local Codex Qwen to an exact deterministic 262144 catalog' {

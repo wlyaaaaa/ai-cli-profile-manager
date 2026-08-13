@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "displayName": "Codex 千问 3.7 (Responses)",
-  "defaultEffort": "high",
+  "defaultEffort": "max",
   "effortLevels": [
     "low",
     "medium",
@@ -10,7 +10,7 @@
     "max"
   ],
   "codexProviderId": "aicli_qwen_paygo",
-  "codexModelCatalog": "qwen3.7-codex.json",
+  "codexModelCatalog": "qwen3.7-max-2026-06-08-codex.json",
   "plan": "paygo",
   "capabilities": {
     "tools": true,
@@ -20,7 +20,7 @@
     "effort": true
   },
   "requiresSecret": true,
-  "notes": "默认 max=qwen3.7-max-2026-06-08 / plus=qwen3.7-plus-2026-05-26（DashScope /models 2026-07-13）。可 --model 覆盖。",
+  "notes": "兼容入口已封闭为精确 qwen3.7-max-2026-06-08；Responses、按量端点与 max effort 固定，不允许模型或 fallback 覆盖。Qwen3.8 Max 使用独立 codex-qwen3-8-max-paygo。",
   "region": "cn-beijing",
   "id": "codex-qwen-paygo",
   "auth": {
@@ -33,21 +33,16 @@
   "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1",
   "provider": "qwen",
   "engine": "codex",
-  "flexible": true,
+  "flexible": false,
   "transport": "responses",
   "models": {
-    "small": "qwen3.7-plus-2026-05-26",
+    "small": "qwen3.7-max-2026-06-08",
     "primary": "qwen3.7-max-2026-06-08",
     "candidates": [
-      "qwen3.7-max-2026-06-08",
-      "qwen3.7-plus-2026-05-26",
-      "qwen3.7-max",
-      "qwen3.7-plus",
-      "qwen3.7-max-2026-05-20",
-      "qwen3.7-max-preview"
+      "qwen3.7-max-2026-06-08"
     ]
   },
-  "compatibility": { "minCliVersion": "0.144.0" },
+  "compatibility": { "minCliVersion": "0.144.0", "modelVersion": "qwen3.7-max-2026-06-08" },
   "dataDestination": "阿里云百炼（按量 Responses）",
   "virtualReady": false
 }

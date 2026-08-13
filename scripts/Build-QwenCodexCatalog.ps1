@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [string]$SourceCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\deepseek-v4-flash.json'),
-    [ValidateSet('cloud', 'local')][string]$CatalogKind = 'cloud',
+    [ValidateSet('cloud', 'qwen37max', 'qwen38', 'local')][string]$CatalogKind = 'cloud',
     [string]$OutputCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\qwen3.7-codex.json')
 )
 
@@ -28,6 +28,40 @@ if ($CatalogKind -eq 'local') {
         [ordered]@{ effort = 'medium'; description = 'Balanced reasoning depth and latency' },
         [ordered]@{ effort = 'high'; description = 'Deeper reasoning for complex tasks' },
         [ordered]@{ effort = 'max'; description = 'Maximum supported reasoning depth' }
+    )
+} elseif ($CatalogKind -eq 'qwen37max') {
+    $definitions = @(
+        [ordered]@{
+            slug = 'qwen3.7-max-2026-06-08'
+            display = 'Qwen3.7 Max 2026-06-08'
+            description = 'Exact pinned Qwen3.7 Max Responses model.'
+        }
+    )
+    $contextWindow = 983616
+    $defaultReasoningLevel = 'max'
+    $inputModalities = @('text')
+    $reasoningLevels = @(
+        [ordered]@{ effort = 'low'; description = 'Fast responses with lighter reasoning' },
+        [ordered]@{ effort = 'medium'; description = 'Balanced reasoning depth and latency' },
+        [ordered]@{ effort = 'high'; description = 'Deeper reasoning for complex tasks' },
+        [ordered]@{ effort = 'xhigh'; description = 'Extended reasoning for difficult tasks' },
+        [ordered]@{ effort = 'max'; description = 'Maximum supported reasoning depth' }
+    )
+} elseif ($CatalogKind -eq 'qwen38') {
+    $definitions = @(
+        [ordered]@{
+            slug = 'qwen3.8-max'
+            display = 'Qwen3.8 Max'
+            description = 'Exact Qwen3.8 Max paygo Responses model.'
+        }
+    )
+    $contextWindow = 983616
+    $defaultReasoningLevel = 'xhigh'
+    $inputModalities = @('text', 'image')
+    $reasoningLevels = @(
+        [ordered]@{ effort = 'low'; description = 'Fast responses with lighter reasoning' },
+        [ordered]@{ effort = 'medium'; description = 'Balanced reasoning depth and latency' },
+        [ordered]@{ effort = 'xhigh'; description = 'Maximum native reasoning depth for Qwen3.8 Max' }
     )
 } else {
     $definitions = @(
@@ -75,7 +109,7 @@ for ($index = 0; $index -lt $definitions.Count; $index++) {
         context_window = $contextWindow
         max_context_window = $contextWindow
         effective_context_window_percent = 95
-        auto_compact_token_limit = $null
+        auto_compact_token_limit = $(if ($CatalogKind -eq 'qwen38') { 262144 } else { $null })
         comp_hash = '3000'
         reasoning_summary_format = $null
         default_reasoning_summary = 'none'

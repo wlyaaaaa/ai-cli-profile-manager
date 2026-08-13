@@ -227,10 +227,20 @@ function Invoke-AiCliProfileCommand {
             $list = Get-AiCliProfileList -Available:$available
             if ($json) {
                 $rows = @($list | ForEach-Object {
+                    $models = Get-AiCliProperty $_ 'models'
+                    $requestedEffort = [string](Get-AiCliProperty $_ 'defaultEffort')
+                    $effortMap = Get-AiCliProperty $_ 'effortMap'
+                    $effectiveEffort = [string](Get-AiCliProperty $effortMap $requestedEffort)
+                    if (-not $effectiveEffort) { $effectiveEffort = $requestedEffort }
                     [ordered]@{
                         id = (Get-AiCliProperty $_ 'id')
                         displayName = (Get-AiCliProperty $_ 'displayName')
                         engine = (Get-AiCliProperty $_ 'engine')
+                        provider = (Get-AiCliProperty $_ 'provider')
+                        model = (Get-AiCliProperty $models 'primary')
+                        wire = (Get-AiCliProperty $_ 'transport')
+                        requestedEffort = $requestedEffort
+                        effectiveEffort = $effectiveEffort
                         status = (Get-AiCliProperty $_ 'status')
                         configured = (Get-AiCliProperty $_ 'configured')
                         secretPresence = (Format-AiCliSecretPresence ([bool](Get-AiCliProperty $_ 'secretConfigured')))
@@ -238,9 +248,25 @@ function Invoke-AiCliProfileCommand {
                 })
                 Write-AiCliJson (New-AiCliResult -Command 'profile list' -OverallStatus '通过' -Extra @{ profiles = $rows })
             } else {
-                Write-Host ("{0,-28} {1,-8} {2,-12} {3}" -f 'ID','引擎','状态','名称')
+                Write-Host ("{0,-32} {1,-8} {2,-24} {3,-12} {4,-16} {5}" -f 'ID','引擎','模型','effort','状态','名称')
                 foreach ($p in $list) {
-                    Write-Host ("{0,-28} {1,-8} {2,-12} {3}" -f (Get-AiCliProperty $p 'id'), (Get-AiCliProperty $p 'engine'), (Get-AiCliProperty $p 'status'), (Get-AiCliProperty $p 'displayName'))
+                    $models = Get-AiCliProperty $p 'models'
+                    $requestedEffort = [string](Get-AiCliProperty $p 'defaultEffort')
+                    $effortMap = Get-AiCliProperty $p 'effortMap'
+                    $effectiveEffort = [string](Get-AiCliProperty $effortMap $requestedEffort)
+                    if (-not $effectiveEffort) { $effectiveEffort = $requestedEffort }
+                    $effortDisplay = if ($requestedEffort -and $effectiveEffort -and $requestedEffort -cne $effectiveEffort) {
+                        "$requestedEffort→$effectiveEffort"
+                    } else {
+                        $requestedEffort
+                    }
+                    Write-Host ("{0,-32} {1,-8} {2,-24} {3,-12} {4,-16} {5}" -f `
+                        (Get-AiCliProperty $p 'id'),
+                        (Get-AiCliProperty $p 'engine'),
+                        (Get-AiCliProperty $models 'primary'),
+                        $effortDisplay,
+                        (Get-AiCliProperty $p 'status'),
+                        (Get-AiCliProperty $p 'displayName'))
                 }
                 if (-not $available) {
                     Write-Host ''
@@ -591,17 +617,19 @@ function Invoke-AiCliSetup {
     $idx = Show-AiCliMenu -Title '选择要配置的方向' -Choices @(
         '仅查看说明（稍后手动）',
         '配置 Codex DeepSeek V4 Flash 0731',
+        '配置 Codex DeepSeek V4 Pro 0813',
+        '配置 Codex Qwen3.8 Max Workspace 按量',
         '配置 Claude DeepSeek',
         '配置 Claude 千问按量',
-        '配置 Codex 千问按量',
         '查看全部模板'
     )
     switch ($idx) {
         1 { Invoke-AiCliProfileConfigure -TemplateId 'codex-deepseek' | Out-Null }
-        2 { Invoke-AiCliProfileConfigure -TemplateId 'claude-deepseek' | Out-Null }
-        3 { Invoke-AiCliProfileConfigure -TemplateId 'claude-qwen-paygo' | Out-Null }
-        4 { Invoke-AiCliProfileConfigure -TemplateId 'codex-qwen-paygo' | Out-Null }
-        5 { Invoke-AiCliRouter -Tokens @('profile','list','--available') | Out-Null }
+        2 { Invoke-AiCliProfileConfigure -TemplateId 'codex-deepseek-v4-pro' | Out-Null }
+        3 { Invoke-AiCliProfileConfigure -TemplateId 'codex-qwen3-8-max-paygo' | Out-Null }
+        4 { Invoke-AiCliProfileConfigure -TemplateId 'claude-deepseek' | Out-Null }
+        5 { Invoke-AiCliProfileConfigure -TemplateId 'claude-qwen-paygo' | Out-Null }
+        6 { Invoke-AiCliRouter -Tokens @('profile','list','--available') | Out-Null }
         default { Write-AiCliInfo '已结束 setup。' }
     }
     return (Get-AiCliExitCode Success)

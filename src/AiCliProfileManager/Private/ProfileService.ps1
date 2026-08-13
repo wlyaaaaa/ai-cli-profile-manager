@@ -89,14 +89,86 @@ function Remove-AiCliUserProfile {
     Save-AiCliSettings -Settings $settings
 }
 
+function Assert-AiCliExactCodexUserProfileCompatible {
+    param(
+        [Parameter(Mandatory)]$Template,
+        [Parameter(Mandatory)]$UserProfile
+    )
+    $engine = [string](Get-AiCliProperty $Template 'engine')
+    $provider = [string](Get-AiCliProperty $Template 'provider')
+    $flexible = [bool](Get-AiCliProperty $Template 'flexible' $true)
+    if ($engine -cne 'codex' -or $provider -cnotin @('qwen','deepseek','ollama') -or $flexible) {
+        return
+    }
+
+    $conflicts = [System.Collections.Generic.List[string]]::new()
+    foreach ($field in @('region','plan')) {
+        $userValue = [string](Get-AiCliProperty $UserProfile $field)
+        $templateValue = [string](Get-AiCliProperty $Template $field)
+        if ($userValue -and $userValue -cne $templateValue) {
+            [void]$conflicts.Add($field)
+        }
+    }
+
+    $workspaceEndpoint = [bool](Get-AiCliProperty $Template 'workspaceBaseUrlRequired' $false)
+    if (-not $workspaceEndpoint) {
+        $userEndpoint = [string](Get-AiCliProperty $UserProfile 'endpoint')
+        $templateEndpoint = [string](Get-AiCliProperty $Template 'endpoint')
+        if ($userEndpoint) {
+            $normalizedUserEndpoint = $userEndpoint.Trim().TrimEnd('/')
+            $normalizedTemplateEndpoint = $templateEndpoint.Trim().TrimEnd('/')
+            if (-not [string]::Equals(
+                    $normalizedUserEndpoint,
+                    $normalizedTemplateEndpoint,
+                    [StringComparison]::OrdinalIgnoreCase)) {
+                [void]$conflicts.Add('endpoint')
+            }
+        }
+    }
+
+    $templateModels = Get-AiCliProperty $Template 'models'
+    $userModels = Get-AiCliProperty $UserProfile 'models'
+    if ($null -ne $userModels) {
+        foreach ($field in @('primary','small')) {
+            $userModel = [string](Get-AiCliProperty $userModels $field)
+            $templateModel = [string](Get-AiCliProperty $templateModels $field)
+            if ($userModel -and $userModel -cne $templateModel) {
+                [void]$conflicts.Add("models.$field")
+            }
+        }
+        foreach ($field in @('candidates','reserved')) {
+            $rawUserModels = Get-AiCliProperty $userModels $field
+            if ($null -eq $rawUserModels) { continue }
+            $userList = @($rawUserModels | Where-Object { $_ } | ForEach-Object { [string]$_ })
+            $templateList = @(
+                (Get-AiCliProperty $templateModels $field) |
+                    Where-Object { $_ } |
+                    ForEach-Object { [string]$_ }
+            )
+            if (($userList -join "`n") -cne ($templateList -join "`n")) {
+                [void]$conflicts.Add("models.$field")
+            }
+        }
+    }
+
+    if ($conflicts.Count -gt 0) {
+        $templateId = [string](Get-AiCliProperty $Template 'id')
+        $profileId = [string](Get-AiCliProperty $UserProfile 'id')
+        throw "用户 Profile $profileId 与 exact 模板不一致（$($conflicts -join ', ')）。为避免静默改投 Provider、地域或模型，请运行 aicli profile configure $templateId 重新配置。"
+    }
+}
+
 function Merge-AiCliProfile {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$Template,
         $UserProfile
     )
+    if ($null -ne $UserProfile) {
+        Assert-AiCliExactCodexUserProfileCompatible -Template $Template -UserProfile $UserProfile
+    }
     $merged = [ordered]@{}
-    foreach ($k in @('schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','proxyRef','capabilities','compatibility','sources','deprecation','codexProviderId','codexModelCatalog','interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','env','defaultModel','modelPrefix','defaultEffort','effortLevels','flexible')) {
+    foreach ($k in @('schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','proxyRef','capabilities','compatibility','sources','deprecation','codexProviderId','codexModelCatalog','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope','interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','env','defaultModel','modelPrefix','defaultEffort','effortLevels','effortMap','flexible','workspaceBaseUrlRequired')) {
         $v = Get-AiCliProperty $Template $k
         if ($null -ne $v) { $merged[$k] = $v }
     }
@@ -115,11 +187,22 @@ function Merge-AiCliProfile {
             $uv = Get-AiCliProperty $UserProfile $k
             if ($null -ne $uv) { $merged[$k] = $uv }
         }
+        $workspaceBaseUrlRequired = [bool](Get-AiCliProperty $Template 'workspaceBaseUrlRequired' $false)
+        if ($workspaceBaseUrlRequired) {
+            $userEndpoint = [string](Get-AiCliProperty $UserProfile 'endpoint')
+            if (-not [string]::IsNullOrWhiteSpace($userEndpoint)) {
+                $merged['endpoint'] = Resolve-AiCliQwenWorkspaceResponsesEndpoint -Endpoint $userEndpoint
+            }
+        }
         $templateFlexible = [bool](Get-AiCliProperty $Template 'flexible' $true)
         if ($templateFlexible) {
-            foreach ($k in @('region','plan','endpoint')) {
+            foreach ($k in @('region','plan')) {
                 $uv = Get-AiCliProperty $UserProfile $k
                 if ($null -ne $uv) { $merged[$k] = $uv }
+            }
+            if (-not $workspaceBaseUrlRequired) {
+                $userEndpoint = Get-AiCliProperty $UserProfile 'endpoint'
+                if ($null -ne $userEndpoint) { $merged['endpoint'] = $userEndpoint }
             }
             $userModels = Get-AiCliProperty $UserProfile 'models'
             if ($null -ne $userModels) { $merged['models'] = $userModels }
@@ -129,6 +212,10 @@ function Merge-AiCliProfile {
         $merged['secretConfigured'] = Test-AiCliSecretExists -SecretId $sr
         $merged['configured'] = $true
         if ((Get-AiCliProperty $Template 'requiresSecret') -and -not $merged['secretConfigured']) {
+            $merged['configured'] = $false
+        }
+        if ($workspaceBaseUrlRequired -and
+            [string]::IsNullOrWhiteSpace([string](Get-AiCliProperty $merged 'endpoint'))) {
             $merged['configured'] = $false
         }
     } else {
@@ -207,7 +294,7 @@ function Resolve-AiCliProfileStatus {
 function Get-AiCliProfileFingerprint {
     param([Parameter(Mandatory)]$Profile)
     $stable = [ordered]@{}
-    foreach ($key in @('schemaVersion','id','templateId','engine','provider','plan','region','transport','endpoint','models','modelMetadata','codexProviderId','codexModelCatalog','compatibility','proxyRef','preferences','secretRef')) {
+    foreach ($key in @('schemaVersion','id','templateId','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','capabilities','codexProviderId','codexModelCatalog','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope','compatibility','defaultEffort','effortLevels','effortMap','flexible','workspaceBaseUrlRequired','requiresSecret','proxyRef','preferences','secretRef')) {
         $value = Get-AiCliProperty $Profile $key
         if ($null -ne $value) { $stable[$key] = $value }
     }
@@ -234,9 +321,20 @@ function Get-AiCliResolvedProfile {
     param([Parameter(Mandatory)][string]$Id)
     $user = Get-AiCliUserProfile -Id $Id
     if ($user) {
+        $userId = [string](Get-AiCliProperty $user 'id')
+        if ($userId -cne $Id) {
+            throw "用户 Profile 文件名与内部 ID 不一致: $Id / $userId"
+        }
         $tid = Get-AiCliProperty $user 'templateId'
         if (-not $tid) { $tid = Get-AiCliProperty $user 'id' }
         $template = Get-AiCliProviderManifest -Id $tid
+        if ([bool](Get-AiCliProperty $template 'hidden' $false)) {
+            throw "用户 Profile $Id 引用了隐藏模板 $tid；该可变入口已停用，请改用公开 exact Profile。"
+        }
+        $allTemplates = Import-AiCliProviderManifests
+        if ($allTemplates.Contains($Id) -and [string]$tid -cne $Id) {
+            throw "内置 Profile ID $Id 不能绑定到模板 $tid；请删除冲突用户 Profile 后重新配置。"
+        }
         return (Merge-AiCliProfile -Template $template -UserProfile $user)
     }
     # try as template id (virtual)
@@ -307,6 +405,34 @@ function Set-AiCliLastProfile {
     Save-AiCliSettings -Settings $s
 }
 
+function Resolve-AiCliQwenWorkspaceResponsesEndpoint {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Endpoint)
+
+    $normalized = $Endpoint.Trim().TrimEnd('/')
+    try {
+        Assert-AiCliEndpointSafe -Url $normalized
+        $uri = [Uri]$normalized
+    } catch {
+        throw 'Qwen Workspace Codex 需要有效的北京 Workspace Responses Base URL。'
+    }
+
+    $currentPath = '/compatible-mode/v1'
+    $legacyPath = '/api/v2/apps/protocols/compatible-mode/v1'
+    $requestedPath = $uri.AbsolutePath.TrimEnd('/')
+    $valid = $uri.Scheme -ceq 'https' -and
+        $uri.Port -eq 443 -and
+        $uri.Host -cmatch '^ws-[a-z0-9][a-z0-9-]*\.cn-beijing\.maas\.aliyuncs\.com$' -and
+        $requestedPath -cin @($currentPath, $legacyPath) -and
+        [string]::IsNullOrEmpty($uri.Query) -and
+        [string]::IsNullOrEmpty($uri.Fragment) -and
+        [string]::IsNullOrEmpty($uri.UserInfo)
+    if (-not $valid) {
+        throw 'Qwen Workspace Codex 需要北京百炼控制台提供的 Workspace Responses Base URL；通用 DashScope 与 Token Plan 地址均不可用。'
+    }
+    return "https://$($uri.Host)$currentPath"
+}
+
 function Invoke-AiCliProfileConfigure {
     param(
         [Parameter(Mandatory)][string]$TemplateId,
@@ -318,6 +444,10 @@ function Invoke-AiCliProfileConfigure {
     }
     $id = if ($ProfileId) { $ProfileId } else { $TemplateId }
     $null = Assert-AiCliSafeIdentifier -Id $id -Kind 'Profile ID'
+    $allTemplates = Import-AiCliProviderManifests
+    if ($allTemplates.Contains($id) -and $id -cne $TemplateId) {
+        throw "Profile ID $id 已由内置模板 $id 保留，不能绑定到 $TemplateId。"
+    }
 
     Write-AiCliInfo ("配置模板：{0} → 实例 ID：{1}" -f (Get-AiCliProperty $template 'displayName'), $id)
     Write-AiCliInfo ("引擎：{0}  Provider：{1}  套餐：{2}" -f (Get-AiCliProperty $template 'engine'), (Get-AiCliProperty $template 'provider'), (Get-AiCliProperty $template 'plan'))
@@ -338,7 +468,8 @@ function Invoke-AiCliProfileConfigure {
         if (-not [string]::IsNullOrWhiteSpace($small)) { $null = Assert-AiCliModelId -Model $small }
         $models = [ordered]@{ primary = $model; small = $small }
         $region = 'custom'
-    } elseif ((Get-AiCliProperty $template 'provider') -eq 'ollama') {
+    } elseif ([bool](Get-AiCliProperty $template 'flexible' $true) -and
+        (Get-AiCliProperty $template 'provider') -eq 'ollama') {
         $enteredEndpoint = Read-Host ("Ollama Base URL（默认 {0}，回车保留）" -f $endpoint)
         if (-not [string]::IsNullOrWhiteSpace($enteredEndpoint)) {
             Assert-AiCliEndpointSafe -Url $enteredEndpoint
@@ -349,7 +480,12 @@ function Invoke-AiCliProfileConfigure {
             $null = Assert-AiCliModelId -Model $model
             $models = [ordered]@{ primary = $model; small = $model }
         }
-    } elseif ((Get-AiCliProperty $template 'provider') -eq 'qwen' -and (Get-AiCliProperty $template 'plan') -eq 'paygo') {
+    } elseif ([bool](Get-AiCliProperty $template 'workspaceBaseUrlRequired' $false)) {
+        $enteredEndpoint = Read-Host '百炼 Workspace Responses Base URL（北京控制台模型页 Responses API 示例中的 base_url）'
+        $endpoint = Resolve-AiCliQwenWorkspaceResponsesEndpoint -Endpoint $enteredEndpoint
+    } elseif ([bool](Get-AiCliProperty $template 'flexible' $true) -and
+        (Get-AiCliProperty $template 'provider') -eq 'qwen' -and
+        (Get-AiCliProperty $template 'plan') -eq 'paygo') {
         $r = Read-Host '地域 [cn-beijing / singapore]（默认 cn-beijing）'
         if ([string]::IsNullOrWhiteSpace($r)) { $r = 'cn-beijing' }
         $region = $r

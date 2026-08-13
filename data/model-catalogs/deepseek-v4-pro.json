@@ -1,7 +1,7 @@
 {
   "models": [
     {
-      "slug": "deepseek-v4-flash",
+      "slug": "deepseek-v4-pro",
       "prefer_websockets": false,
       "support_verbosity": true,
       "default_verbosity": "low",
@@ -28,8 +28,8 @@
       "comp_hash": "3000",
       "reasoning_summary_format": "experimental",
       "default_reasoning_summary": "none",
-      "display_name": "DeepSeek-V4-Flash",
-      "description": "Exact DeepSeek V4 Flash 0731 Responses model.",
+      "display_name": "DeepSeek-V4-Pro",
+      "description": "Exact DeepSeek V4 Pro 0813 Responses model.",
       "default_reasoning_level": "high",
       "supported_reasoning_levels": [
         {

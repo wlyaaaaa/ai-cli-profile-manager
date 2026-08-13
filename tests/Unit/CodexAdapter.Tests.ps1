@@ -89,7 +89,7 @@ Describe 'Codex Ollama reasoning effort' {
                 'model_providers.aicli_ollama_main.wire_api="responses"'
                 'model_providers.aicli_ollama_main.env_http_headers={"X-LocalGpuBroker-Lease-Id"="AICLI_LOCAL_GPU_BROKER_LEASE_ID","X-LocalGpuBroker-Capability"="AICLI_LOCAL_GPU_BROKER_CAPABILITY"}'
                 'shell_environment_policy.ignore_default_excludes=false'
-                'shell_environment_policy.exclude=["AICLI_CODEX_PROVIDER_KEY","OPENAI_API_KEY","CODEX_API_KEY","AICLI_LOCAL_GPU_BROKER_LEASE_ID","AICLI_LOCAL_GPU_BROKER_CAPABILITY"]'
+                'shell_environment_policy.exclude=["AICLI_CODEX_PROVIDER_KEY","OPENAI_API_KEY","CODEX_API_KEY","DASHSCOPE_API_KEY","QWEN_API_KEY","AICLI_LOCAL_GPU_BROKER_LEASE_ID","AICLI_LOCAL_GPU_BROKER_CAPABILITY"]'
                 ('model_catalog_json=' + (ConvertTo-AiCliTomlString (Join-Path $Work 'qwen-main-v1-codex.json')))
             )
             foreach ($expected in $expectedProviderOverrides) {

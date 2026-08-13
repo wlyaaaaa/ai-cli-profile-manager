@@ -5,7 +5,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $module = Join-Path $root 'src\AiCliProfileManager\AiCliProfileManager.psd1'
+Get-Module -Name AiCliProfileManager -All | Remove-Module -Force -ErrorAction SilentlyContinue
 Import-Module $module -Force
+$sourceModuleRoot = (Resolve-Path (Split-Path $module -Parent)).Path
+$sourceModule = Get-Module -Name AiCliProfileManager -All |
+    Where-Object { $_.ModuleBase -eq $sourceModuleRoot } |
+    Select-Object -First 1
+if (-not $sourceModule) { throw '未能解析当前源码模块。' }
 
 $failed = 0
 function Assert-True($cond, $msg) {
@@ -31,6 +37,46 @@ Assert-True ($code -eq 0) 'version exit 0'
 
 $code = Invoke-AiCli -Tokens @('profile','list','--available','--json') -DataRoot $DataRoot
 Assert-True ($code -eq 0) 'profile list --available'
+
+$exactProfiles = & $sourceModule {
+    $all = Import-AiCliProviderManifests
+    @($all.Values | Where-Object {
+        ($_.engine -eq 'codex') -and
+        ($_.provider -in @('qwen','deepseek','ollama')) -and
+        (-not [bool](Get-AiCliProperty $_ 'hidden' $false))
+    } | ForEach-Object {
+        [pscustomobject]@{
+            id = [string]$_.id
+            model = [string]$_.models.primary
+            transport = [string]$_.transport
+            requestedEffort = [string]$_.defaultEffort
+            effectiveEffort = [string](Resolve-AiCliCodexEffectiveEffort -MergedProfile $_ -RequestedEffort ([string]$_.defaultEffort))
+            candidateCount = @($_.models.candidates).Count
+            flexible = [bool]$_.flexible
+        }
+    })
+}
+$requiredExactProfiles = @(
+    [pscustomobject]@{ id = 'codex-qwen3-8-max-paygo'; model = 'qwen3.8-max'; effectiveEffort = 'xhigh' },
+    [pscustomobject]@{ id = 'codex-deepseek'; model = 'deepseek-v4-flash'; effectiveEffort = 'max' },
+    [pscustomobject]@{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; effectiveEffort = 'max' },
+    [pscustomobject]@{ id = 'codex-ollama-main'; model = 'qwen-main-v1'; effectiveEffort = 'max' },
+    [pscustomobject]@{ id = 'codex-ollama-review'; model = 'qwen-review-v1'; effectiveEffort = 'max' }
+)
+foreach ($expected in $requiredExactProfiles) {
+    $actual = @($exactProfiles | Where-Object id -eq $expected.id)
+    Assert-True ($actual.Count -eq 1) "exact profile $($expected.id) is discoverable once"
+    if ($actual.Count -eq 1) {
+        Assert-True (
+            $actual[0].model -eq $expected.model -and
+            $actual[0].transport -eq 'responses' -and
+            $actual[0].requestedEffort -eq 'max' -and
+            $actual[0].effectiveEffort -eq $expected.effectiveEffort -and
+            $actual[0].candidateCount -eq 1 -and
+            -not $actual[0].flexible
+        ) "exact profile $($expected.id) seals model, Responses, max and no fallback"
+    }
+}
 
 $code = Invoke-AiCli -Tokens @('doctor','--json') -DataRoot $DataRoot
 Assert-True ($code -in 0,3,4) "doctor exit=$code"

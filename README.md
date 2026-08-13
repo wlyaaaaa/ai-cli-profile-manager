@@ -2,7 +2,7 @@
 
 面向 Windows 11 x64 的中文 PowerShell 工具：用统一 Profile 启动原生 Codex CLI、Claude Code、Qwen Code、OpenCode 和当前官方 Rust Open Interpreter，并提供 Provider 隔离、Doctor、显式 Live Test、沙箱化 machine run 与可选的第三方代理运维。
 
-命令：`aicli`　版本：`0.3.3`（本机已安装并完成静态验收，未发布 Release）　许可证：MIT
+命令：`aicli`　版本：`0.3.4`（`main` 源码；安装与 Live 状态以发布验收回执为准，未发布 GitHub Release）　许可证：MIT
 
 它不是新的 Agent 或聊天外壳，不接管历史会话，也不汉化上游 CLI。本工具只负责“选哪条连接、怎样安全启动、出了问题如何验证”。
 
@@ -28,20 +28,22 @@ pwsh -File .\bin\aicli.ps1 doctor
 
 | 引擎 | 已实现的公开路径 | 验收口径 |
 |------|------------------|----------|
-| Codex CLI | 官方登录、DeepSeek V4 Flash Responses、千问 Responses 按量/Token Plan、本机 Ollama | DeepSeek 路径为 public beta；本机 `0.3.3` 静态验收通过，当前 Flash Live 前状态仍为“可用但有限制” |
+| Codex CLI | 官方登录、精确 Qwen3.8 Max Workspace 按量、精确 DeepSeek V4 Flash/Pro、本机 qwen-main/review | `0.3.4` 源码静态验收；当前安装与云 Profile Live 结果只由同指纹发布验收回执判定 |
 | Claude Code | 官方登录、DeepSeek V4 Flash、千问三套餐、Ollama、自定义 Anthropic Messages | 同上 |
 | Qwen Code | 本机 Ollama `qwen-main-v1` machine run | 仅机器入口；必须经过外层沙箱 |
 | OpenCode | 本机 Ollama `qwen-main-v1` machine run | 仅机器入口；必须经过外层沙箱 |
 | Open Interpreter | 当前官方 Rust `0.0.21+`：千问 Responses、DeepSeek V4 Flash Chat、Ollama | 旧 Python `0.4.x` 明确不支持；最终 Live 状态见兼容性页 |
 | ChatGPT → Claude | `raine/claude-code-proxy`、`CLIProxyAPI` | 可选第三方通道；本轮未完成 OAuth 与端到端 Live 验收 |
 
-DeepSeek 在 2026-07-31 开放 [Codex public beta](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 与 [Responses API](https://api-docs.deepseek.com/guides/responses_api/)：AICLI 新增 `codex-deepseek`，固定 `deepseek-v4-flash`、Responses、1M context，要求 Codex CLI `0.144.0+`，默认 reasoning effort 为 `high`，可选 `low` / `high` / `max`。`deepseek-v4-pro` 仅作为未来扩展的不可选 `reserved` 项；官方尚未支持前不生成 Pro Profile，也不允许模型覆盖选中它。千问 Coding Plan 与纯 Chat Completions 直连仍不属于 Codex 路径。动态支持状态以 [DeepSeek Change Log](https://api-docs.deepseek.com/updates) 为准。
+DeepSeek 当前官方 Codex/Responses 目录同时支持 `deepseek-v4-flash` 与 `deepseek-v4-pro`。AICLI 用 `codex-deepseek` 精确绑定 alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，用 `codex-deepseek-v4-pro` 精确绑定 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`；两者都是 1048576 context、Responses、`low/high/max`，默认 `max`，不接受模型或 fallback 覆盖。动态支持状态以 [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 与 [DeepSeek Change Log](https://api-docs.deepseek.com/updates/) 为准。
+
+Qwen3.8 Max 使用独立 `codex-qwen3-8-max-paygo`：只接受北京百炼 Workspace 按量 Responses endpoint，精确模型 `qwen3.8-max`，983616 context、95% 有效窗口、262144 token 自动压缩阈值；不接 preview、通用 DashScope 或 Token Plan。用户选择的 `max` 表示当前模型最高思考档，运行时透明映射为该模型原生 `xhigh`。DeepSeek 与本地 main/review 的 `max` 直接映射原生 `max`。
 
 DeepSeek API Key 仍由 Windows CurrentUser DPAPI 保存，Codex 受管配置只写 `env_key` 引用；不复制官方示例中的明文 `experimental_bearer_token`，也不写入 `preferred_auth_method`。Qwen Code `0.21` 与 OpenCode `1.18.8` 虽有上游 DeepSeek 原生接入方式，但 AICLI 当前 machine-only 外层沙箱断网，且尚无把真实 Key 与远程 egress 隔离开的 relay；因此不开放这两条远程模板，也不生成看似可用的假 Profile。
 
 本轮上下文优化不改变原生 ChatGPT + Codex：千问 Codex 按量/Token Plan 新增受管 983616/95% model catalog，避免未知模型 272K 回退；本地 Codex 的 `qwen-main-v1` 使用独立 262144 目录；DeepSeek/千问及本地 Qwen 的 Claude Profile 在 2.1.193+ 按最终模型注入真实 MAX/AUTO 窗口；本地 OpenCode 明确 262144/8192 limit 与约 92.4% 晚压缩保护。第三方客户端摘要仍是有损的，长任务应先把状态写入项目文档，压缩后重读规则、Skill 和 diff。
 
-2026-07-14（UTC+8）曾完成 Claude Code / Rust Open Interpreter → `deepseek-v4-pro` 的文本验收；当前公开模板已切换为 Flash-only，旧 Profile 指纹已经失效，不能作为 `deepseek-v4-flash` 或 `codex-deepseek` 的当前证据。逐项状态见兼容性页。
+2026-07-14（UTC+8）曾完成 Claude Code / Rust Open Interpreter → `deepseek-v4-pro` 的文本验收；当前 Claude Code / Open Interpreter 模板已切换为 Flash-only，旧 Profile 指纹已经失效，也不能作为本轮任何 Codex exact Profile 的当前证据。逐项状态见兼容性页。
 
 Claude 官方路径在未登录机器上出现 `401`，通常表示需要先完成 Claude Code 自己的官方登录，不代表本工具安装失败。
 
@@ -50,7 +52,7 @@ Claude 官方路径在未登录机器上出现 `401`，通常表示需要先完�
 ```text
 aicli profile list --available
 aicli profile configure <模板 ID>
-aicli start <Profile ID> [--project <项目路径>] [-- <原生参数...>]
+aicli start <精确 Profile ID> --project <可信项目路径>
 aicli run <Profile ID> --stdin --json --project <项目路径> --sandbox-policy read-only|workspace-write [--event-file <绝对 JSONL 路径>] -- <原生参数...>
 aicli doctor [Profile ID] [--json]
 aicli test <Profile ID> --live [--level text|tool|all] [--yes]
@@ -67,11 +69,11 @@ machine child 的父环境按运行时 allowlist 重建，不再继承无关凭�
 
 远程 Qwen Cloud Agent route 当前禁用且不做付费复测。2026-07-28 以前标成 Flash/Plus 的 Codex Agent 记录因 bridge 丢失模型覆盖，实际调用了 Profile 主模型 Max；这些旧身份与能力结论已撤回，不能作为 Flash/Plus 证据。
 
-本机预置本地 Profile：`codex-ollama-main`、`claude-ollama-main`、`qwen-code-ollama-main`、`opencode-ollama-main`，都固定访问 `127.0.0.1:32100` 的 `qwen-main-v1`。另有显式 opt-in 的 `codex-spark-xhigh`，精确选择 `gpt-5.3-codex-spark` 与默认 `xhigh`。2026-07-29 的源代码入口真实任务已经证明 Spark 的工作区写权限生效，但 `code_repair` 在硬上限 `80` 步下到达 `81/80`，确定性得分仅 `2/9`；因此当前能力验收不通过，不登记为合格代码 Agent，也不为改变结果重复复测。所有 Profile 都不自动 fallback，上层调用者仍负责选择、额度失败后的显式重提、隔离工作区和最终验收。
+本机 Codex 预置两个精确 Profile：`codex-ollama-main` → `qwen-main-v1`，`codex-ollama-review` → `qwen-review-v1`，均固定 `127.0.0.1:32100`、Responses、最高 `max` 且无 fallback。旧泛型 `codex-ollama` 已从公开目录隐藏。另有显式 opt-in 的 `codex-spark-xhigh`，精确选择 `gpt-5.3-codex-spark` 与默认 `xhigh`。所有 Profile 都不自动 fallback，上层调用者仍负责选择、额度失败后的显式重提、隔离工作区和最终验收。
 
 上层若考虑免费本地模型或订阅内 Spark，唯一收益口径是减少边际付费 token/API 成本；简单、低风险、可验证且净节省为正时才值得委派。疑难任务、授权、高风险动作和最终判断保留给顶级模型，亲自完成不是故障。
 
-`0.3.3` 已从目标提交的干净快照安装到本机，并完成 `codex-deepseek` 的 Profile 脱敏、最低 CLI 版本、受管 TOML、内容寻址模型目录和 Codex 本地解析静态验收；未执行 DeepSeek Live/API 请求。它仍不是 GitHub Release，其他机器不得把本机 installed 证据解释成公开发行。
+`0.3.4` 的 source/static/install/runtime/live 必须分开报告。旧 `0.3.3` 安装态及旧受管 TOML 不是本版本证据；只有从最终提交安装并回读固定路径后才能声明 installed current。云 Live 必须由现有授权与 SecretRef 显式触发，失败不自动重试。
 
 已有 OpenClaw 千问/DeepSeek 配置时，可先安全预览再导入；DeepSeek 可生成 `codex-deepseek`、`claude-deepseek`、`oi-deepseek` 三个 Flash-only Profile，默认不会写入，详见主手册：
 
@@ -92,7 +94,7 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 
 4. [沙箱化 machine run](docs/user/MACHINE-RUN.md)：供上层 AI 调用本地或官方 Codex 智能体的 stdin/JSON 协议、权限边界与能力限制。
 
-根目录同时保留两本可打印手册；`0.3.3` PDF 已从对应 Markdown 重新生成，并完成 15 页 / 8 页逐页渲染视觉验收：
+根目录同时保留两本可打印手册；PDF 只在由当前 `0.3.4` Markdown 重新生成并完成视觉验收后才算 current：
 
 - 《[AI CLI Profile Manager 使用手册（PDF）](<AI CLI Profile Manager 使用手册.pdf>)》
 - 《[Codex、Claude Code 与 Open Interpreter CLI 中文手册（PDF）](<Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf>)》

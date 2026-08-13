@@ -29,6 +29,7 @@
   "sources": ["https://docs.ollama.com/integrations/codex"],
   "requiresSecret": false,
   "virtualReady": true,
+  "flexible": false,
   "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
   "notes": "Machine run uses the native Codex workspace sandbox; the provider stays on the local broker with no cloud or fallback."
 }

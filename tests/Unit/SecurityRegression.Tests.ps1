@@ -168,6 +168,64 @@ Describe 'Live text evidence' {
             $result.ExitCode | Should -Be 23
         }
     }
+
+    It 'passes non-sk provider secrets to bounded live capture for exact redaction' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $script:capturedSecretValues = @()
+            Mock Invoke-AiCliChildCapture {
+                $script:capturedSecretValues = @($SecretValues)
+                $lastMessageIndex = [Array]::IndexOf($ArgumentList, '--output-last-message')
+                Set-Content -LiteralPath $ArgumentList[$lastMessageIndex + 1] -Value 'PONG' -Encoding utf8
+                [pscustomobject]@{
+                    ExitCode = 0
+                    StdOut = ''
+                    StdErr = ''
+                }
+            }
+            $checks = [System.Collections.Generic.List[object]]::new()
+            $plan = [pscustomobject]@{
+                engine = 'codex'; fileName = 'C:\fake\codex.exe'
+                argumentList = @(); removeEnvironment = @()
+                environmentDelta = @{
+                    AICLI_CODEX_PROVIDER_KEY = 'CANARY_PROVIDER_VALUE_42'
+                    AICLI_PUBLIC_SETTING = 'public-setting'
+                }
+            }
+
+            $result = Invoke-AiCliTextLiveTest -Plan $plan -WorkDir $Work -Checks $checks
+
+            $result.Pass | Should -BeTrue
+            $script:capturedSecretValues | Should -Contain 'CANARY_PROVIDER_VALUE_42'
+            $script:capturedSecretValues | Should -Not -Contain 'public-setting'
+        }
+    }
+
+    It 'does not claim launch-plan effort evidence when plan construction fails' {
+        $dataRoot = Join-Path $TestDrive 'failed-live-plan-root'
+        InModuleScope AiCliProfileManager -Parameters @{ Root = $dataRoot } {
+            Mock Get-AiCliResolvedProfile {
+                [ordered]@{
+                    id = 'failed-plan'; engine = 'codex'; provider = 'qwen'
+                    transport = 'responses'; defaultEffort = 'max'
+                    models = [ordered]@{ primary = 'qwen3.8-max' }
+                }
+            }
+            Mock Build-AiCliLaunchPlan { throw 'synthetic plan failure' }
+            Mock Write-AiCliJson {}
+            Set-AiCliDataRootOverride -Path $Root
+            try {
+                $code = Invoke-AiCliLiveTest -ProfileId 'failed-plan' -Level text -Yes -Json
+                $code | Should -Be (Get-AiCliExitCode Unavailable)
+                $record = (Get-AiCliSettings).verification['failed-plan']
+                $record.requestedEffort | Should -Be 'max'
+                $record.effectiveEffort | Should -BeNullOrEmpty
+                $record.effortEvidence | Should -Be 'profile-default'
+                $record.attestedEffort | Should -BeNullOrEmpty
+            } finally {
+                Set-AiCliDataRootOverride -Path $null
+            }
+        }
+    }
 }
 
 Describe 'Secret redaction and eject' {
