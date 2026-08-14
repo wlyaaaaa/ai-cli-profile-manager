@@ -5,7 +5,7 @@ param(
     [string]$LocalRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'AiCliProfileManager'),
     [string]$CodexHome = (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.codex'),
     [string]$ModuleRoot,
-    [version]$CurrentVersion = '0.3.5',
+    [version]$CurrentVersion = '0.3.6',
     [switch]$PreflightOnly,
     [switch]$FailOnBlocked
 )
@@ -23,6 +23,9 @@ $retiredProfileIds = @(
     'claude-qwen-coding-plan',
     'oi-qwen-paygo'
 )
+$activeQwen37ProfileId = 'codex-qwen3-7-max-paygo'
+$activeQwen37ModelId = 'qwen3.7-max-2026-06-08'
+$activeQwen37ProviderId = 'aicli_qwen37_max_0608_paygo'
 $resolvedRoamingRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($RoamingRoot))
 $resolvedLocalRoot = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($LocalRoot))
 $resolvedCodexHome = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($CodexHome))
@@ -56,6 +59,47 @@ function Test-RetiredQwenText {
         return $true
     }
     return $Text -match '(?i)qwen3(?:\.|[-_])?7(?:[-_.])?(?:max|plus)(?:$|[-._:/+@"''\s])'
+}
+
+function Test-ActiveQwen37Profile {
+    param($Profile)
+    if ($Profile -isnot [Collections.IDictionary] -or
+        [string]$Profile.templateId -cne $activeQwen37ProfileId) {
+        return $false
+    }
+    $models = $Profile.models
+    if ($models -isnot [Collections.IDictionary] -or
+        [string]$models.primary -cne $activeQwen37ModelId) {
+        return $false
+    }
+    $selected = @(
+        foreach ($field in @('primary','small','candidates','reserved')) {
+            @($models[$field]) | Where-Object { $_ } | ForEach-Object { [string]$_ }
+        }
+    )
+    return $selected.Count -gt 0 -and
+        @($selected | Where-Object { $_ -cne $activeQwen37ModelId }).Count -eq 0
+}
+
+function Test-ActiveQwen37ManagedToml {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $false }
+    $modelMatch = [regex]::Match($Text, '(?m)^model\s*=\s*"([^"]+)"\r?$')
+    $providerMatch = [regex]::Match($Text, '(?m)^model_provider\s*=\s*"([^"]+)"\r?$')
+    return $modelMatch.Success -and
+        $modelMatch.Groups[1].Value -ceq $activeQwen37ModelId -and
+        $providerMatch.Success -and
+        $providerMatch.Groups[1].Value -ceq $activeQwen37ProviderId
+}
+
+function Test-ActiveQwen37Catalog {
+    param([string]$Text)
+    try { $catalog = $Text | ConvertFrom-Json -AsHashtable -Depth 100 -ErrorAction Stop }
+    catch { return $false }
+    $models = @($catalog.models)
+    return $models.Count -eq 1 -and
+        $models[0] -is [Collections.IDictionary] -and
+        [string]$models[0].slug -ceq $activeQwen37ModelId
 }
 
 function Test-NormalItem {
@@ -155,6 +199,7 @@ if ((Assert-RetirementRootIfPresent -Path $profilesRoot -Label 'Profile 目录')
             Add-RetirementBlocker -Reason '退役用户 Profile 文件名与 ID 不一致' -Path $file.FullName
             continue
         }
+        if (Test-ActiveQwen37Profile -Profile $profile) { continue }
         Add-RetirementAction -Kind File -Path $file.FullName -Category 'profiles'
         $profileIdsToClear.Add($profileId) | Out-Null
     }
@@ -196,6 +241,7 @@ foreach ($file in $codexTomlFiles) {
     $record = if ($stateReadable -and $state.Contains($safeId)) { $state[$safeId] } else { $null }
     $recordProfileId = if ($record) { [string]$record.profileId } else { '' }
     if (-not (Test-RetiredQwenText -Text ($raw + "`n" + $recordProfileId))) { continue }
+    $activeManagedToml = Test-ActiveQwen37ManagedToml -Text $raw
     if (-not (Test-NormalItem -Path $file.FullName -Directory $false)) {
         Add-RetirementBlocker -Reason '退役 Codex Profile 不是普通文件' -Path $file.FullName
         continue
@@ -224,6 +270,7 @@ foreach ($file in $codexTomlFiles) {
             continue
         }
     }
+    if ($activeManagedToml) { continue }
     Add-RetirementAction -Kind File -Path $file.FullName -Category 'codex-profiles'
     $tomlActions.Add([IO.Path]::GetFullPath($file.FullName)) | Out-Null
     $stateKeysToRemove.Add($safeId) | Out-Null
@@ -232,6 +279,7 @@ foreach ($file in $codexTomlFiles) {
 if ($stateReadable) {
     foreach ($key in @($state.Keys)) {
         $record = $state[$key]
+        if ([string]$record.profileId -ceq $activeQwen37ProfileId) { continue }
         if (-not (Test-RetiredQwenText -Text ([string]$record.profileId)) -or
             $stateKeysToRemove.Contains([string]$key)) { continue }
         $fullPath = [string]$record.fullPath
@@ -280,6 +328,10 @@ if ((Assert-RetirementRootIfPresent -Path $catalogRoot -Label 'Codex catalog 目
         try { $null = $raw | ConvertFrom-Json -Depth 100 }
         catch {
             Add-RetirementBlocker -Reason '退役 Codex catalog JSON 无效' -Path $file.FullName
+            continue
+        }
+        if ((Test-ActiveQwen37Catalog -Text $raw) -and
+            $remainingTomlText.IndexOf($file.Name, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
             continue
         }
         if ($remainingTomlText.IndexOf($file.Name, [StringComparison]::OrdinalIgnoreCase) -ge 0) {

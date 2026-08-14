@@ -42,6 +42,7 @@ $name — 命令帮助
   $cmd help compact|model|effort|permissions|resume|compare
 
 精确第三方 Codex 一键入口：
+  $cmd start codex-qwen3-7-max-paygo --project <trusted-workspace>
   $cmd start codex-qwen3-8-max-paygo --project <trusted-workspace>
   $cmd start codex-deepseek --project <trusted-workspace>
   $cmd start codex-deepseek-v4-pro --project <trusted-workspace>
@@ -114,6 +115,7 @@ function Show-AiCliHelpEffort {
 执行后：影响后续推理强度；不同厂商语义不完全等价，aicli 不会伪装成“完全相同”。
 
 对受管第三方 Codex Profile，用户看到的 max 始终表示该模型当前支持的最高思考档：
+  - Qwen3.7 Max 06-08: max → 原生 xhigh
   - Qwen3.8 Max: max → 原生 xhigh
   - DeepSeek V4 Flash/Pro: max → 原生 max
   - 本地 qwen-main/review: max → 目录最高档 max

@@ -16,9 +16,9 @@ function Test-AiCliManifestSafety {
 }
 
 function Get-AiCliRetiredModelIds {
-    # Tombstones remain in code so stale user Profiles fail closed instead of
-    # silently selecting a replacement. They must never appear in a runnable
-    # provider Manifest or model catalog.
+    # Family tombstones remain so stale Profiles and native model overrides fail
+    # closed. The 06-08 snapshot is admitted only by the context-aware exact
+    # Profile gate below; it remains forbidden as a free-form override.
     return @(
         'qwen3.7-max',
         'qwen3.7-max-2026-05-20',
@@ -43,6 +43,32 @@ function Test-AiCliRetiredModelId {
     return $false
 }
 
+function Test-AiCliQwen37Max0608ExactProfile {
+    param([Parameter(Mandatory)]$Profile)
+
+    $exactProfileId = 'codex-qwen3-7-max-paygo'
+    $exactModelId = 'qwen3.7-max-2026-06-08'
+    $profileId = [string](Get-AiCliProperty $Profile 'id')
+    $templateId = [string](Get-AiCliProperty $Profile 'templateId')
+    if (($templateId -and $templateId -cne $exactProfileId) -or
+        (-not $templateId -and $profileId -cne $exactProfileId)) {
+        return $false
+    }
+
+    $models = Get-AiCliProperty $Profile 'models'
+    if ($null -eq $models -or
+        [string](Get-AiCliProperty $models 'primary') -cne $exactModelId) {
+        return $false
+    }
+    $selected = @(
+        foreach ($field in @('primary','small','candidates','reserved')) {
+            @((Get-AiCliProperty $models $field)) | Where-Object { $_ } | ForEach-Object { [string]$_ }
+        }
+    )
+    return $selected.Count -gt 0 -and
+        @($selected | Where-Object { $_ -cne $exactModelId }).Count -eq 0
+}
+
 function Assert-AiCliModelIsActive {
     param(
         [string]$ModelId,
@@ -53,7 +79,7 @@ function Assert-AiCliModelIsActive {
         throw "$Context 引用了已退役或未登记的 DeepSeek V4 模型 $ModelId；AICLI 只保留 API alias deepseek-v4-flash（DeepSeek-V4-Flash-0731）与 deepseek-v4-pro（DeepSeek-V4-Pro-0813）。"
     }
     if (Test-AiCliRetiredModelId -ModelId $ModelId) {
-        throw "$Context 引用了已退役的 Qwen3.7 云模型 $ModelId；AICLI 已移除对应入口且不会自动改投其他模型。"
+        throw "$Context 引用了已退役或脱离 exact Profile 的 Qwen3.7 云模型 $ModelId；仅 qwen3.7-max-2026-06-08 可通过 codex-qwen3-7-max-paygo 使用，且不会自动改投其他模型。"
     }
 }
 
@@ -62,10 +88,13 @@ function Assert-AiCliProfileDoesNotUseRetiredModel {
         [Parameter(Mandatory)]$Profile,
         [string]$Context = 'Profile'
     )
+    $allowExactQwen37 = Test-AiCliQwen37Max0608ExactProfile -Profile $Profile
+    $exactQwen37Model = 'qwen3.7-max-2026-06-08'
     $models = Get-AiCliProperty $Profile 'models'
     if ($null -ne $models) {
         foreach ($field in @('primary','small','candidates','reserved')) {
             foreach ($modelId in @((Get-AiCliProperty $models $field)) | Where-Object { $_ }) {
+                if ($allowExactQwen37 -and [string]$modelId -ceq $exactQwen37Model) { continue }
                 Assert-AiCliModelIsActive -ModelId ([string]$modelId) -Context $Context
             }
         }
@@ -73,10 +102,12 @@ function Assert-AiCliProfileDoesNotUseRetiredModel {
     $metadata = Get-AiCliProperty $Profile 'modelMetadata'
     if ($metadata -is [System.Collections.IDictionary]) {
         foreach ($modelId in $metadata.Keys) {
+            if ($allowExactQwen37 -and [string]$modelId -ceq $exactQwen37Model) { continue }
             Assert-AiCliModelIsActive -ModelId ([string]$modelId) -Context $Context
         }
     } elseif ($null -ne $metadata) {
         foreach ($property in $metadata.PSObject.Properties) {
+            if ($allowExactQwen37 -and [string]$property.Name -ceq $exactQwen37Model) { continue }
             Assert-AiCliModelIsActive -ModelId ([string]$property.Name) -Context $Context
         }
     }

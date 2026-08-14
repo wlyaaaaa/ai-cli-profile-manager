@@ -1,6 +1,6 @@
 # Codex、Claude Code 与 Open Interpreter CLI 中文手册
 
-适用版本：AI CLI Profile Manager `0.3.5`（source/install/runtime/live 分层验收）
+适用版本：AI CLI Profile Manager `0.3.6`（source/install/runtime/live 分层验收）
 用途：帮助中文用户直接使用原生 Codex CLI、Claude Code 和当前官方 Rust Open Interpreter。
 
 > aicli 只负责选择 Profile 并启动原生 CLI。本手册保留上游英文命令，便于复制和搜索。上游版本会变化；某条命令不在当前 CLI 的 `/help` 或斜杠菜单中时，以当前官方界面为准。
@@ -59,7 +59,7 @@ aicli start codex-official -- --model gpt-5.6-sol
 
 DeepSeek Codex 使用两个 exact Profile：`codex-deepseek` 固定 API alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，`codex-deepseek-v4-pro` 固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`。两者都是 Responses、1M context、默认用户档 `max`，且不接受模型、Provider 或 fallback 覆盖。AICLI 用 DPAPI 保存 Key，受管配置只写 `env_key`；不要照抄官方示例里的明文 `experimental_bearer_token`。
 
-Qwen3.8 Max 使用独立 `codex-qwen3-8-max-paygo`：精确 `qwen3.8-max`、Workspace 按量 Responses、983616 context、95% 有效窗口、262144 token 自动压缩阈值。用户档 `max` 映射为模型原生最高 `xhigh`；计划和回执同时显示 requested/effective。它拒绝 preview、通用 DashScope 与 Token Plan。Qwen3.7 Max/Plus 的所有模型身份、Profile、目录和导入入口均已永久退役；旧 ID 与 native model/fallback 参数会失败关闭，绝不重路由到 Qwen3.8。
+Qwen 使用两个隔离 exact Codex Profile：`codex-qwen3-7-max-paygo` 固定 `qwen3.7-max-2026-06-08`，`codex-qwen3-8-max-paygo` 固定 `qwen3.8-max`。两者均为北京 Workspace 按量 Responses、983616 context、95% 有效窗口、262144 token 自动压缩阈值，用户 `max` 映射原生最高 `xhigh`。通用 alias、其他快照、preview、Plus、通用 DashScope、Token Plan 与 native model/fallback 参数继续失败关闭。
 
 ### 2.2 权限、沙箱和计划模式
 

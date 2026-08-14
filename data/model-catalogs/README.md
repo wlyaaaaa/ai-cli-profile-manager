@@ -21,7 +21,13 @@
 - Workspace 按量 Profile 不包含 preview、Token Plan 或其他候选；
 - 基础指令与 `model_messages` 复用同一发布版 `deepseek-v4-flash.json` 中的通用 Codex 0.146 指令，避免阿里云最小示例的空 `base_instructions` 覆盖 Codex Agent 行为；其余能力与限制由生成器白名单逐项声明，不随 DeepSeek 目录静默漂移。
 
-所有 Qwen3.7 Max/Plus 云入口与目录均已退役；旧用户 Profile 或原生 `--model` 参数会失败关闭，不会自动改投 Qwen3.8 或其他模型。
+`qwen3.7-max-2026-06-08-codex.json` 由同一生成器的 `-CatalogKind qwen37max0608` 确定性生成，只服务 `codex-qwen3-7-max-paygo`：
+
+- 精确 slug `qwen3.7-max-2026-06-08`；供应商 Responses 列表与模型发布页确认该 06-08 快照，北京 Workspace 按量接入；
+- 983616 输入窗口、95% 有效窗口、262144 自动压缩阈值，用户 `max` 映射原生最高 `xhigh`；
+- 目录为单模型，不包含通用 alias、05-20、preview、Plus 或 Token Plan 候选。
+
+除上述 06-08 exact Codex Profile 外，Qwen3.7 Max/Plus 云入口与目录继续退役；旧用户 Profile 或原生 `--model` 参数会失败关闭，不会自动改投新入口、Qwen3.8 或其他模型。
 
 `qwen-main-v1-codex.json` 由同一生成器的 `-CatalogKind local` 模式生成，只包含本机 LocalGpuBroker 登记的 `qwen-main-v1`：
 

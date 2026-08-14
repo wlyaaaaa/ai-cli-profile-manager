@@ -56,6 +56,7 @@ Describe 'CommandRouter' {
         $code | Should -Be 0
         $profiles = @((($writer.ToString() | ConvertFrom-Json).profiles))
         foreach ($expected in @(
+            @{ id = 'codex-qwen3-7-max-paygo'; model = 'qwen3.7-max-2026-06-08'; requested = 'max'; effective = 'xhigh' },
             @{ id = 'codex-qwen3-8-max-paygo'; model = 'qwen3.8-max'; requested = 'max'; effective = 'xhigh' },
             @{ id = 'codex-deepseek'; model = 'deepseek-v4-flash'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; requested = 'max'; effective = 'max' },
@@ -77,6 +78,7 @@ Describe 'CommandRouter' {
         } 6>&1 | Out-String)
 
         $text | Should -Match '状态'
+        $text | Should -Match 'codex-qwen3-7-max-paygo.*max→xhigh.*不可用'
         $text | Should -Match 'codex-qwen3-8-max-paygo.*max→xhigh.*不可用'
         $text | Should -Match 'codex-deepseek-v4-pro.*max.*不可用'
     }
@@ -86,6 +88,7 @@ Describe 'CommandRouter' {
             Invoke-AiCli -Tokens @('help') -DataRoot $script:DataRoot | Out-Null
         } 6>&1 | Out-String)
         foreach ($id in @(
+            'codex-qwen3-7-max-paygo',
             'codex-qwen3-8-max-paygo',
             'codex-deepseek',
             'codex-deepseek-v4-pro',

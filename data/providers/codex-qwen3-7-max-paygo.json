@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-qwen3-7-max-paygo",
+  "displayName": "Codex + Qwen3.7 Max 06-08（百炼 Workspace 按量）",
+  "engine": "codex",
+  "provider": "qwen",
+  "plan": "paygo",
+  "region": "cn-beijing",
+  "transport": "responses",
+  "endpoint": null,
+  "workspaceBaseUrlRequired": true,
+  "codexProviderId": "aicli_qwen37_max_0608_paygo",
+  "codexModelCatalog": "qwen3.7-max-2026-06-08-codex.json",
+  "codexAutoCompactTokenLimit": 262144,
+  "codexAutoCompactTokenLimitScope": "total",
+  "requiresSecret": true,
+  "virtualReady": false,
+  "auth": {
+    "type": "api-key",
+    "envKey": "AICLI_CODEX_PROVIDER_KEY"
+  },
+  "models": {
+    "primary": "qwen3.7-max-2026-06-08",
+    "small": "qwen3.7-max-2026-06-08",
+    "candidates": [
+      "qwen3.7-max-2026-06-08"
+    ]
+  },
+  "defaultEffort": "max",
+  "effortLevels": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ],
+  "effortMap": {
+    "high": "xhigh",
+    "max": "xhigh"
+  },
+  "flexible": false,
+  "capabilities": {
+    "tools": true,
+    "contextStats": true,
+    "images": true,
+    "streaming": true,
+    "effort": true
+  },
+  "compatibility": {
+    "minCliVersion": "0.144.0",
+    "modelVersion": "qwen3.7-max-2026-06-08",
+    "apiStatus": "available"
+  },
+  "dataDestination": "阿里云百炼北京 Workspace 按量 Responses API",
+  "notes": "仅恢复精确快照 qwen3.7-max-2026-06-08；其他 Qwen3.7 云入口与历史 Profile ID 继续退役。用户档位 max 映射为原生最高档 xhigh。",
+  "sources": [
+    "https://help.aliyun.com/zh/model-studio/newly-released-models",
+    "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses",
+    "https://www.alibabacloud.com/help/en/model-studio/deep-thinking"
+  ]
+}

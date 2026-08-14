@@ -12,6 +12,7 @@ Describe 'Exact third-party Codex Profiles' {
         $ids = @(InModuleScope AiCliProfileManager { Get-AiCliBuiltinTemplateIds })
 
         foreach ($id in @(
+            'codex-qwen3-7-max-paygo',
             'codex-qwen3-8-max-paygo',
             'codex-deepseek',
             'codex-deepseek-v4-pro',
@@ -32,7 +33,7 @@ Describe 'Exact third-party Codex Profiles' {
             })
         }
 
-        @($profiles).Count | Should -Be 5
+        @($profiles).Count | Should -Be 6
         foreach ($manifest in @($profiles)) {
             $manifest.transport | Should -Be 'responses' -Because $manifest.id
             $manifest.flexible | Should -BeFalse -Because $manifest.id
@@ -42,6 +43,47 @@ Describe 'Exact third-party Codex Profiles' {
             $manifest.defaultEffort | Should -Be 'max' -Because $manifest.id
             @($manifest.effortLevels) | Should -Contain 'max' -Because $manifest.id
         }
+    }
+
+    It 'seals Qwen3.7 Max 06-08 to one paygo Responses snapshot and maps user max to native xhigh' {
+        $manifest = InModuleScope AiCliProfileManager {
+            Get-AiCliProviderManifest -Id 'codex-qwen3-7-max-paygo'
+        }
+
+        $manifest.engine | Should -Be 'codex'
+        $manifest.provider | Should -Be 'qwen'
+        $manifest.plan | Should -Be 'paygo'
+        $manifest.region | Should -Be 'cn-beijing'
+        $manifest.transport | Should -Be 'responses'
+        $manifest.endpoint | Should -BeNullOrEmpty
+        $manifest.workspaceBaseUrlRequired | Should -BeTrue
+        $manifest.codexProviderId | Should -Be 'aicli_qwen37_max_0608_paygo'
+        $manifest.codexModelCatalog | Should -Be 'qwen3.7-max-2026-06-08-codex.json'
+        $manifest.models.primary | Should -Be 'qwen3.7-max-2026-06-08'
+        $manifest.models.small | Should -Be 'qwen3.7-max-2026-06-08'
+        @($manifest.models.candidates) | Should -Be @('qwen3.7-max-2026-06-08')
+        @($manifest.models.reserved) | Should -BeNullOrEmpty
+        $manifest.flexible | Should -BeFalse
+        $manifest.defaultEffort | Should -Be 'max'
+        @($manifest.effortLevels) | Should -Be @('low', 'medium', 'high', 'xhigh', 'max')
+        $manifest.effortMap.max | Should -Be 'xhigh'
+        $manifest.effortMap.high | Should -Be 'xhigh'
+        $manifest.compatibility.modelVersion | Should -Be 'qwen3.7-max-2026-06-08'
+        ($manifest | ConvertTo-Json -Depth 30) | Should -Not -Match '(?i)preview|token[- ]?plan|2026-05-20|qwen3\.7-plus'
+
+        $catalog = Get-Content -LiteralPath (
+            Join-Path $script:ExactProfileRepoRoot 'data\model-catalogs\qwen3.7-max-2026-06-08-codex.json'
+        ) -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100
+        @($catalog.models).Count | Should -Be 1
+        $model = $catalog.models[0]
+        $model.slug | Should -Be 'qwen3.7-max-2026-06-08'
+        $model.context_window | Should -Be 983616
+        $model.max_context_window | Should -Be 983616
+        $model.effective_context_window_percent | Should -Be 95
+        $model.auto_compact_token_limit | Should -Be 262144
+        $model.default_reasoning_level | Should -Be 'xhigh'
+        @($model.supported_reasoning_levels.effort) | Should -Be @('low', 'medium', 'xhigh')
+        @($model.input_modalities) | Should -Be @('text', 'image')
     }
 
     It 'seals Qwen3.8 Max to the paygo Responses route and maps user max to native xhigh' {
@@ -151,6 +193,7 @@ Describe 'Exact third-party Codex Profiles' {
     It 'rejects native model and fallback overrides for every exact Profile' {
         InModuleScope AiCliProfileManager {
             foreach ($profileId in @(
+                'codex-qwen3-7-max-paygo',
                 'codex-qwen3-8-max-paygo',
                 'codex-deepseek',
                 'codex-deepseek-v4-pro',
@@ -176,12 +219,17 @@ Describe 'Exact third-party Codex Profiles' {
     It 'keeps max as the user-visible effort while producing the effective native effort' {
         InModuleScope AiCliProfileManager {
             $qwen = Get-AiCliProviderManifest -Id 'codex-qwen3-8-max-paygo'
+            $qwen37 = Get-AiCliProviderManifest -Id 'codex-qwen3-7-max-paygo'
             $deepSeek = Get-AiCliProviderManifest -Id 'codex-deepseek'
             $local = Get-AiCliProviderManifest -Id 'codex-ollama-main'
 
             Resolve-AiCliCodexEffort -MergedProfile $qwen -NativeArgs @() |
                 Should -Be 'max'
             Resolve-AiCliCodexEffectiveEffort -MergedProfile $qwen -RequestedEffort 'max' |
+                Should -Be 'xhigh'
+            Resolve-AiCliCodexEffort -MergedProfile $qwen37 -NativeArgs @() |
+                Should -Be 'max'
+            Resolve-AiCliCodexEffectiveEffort -MergedProfile $qwen37 -RequestedEffort 'max' |
                 Should -Be 'xhigh'
             Resolve-AiCliCodexEffectiveEffort -MergedProfile $deepSeek -RequestedEffort 'max' |
                 Should -Be 'max'
@@ -222,6 +270,7 @@ Describe 'Exact third-party Codex Profiles' {
             }
 
             $expectedProfiles = @(
+                'codex-qwen3-7-max-paygo',
                 'codex-qwen3-8-max-paygo',
                 'codex-deepseek',
                 'codex-deepseek-v4-pro',
@@ -279,6 +328,56 @@ Describe 'Exact third-party Codex Profiles' {
             $plan.argumentList | Should -Contain 'model_providers.aicli_qwen38_max_paygo.env_key="AICLI_CODEX_PROVIDER_KEY"'
             $plan.environmentDelta.AICLI_CODEX_PROVIDER_KEY | Should -Be 'test-secret-never-serialize'
             ($plan.argumentList -join "`n") | Should -Not -Match 'test-secret-never-serialize|opaque-secret-ref'
+        }
+    }
+
+    It 'builds the Qwen3.7 Max 06-08 launch plan with exact model, Responses and effective xhigh' {
+        $profile = InModuleScope AiCliProfileManager {
+            Get-AiCliProviderManifest -Id 'codex-qwen3-7-max-paygo'
+        }
+        $profile = $profile | ConvertTo-Json -Depth 50 | ConvertFrom-Json -AsHashtable
+        $profile.endpoint = 'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
+        $profile.secretConfigured = $true
+        $profile.secretRef = 'opaque-qwen37-secret-ref'
+
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Profile = $profile } {
+            $script:qwen37Toml = $null
+            Mock Resolve-AiCliCodexLaunchExecutable {
+                [pscustomobject]@{ FileName = 'C:\fake\codex.exe'; PrefixArgs = @(); Kind = 'test' }
+            }
+            Mock Get-AiCliResolvedCliVersionEvidence {
+                [pscustomobject]@{ Version = 'codex-cli 0.147.0'; FileName = 'C:\fake\codex.exe' }
+            }
+            Mock Write-AiCliCodexManagedProfile {
+                $script:qwen37Toml = [string]$TomlBody
+                [pscustomobject]@{
+                    CliProfileName = 'aicli-codex-qwen3-7-max-paygo'
+                    FilePath = (Join-Path $Work 'qwen37.config.toml')
+                    ContentHash = ('0' * 64)
+                }
+            }
+            Mock Publish-AiCliCodexModelCatalog {
+                Join-Path $Work 'qwen3.7-max-2026-06-08-codex.json'
+            }
+            Mock Get-AiCliSecret { 'qwen37-secret-canary-never-serialize' }
+
+            $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work
+
+            $plan.model | Should -BeExactly 'qwen3.7-max-2026-06-08'
+            $plan.modelProvider | Should -BeExactly 'aicli_qwen37_max_0608_paygo'
+            $plan.wire | Should -BeExactly 'responses'
+            $plan.effort | Should -BeExactly 'max'
+            $plan.effectiveEffort | Should -BeExactly 'xhigh'
+            $plan.argumentList | Should -Contain 'model="qwen3.7-max-2026-06-08"'
+            $plan.argumentList | Should -Contain 'model_reasoning_effort="xhigh"'
+            $plan.argumentList | Should -Contain 'model_providers.aicli_qwen37_max_0608_paygo.wire_api="responses"'
+            $plan.argumentList | Should -Contain 'model_providers.aicli_qwen37_max_0608_paygo.env_key="AICLI_CODEX_PROVIDER_KEY"'
+            $plan.environmentDelta.AICLI_CODEX_PROVIDER_KEY | Should -BeExactly 'qwen37-secret-canary-never-serialize'
+            $script:qwen37Toml | Should -Match '(?m)^model = "qwen3\.7-max-2026-06-08"$'
+            $script:qwen37Toml | Should -Match '(?m)^model_provider = "aicli_qwen37_max_0608_paygo"$'
+            $script:qwen37Toml | Should -Match '(?m)^model_reasoning_effort = "xhigh"$'
+            (($plan.argumentList -join "`n") + "`n" + $script:qwen37Toml) |
+                Should -Not -Match 'qwen37-secret-canary-never-serialize|opaque-qwen37-secret-ref'
         }
     }
 

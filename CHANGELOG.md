@@ -2,6 +2,20 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
+## [0.3.6] - 2026-08-14
+
+### 新增
+
+- 新增唯一 Qwen3.7 Max Codex 入口 `codex-qwen3-7-max-paygo`，精确固定 `qwen3.7-max-2026-06-08`、北京百炼 Workspace 按量 Responses、单候选、无 fallback、983616/95% 窗口与 262144 自动压缩阈值。
+- 用户可继续选择统一 `max`，启动计划、受管 TOML 与回执按供应商当前最高档发出 effective `xhigh`；SecretRef 只经 `AICLI_CODEX_PROVIDER_KEY` 注入。
+- 同一北京 Workspace endpoint 可通过 `--reuse-secret-from codex-qwen3-8-max-paygo` 复用既有不透明 SecretRef；endpoint 不同即失败关闭，不读取或复制秘密值。
+
+### 安全与兼容
+
+- `qwen3.7-max` 通用 alias、05-20、preview、Qwen3.7 Plus、旧 Profile ID、Claude/OI/导入路线与 native model/fallback 绕过继续退役。06-08 只允许经新 exact Profile 进入。
+- 升级退役迁移能识别并保留新 exact 用户 Profile、受管 Codex TOML/state 与仍被引用的内容寻址目录，同时继续隔离可验证的旧入口。
+- source/static/install/runtime/live 继续分层；旧 0.3.5 回执不能证明 0.3.6 Live。
+
 ## [0.3.5] - 2026-08-13
 
 ### 新增

@@ -14,8 +14,8 @@
 - 这是原生 Codex CLI / Claude Code 的 Profile、启动、代理运维、Doctor、自检和中文手册层；不做 GUI、TUI、PTY 外壳、自研 Agent、会话历史或协议转换器。
 - 不汉化或修改上游 CLI 本体；原生终端交互、上下文和会话由上游负责。AICLI 的 Codex harness 对所有当前和未来模型统一固定原生 `danger-full-access`，不得按 Profile/Provider 降权或静默改写；交互式 `start` 仍由上游 Codex 权限界面负责。
 - AICLI 的 Codex harness 对所有当前和未来模型默认注册受管 `public_web_search` dynamic tool，不维护模型 allowlist；只允许固定 HTTPS RSS provider、拒绝重定向/任意 endpoint/Header/凭据，公开事件不得包含 query/result。必须保留显式 `--no-web-search`，但关闭搜索不得改变 `danger-full-access` 权限。
-- Codex 公开第三方路径只接受上游已明确支持的 Responses Provider。Qwen 云端只开放 exact `qwen3.8-max` Workspace paygo；Qwen3.7 Max/Plus 全部入口与目录永久退役。DeepSeek 只开放 exact `deepseek-v4-flash` / `DeepSeek-V4-Flash-0731` 与 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813` 两个隔离 Profile，禁止其他 V4 alias/version/reserved/fallback。不得把 Chat Completions 端点伪装成 Codex Responses。
-- Claude Code 与 Open Interpreter 的公开 DeepSeek 模板只保留 `deepseek-v4-flash`；旧 Pro 验收记录不得跨当前 Profile 指纹复用。任何旧 Qwen3.7 用户 Profile、模型参数或生成物都必须失败关闭，不得自动迁移到 Qwen3.8。
+- Codex 公开第三方路径只接受上游已明确支持的 Responses Provider。Qwen 云端只开放两个隔离 exact Workspace paygo Profile：`codex-qwen3-7-max-paygo` → `qwen3.7-max-2026-06-08` 与 `codex-qwen3-8-max-paygo` → `qwen3.8-max`。Qwen3.7 的通用 alias、05-20、preview、Plus、旧 Profile ID 与 native model/fallback 绕过继续退役；06-08 只能经新 exact Profile 进入。DeepSeek 只开放 exact `deepseek-v4-flash` / `DeepSeek-V4-Flash-0731` 与 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813` 两个隔离 Profile，禁止其他 V4 alias/version/reserved/fallback。不得把 Chat Completions 端点伪装成 Codex Responses。
+- Claude Code 与 Open Interpreter 的公开 DeepSeek 模板只保留 `deepseek-v4-flash`；旧 Pro 验收记录不得跨当前 Profile 指纹复用。任何旧 Qwen3.7 用户 Profile、非 06-08 模型参数或生成物都必须失败关闭，不得自动迁移到新 Profile 或 Qwen3.8。
 - 原生 ChatGPT/Codex 与官方 Claude Profile 是连续性基准，不附加第三方模型目录或压缩策略。第三方 Claude/OpenCode 只按最终有效模型的受管元数据修正真实窗口；未知第三方 Claude 模型不猜容量，并清除继承的窗口、提前压缩与禁压缩变量。不得关闭溢出保护。文档和帮助必须提醒 AI：有损压缩前先落盘状态，压缩后重读项目规则、当前 Skill 与 diff。
 - 未完成当期 Windows 11 真实验证的 Provider 不得标成 `可用`。
 

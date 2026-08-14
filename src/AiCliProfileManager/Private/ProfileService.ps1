@@ -414,7 +414,8 @@ function Resolve-AiCliReusableSecretRef {
         [Parameter(Mandatory)][string]$ProfileId,
         $ExistingProfile,
         [switch]$ReuseExistingSecret,
-        [string]$ReuseSecretFrom
+        [string]$ReuseSecretFrom,
+        [AllowNull()][string]$TargetEndpoint
     )
 
     if ($ReuseExistingSecret -and $ReuseSecretFrom) {
@@ -428,8 +429,12 @@ function Resolve-AiCliReusableSecretRef {
     }
 
     $getCredentialDomain = {
-        param($Profile)
-        $endpoint = [string](Get-AiCliProperty $Profile 'endpoint')
+        param($Profile, [AllowNull()][string]$EndpointOverride, [bool]$UseEndpointOverride)
+        $endpoint = if ($UseEndpointOverride) {
+            [string]$EndpointOverride
+        } else {
+            [string](Get-AiCliProperty $Profile 'endpoint')
+        }
         $hostName = ''
         if (-not [string]::IsNullOrWhiteSpace($endpoint)) {
             try { $hostName = ([Uri]$endpoint).DnsSafeHost.ToLowerInvariant() } catch {}
@@ -441,7 +446,8 @@ function Resolve-AiCliReusableSecretRef {
             ([string](Get-AiCliProperty $Profile 'region')).ToLowerInvariant(),
             $hostName)
     }
-    $targetDomain = & $getCredentialDomain $Template
+    $useTargetEndpointOverride = $PSBoundParameters.ContainsKey('TargetEndpoint')
+    $targetDomain = & $getCredentialDomain $Template $TargetEndpoint $useTargetEndpointOverride
     $secretRef = $null
     if ($ReuseExistingSecret) {
         if ($null -eq $ExistingProfile) {
@@ -452,7 +458,7 @@ function Resolve-AiCliReusableSecretRef {
             throw "Profile $ProfileId 缺少可验证的模板身份，拒绝复用 SecretRef。"
         }
         $existingTemplate = Get-AiCliProviderManifest -Id $existingTemplateId
-        if ((& $getCredentialDomain $existingTemplate) -cne $targetDomain) {
+        if ((& $getCredentialDomain $existingTemplate $null $false) -cne $targetDomain) {
             throw "Profile $ProfileId 的原 Provider/认证域与目标不一致，拒绝复用 SecretRef。"
         }
         $secretRef = [string](Get-AiCliProperty $ExistingProfile 'secretRef')
@@ -466,7 +472,7 @@ function Resolve-AiCliReusableSecretRef {
             throw "来源用户 Profile 不存在: $sourceId"
         }
         $source = Get-AiCliResolvedProfile -Id $sourceId
-        if ((& $getCredentialDomain $source) -cne $targetDomain) {
+        if ((& $getCredentialDomain $source $null $false) -cne $targetDomain) {
             throw "来源 Profile $sourceId 与目标 Provider/认证域不兼容，拒绝复用 SecretRef。"
         }
         if (-not [bool](Get-AiCliProperty $source 'secretConfigured' $false)) {
@@ -599,7 +605,8 @@ function Invoke-AiCliProfileConfigure {
         -ProfileId $id `
         -ExistingProfile $existing `
         -ReuseExistingSecret:$ReuseExistingSecret `
-        -ReuseSecretFrom $ReuseSecretFrom
+        -ReuseSecretFrom $ReuseSecretFrom `
+        -TargetEndpoint ([string]$endpoint)
     $oldSecretRef = if ($existing) { Get-AiCliProperty $existing 'secretRef' } else { $null }
     $createdNewSecret = $false
     if ($secretRef) {

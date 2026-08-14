@@ -19,6 +19,7 @@ $task | aicli run codex-ollama-main `
 | Profile | 智能体 | 端点/模型 |
 | --- | --- | --- |
 | `codex-spark-xhigh` | Codex CLI（官方登录） | OpenAI / `gpt-5.3-codex-spark` / 默认 `xhigh` |
+| `codex-qwen3-7-max-paygo` | Codex CLI（百炼 Workspace） | Responses / `qwen3.7-max-2026-06-08` / requested `max` → effective `xhigh` |
 | `codex-qwen3-8-max-paygo` | Codex CLI（百炼 Workspace） | Responses / `qwen3.8-max` / requested `max` → effective `xhigh` |
 | `codex-deepseek` | Codex CLI | Responses / `deepseek-v4-flash` / Flash 0731 / 1M / `max` |
 | `codex-deepseek-v4-pro` | Codex CLI | Responses / `deepseek-v4-pro` / Pro 0813 / 1M / `max` |
@@ -34,8 +35,8 @@ $task | aicli run codex-ollama-main `
 - `approvalPolicy=never` 表示 harness 不等待权限弹窗；它不会缩小 `danger-full-access`，也不能被描述成沙箱或只读隔离。调用方应只传可信工作区与任务，并对可能产生的全部本机副作用负责。
 - 所有当前和未来 Codex harness 默认在 `thread/start.dynamicTools` 注册受管函数 `public_web_search`；无需按模型逐项登记。它只访问固定的 `https://cn.bing.com/search` RSS，拒绝重定向、Cookie、模型指定 URL/Header/Key，并将结果标为不可信公共文本。Windows 系统代理仅用于固定 HTTPS 出口且不带默认凭据。显式 `--no-web-search` 可关闭本次 run；不会改变 `danger-full-access` 权限。
 - 运行时身份是独立硬门：app-server 的 `thread/start` 结果必须提供 exact actual model、modelProvider、CLI version、`activePermissionProfile=:danger-full-access` 与 `sandbox.type=dangerFullAccess`；公开回执同时必须证明 `requested_policy=danger-full-access`。缺失、错配或随后收到 `model/rerouted` 时整次 run 失败。
-- `codex-deepseek` 与 `codex-deepseek-v4-pro` 分别只允许 Flash 0731 / Pro 0813 官方 alias；Qwen3.8 Max 只允许自己的 Workspace paygo route。Key 由 DPAPI 解封后仅以 `env_key` 对应环境变量注入目标 Codex 子进程，不进入参数或模型目录。
-- Qwen3.7 Max/Plus 的 Cloud Agent route、Profile、目录和导入入口均已退役；旧身份记录不能用于比较，也不能通过 native model/fallback 参数恢复。
+- `codex-deepseek` 与 `codex-deepseek-v4-pro` 分别只允许 Flash 0731 / Pro 0813 官方 alias；Qwen3.7 Max 06-08 与 Qwen3.8 Max 各自只允许自己的 Workspace paygo route。Key 由 DPAPI 解封后仅以 `env_key` 对应环境变量注入目标 Codex 子进程，不进入参数或模型目录。
+- 除 `codex-qwen3-7-max-paygo` → exact 06-08 外，Qwen3.7 Max/Plus 的 Cloud Agent route、Profile、目录和导入入口均已退役；旧身份记录不能通过 native model/fallback 参数恢复。
 - 本地 Ollama 的 Codex harness 同样使用全访问；LocalGpuBroker 的 lease/capability 绑定仍负责证明请求确实命中 exact 本地模型，但不再被表述为文件系统权限沙箱。
 - machine child 的父环境从 Windows、PowerShell、Node/TLS 运行所需的 allowlist 重建，不继承完整父环境或调试变量。受管运行计划仍可通过 `EnvironmentDelta` 显式注入目标 Profile 必需的 Provider/运行时变量，因此调用方不得把无关变量放入该显式增量。
 - 官方云端 Codex machine run 同时忽略用户配置和规则。一次性 `CODEX_HOME` 只复制现有 `auth.json`，不需要付费 API Key；不会复制 `config.toml`、rules、skills、sessions 或 history，运行后清理。
@@ -58,7 +59,7 @@ $task | aicli run codex-ollama-main `
 - 其他 CLI 只有在自身回执能证明相同硬边界时才可被上层当作有限预算 runner；`upstream` 或 `not-enforced` 不能冒充 `hard`。
 - CLI 更新不应直接等同于受管 machine runtime 晋升。应先校验包内可执行文件与资源闭包、版本/协议、actual identity、全访问权限对象和少量 smoke，再按当前版本与 Profile 指纹重新验收。
 
-`0.3.5` 是当前源码与安装目标，包含 exact Qwen3.8/DeepSeek/local Codex Profile、MAX 映射、统一 `danger-full-access`、actual identity/no-reroute 和环境隔离。源代码验收必须明确使用仓库入口并在回执中保留来源；正式安装/晋升前，不得把 source 结果宣称为 installed 或 runtime current。
+`0.3.6` 是当前源码与安装目标，包含 exact Qwen3.7 06-08/Qwen3.8/DeepSeek/local Codex Profile、MAX 映射、统一 `danger-full-access`、actual identity/no-reroute 和环境隔离。源代码验收必须明确使用仓库入口并在回执中保留来源；正式安装/晋升前，不得把 source 结果宣称为 installed 或 runtime current。
 
 2026-07-29 的 Spark 源代码入口真实任务证明工作区写权限已生效；但 `code_repair` 在硬上限 `maxSteps=80` 下到达 `81/80` 并终止，确定性得分为 `2/9`。这属于模型/Agent 能力验收不通过，不是权限链仍然只读，也不应通过重复复测改变结论。
 

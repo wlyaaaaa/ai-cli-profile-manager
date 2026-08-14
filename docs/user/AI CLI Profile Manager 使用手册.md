@@ -1,6 +1,6 @@
 # AI CLI Profile Manager 使用手册
 
-适用版本：`0.3.5`（源码与安装目标；发布、安装和 Live 证据须分别核对）
+适用版本：`0.3.6`（源码与安装目标；发布、安装和 Live 证据须分别核对）
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
@@ -19,7 +19,7 @@ AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter �
 
 ### 1.2 安装本工具
 
-`0.3.5` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
+`0.3.6` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
 
 ```powershell
 $version = '<从 Releases 页面选择的已发布版本>'
@@ -61,7 +61,7 @@ pwsh -File .\scripts\Install.ps1 -Force
 2. 创建 `%LOCALAPPDATA%\aicli\bin\aicli.cmd` 与 `aicli.ps1` 垫片，并尝试加入用户 `PATH`。
 3. 尝试在当前用户 PowerShell 7 配置中加入模块自动导入块。
 4. 先验证临时候选版本，再替换目标版本；失败时恢复原版本。
-5. 升级到 `0.3.5` 时，先预检再隔离可证明由 AICLI 管理的 Qwen3.7 旧入口。
+5. 升级到 `0.3.6` 时，先预检再隔离可证明由 AICLI 管理的 Qwen3.7 旧入口，同时保留新 06-08 exact Profile。
 
 退役迁移不会把 Qwen3.7 自动改投 Qwen3.8，也不读取、复制、移动或删除 SecretRef/密钥。身份、marker、body/state 哈希与内容寻址都闭合的旧用户 Profile、Codex TOML/catalog 和旧模块版本会移入可恢复目录 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。任何未知、用户改写或 reparse 项都会在任何安装变更前失败关闭；先审计该路径，不要盲目删除。
 
@@ -122,6 +122,8 @@ aicli start claude-official --project "D:\项目\演示"
 cd E:\你的项目
 # 例：cd C:\Work\my-project
 
+aicli start codex-qwen3-7-max-paygo --project (Get-Location)
+# 或 Qwen3.8 Max
 aicli start codex-qwen3-8-max-paygo --project (Get-Location)
 # 或 DeepSeek V4 Flash 0731 / Pro 0813
 aicli start codex-deepseek --project (Get-Location)
@@ -131,7 +133,7 @@ aicli start codex-deepseek-v4-pro --project (Get-Location)
 说明：
 
 - `--project` 必须是已经确认可信的工作区；Profile 自己封闭 Provider、模型、Responses wire、MAX 与 SecretRef。
-- Qwen3.7 Max/Plus 的模型身份、Profile、目录、导入和兼容入口已经永久退役，不能通过原生 `--model` 或 fallback 参数恢复。
+- Qwen3.7 只恢复 `codex-qwen3-7-max-paygo` → `qwen3.7-max-2026-06-08`；通用 alias、其他快照、Plus、旧 Profile、导入和原生 `--model` / fallback 仍失败关闭。
 - DeepSeek Codex 只保留下列两个 exact 身份：
 
 | 模型身份 | Profile |
@@ -198,6 +200,7 @@ aicli profile remove qwen-work
 | 引擎 | 场景 | Profile |
 |------|------|---------|
 | Codex | ChatGPT/OpenAI 官方登录 | `codex-official` |
+| Codex | Qwen3.7 Max 06-08 Workspace 按量 Responses | `codex-qwen3-7-max-paygo` |
 | Codex | Qwen3.8 Max Workspace 按量 Responses | `codex-qwen3-8-max-paygo` |
 | Codex | DeepSeek V4 Flash 0731 / Pro 0813 Responses | `codex-deepseek`、`codex-deepseek-v4-pro` |
 | Codex | 本机精确 main / review | `codex-ollama-main`、`codex-ollama-review` |
@@ -211,7 +214,7 @@ aicli profile remove qwen-work
 
 `codex-deepseek` 精确固定 API alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，`codex-deepseek-v4-pro` 精确固定 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`。两者均使用官方 [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 的 Responses wire、1M context、`low` / `high` / `max`，用户默认 `max`，并拒绝模型、Provider 与 fallback 覆盖。动态变化以 [DeepSeek Change Log](https://api-docs.deepseek.com/updates/) 为准；非 Codex 的 Claude Code / Open Interpreter DeepSeek 模板仍保持 Flash-only。
 
-`codex-qwen3-8-max-paygo` 只接受北京百炼 Workspace 按量 Responses endpoint，精确模型 `qwen3.8-max`、983616 context、95% 有效窗口和 262144 token 自动压缩阈值；不接 preview、通用 DashScope 或 Token Plan。用户选择 `max` 时，AICLI 保留 requested=`max`，并按官方映射发出 effective=`xhigh`。Qwen3.7 Max/Plus 全家族及其原有 Codex、Claude Code、Open Interpreter 入口已永久退役；旧用户 Profile 会失败关闭，不会重路由到 Qwen3.8。
+两个 Qwen exact Profile 都只接受北京百炼 Workspace 按量 Responses endpoint，并固定 983616 context、95% 有效窗口和 262144 token 自动压缩阈值。`codex-qwen3-7-max-paygo` 只固定 `qwen3.7-max-2026-06-08`；`codex-qwen3-8-max-paygo` 只固定 `qwen3.8-max`。用户 `max` 均映射 effective=`xhigh`。Qwen3.7 的通用 alias、其他快照、preview、Plus、原有 Codex/Claude/OI 入口与模型覆盖继续失败关闭。
 
 Claude Code `2.1.193+` 的 DeepSeek Profile 按最终 `--model` 精确注入 1000000 token 模型窗口。AICLI 不设置会提前压缩的 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`，也不默认禁用自动/手动压缩；未知或自定义模型不猜测。
 
@@ -228,9 +231,10 @@ aicli doctor codex-ollama
 
 ### 3.3 配置第三方 API
 
-以 Qwen3.8 Max 与 DeepSeek 为例：
+以 Qwen3.7/3.8 Max 与 DeepSeek 为例：
 
 ```powershell
+aicli profile configure codex-qwen3-7-max-paygo --reuse-secret-from codex-qwen3-8-max-paygo
 aicli profile configure codex-qwen3-8-max-paygo
 aicli profile configure codex-deepseek
 aicli profile configure codex-deepseek-v4-pro --reuse-secret-from codex-deepseek
@@ -474,7 +478,7 @@ aicli update guide self
 
 `update check` 和 `update guide` 只检查来源、版本并打印同渠道指引，不静默升级 Codex、Claude Code、Ollama 或本工具。识别来源后，应继续使用原安装渠道，避免 npm、WinGet 和原生安装器互相覆盖。
 
-从任何旧 AICLI 版本升级到 `0.3.5` 时，应使用同一发行包内的 `scripts\Install.ps1`；该安装器会完成 Qwen3.7 可验证遗留入口的可恢复隔离。如果预检报告未知或篡改项，安装在写入新版本前中止；请先备份并人工审计，不要绕过门禁。
+从任何旧 AICLI 版本升级到 `0.3.6` 时，应使用同一发行包内的 `scripts\Install.ps1`；该安装器会完成旧 Qwen3.7 可验证遗留入口的可恢复隔离，并保留新 06-08 exact Profile。如果预检报告未知或篡改项，安装在写入新版本前中止；请先备份并人工审计，不要绕过门禁。
 
 Open Interpreter Rust 可按上游支持使用：
 
@@ -620,11 +624,14 @@ aicli native claude-official
 
 Doctor 只报告冲突文件和字段名，不展示值。不要让 aicli 自动改写你的上游设置文件。
 
-### Qwen3.8 或已退役 Qwen3.7 Profile 错误
+### Qwen3.7/3.8 exact 或旧 Qwen3.7 Profile 错误
 
-Qwen3.8 只使用独立 Workspace 按量入口；Qwen3.7 Max/Plus 不再提供任何入口：
+06-08 与 Qwen3.8 各自只使用独立 Workspace 按量入口；其他 Qwen3.7 Max/Plus 身份不提供入口：
 
 ```powershell
+aicli profile show codex-qwen3-7-max-paygo
+aicli profile configure codex-qwen3-7-max-paygo --reuse-secret-from codex-qwen3-8-max-paygo
+aicli doctor codex-qwen3-7-max-paygo
 aicli profile show codex-qwen3-8-max-paygo
 aicli profile configure codex-qwen3-8-max-paygo
 aicli doctor codex-qwen3-8-max-paygo

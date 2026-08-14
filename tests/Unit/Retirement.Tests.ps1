@@ -8,23 +8,46 @@ BeforeAll {
 }
 
 Describe 'Retired provider identities' {
-    It 'removes every Qwen3.7 Max and Plus cloud entry from manifests and catalogs' {
-        $retiredPattern = 'qwen3\.7-(?:max|plus)'
-        foreach ($relativeRoot in @('data\providers', 'data\model-catalogs')) {
-            Get-ChildItem -LiteralPath (Join-Path $script:RetirementRepoRoot $relativeRoot) -Filter '*.json' -File |
-                ForEach-Object {
-                    (Get-Content -LiteralPath $_.FullName -Raw -Encoding utf8) |
-                        Should -Not -Match $retiredPattern -Because $_.Name
-                }
+    It 'restores only the exact Qwen3.7 Max 06-08 Codex entry while old routes and Plus remain absent' {
+        $manifest = InModuleScope AiCliProfileManager {
+            Get-AiCliProviderManifest -Id 'codex-qwen3-7-max-paygo'
         }
+        $manifest.models.primary | Should -Be 'qwen3.7-max-2026-06-08'
+        $manifest.flexible | Should -BeFalse
 
         foreach ($id in @(
             'codex-qwen-paygo', 'codex-qwen-token-plan',
+            'codex-qwen3-7-plus-paygo',
             'claude-qwen-paygo', 'claude-qwen-token-plan',
             'claude-qwen-coding-plan', 'oi-qwen-paygo'
         )) {
             Test-Path -LiteralPath (Join-Path $script:RetirementRepoRoot "data\providers\$id.json") |
                 Should -BeFalse -Because $id
+        }
+    }
+
+    It 'allows 06-08 only through the new exact template and rejects the same model in stale profiles' {
+        InModuleScope AiCliProfileManager {
+            $exact = Get-AiCliProviderManifest -Id 'codex-qwen3-7-max-paygo'
+            { Assert-AiCliProfileDoesNotUseRetiredModel -Profile $exact } | Should -Not -Throw
+
+            foreach ($profile in @(
+                [ordered]@{
+                    id = 'legacy-qwen37'; templateId = 'claude-custom'
+                    models = [ordered]@{ primary = 'qwen3.7-max-2026-06-08' }
+                },
+                [ordered]@{
+                    id = 'codex-qwen3-7-max-paygo'; templateId = 'claude-custom'
+                    models = [ordered]@{ primary = 'qwen3.7-max-2026-06-08' }
+                },
+                [ordered]@{
+                    id = 'codex-qwen3-7-max-paygo'; templateId = 'codex-qwen3-7-max-paygo'
+                    models = [ordered]@{ primary = 'qwen3.7-max-2026-05-20' }
+                }
+            )) {
+                { Assert-AiCliProfileDoesNotUseRetiredModel -Profile $profile } |
+                    Should -Throw '*已退役*Qwen3.7*'
+            }
         }
     }
 
@@ -34,6 +57,7 @@ Describe 'Retired provider identities' {
             'claude-ollama-main',
             'codex-ollama-main',
             'codex-ollama-review',
+            'codex-qwen3-7-max-paygo',
             'codex-qwen3-8-max-paygo',
             'opencode-ollama-main',
             'qwen-code-ollama-main'
@@ -236,6 +260,84 @@ Describe 'Retired provider identities' {
         }
     }
 
+    It 'shares a Qwen Workspace SecretRef only when the exact target uses the same endpoint' {
+        InModuleScope AiCliProfileManager {
+            $workspaceEndpoint = 'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
+            Mock Get-AiCliUserProfile {
+                [ordered]@{
+                    id = 'codex-qwen3-8-max-paygo'
+                    templateId = 'codex-qwen3-8-max-paygo'
+                    secretRef = 'opaque-qwen-workspace-secret-ref'
+                }
+            }
+            Mock Get-AiCliResolvedProfile {
+                [ordered]@{
+                    provider = 'qwen'; plan = 'paygo'; region = 'cn-beijing'
+                    endpoint = 'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
+                    auth = [ordered]@{ type = 'api-key' }
+                    secretConfigured = $true
+                }
+            }
+            Mock Test-AiCliSecretExists { $true }
+            $template = Get-AiCliProviderManifest -Id 'codex-qwen3-7-max-paygo'
+
+            Resolve-AiCliReusableSecretRef -Template $template `
+                -ProfileId 'codex-qwen3-7-max-paygo' `
+                -TargetEndpoint $workspaceEndpoint `
+                -ReuseSecretFrom 'codex-qwen3-8-max-paygo' |
+                Should -Be 'opaque-qwen-workspace-secret-ref'
+
+            {
+                Resolve-AiCliReusableSecretRef -Template $template `
+                    -ProfileId 'codex-qwen3-7-max-paygo' `
+                    -TargetEndpoint 'https://ws-other.cn-beijing.maas.aliyuncs.com/compatible-mode/v1' `
+                    -ReuseSecretFrom 'codex-qwen3-8-max-paygo'
+            } | Should -Throw '*认证域*拒绝复用*'
+        }
+    }
+
+    It 'configures the new exact Qwen Profile by reusing the matching Workspace SecretRef without plaintext access' {
+        InModuleScope AiCliProfileManager {
+            $script:savedQwen37 = $null
+            Mock Get-AiCliUserProfile {
+                if ($Id -eq 'codex-qwen3-8-max-paygo') {
+                    return [ordered]@{
+                        id = $Id; templateId = $Id
+                        secretRef = 'opaque-qwen-workspace-secret-ref'
+                    }
+                }
+                return $null
+            }
+            Mock Get-AiCliResolvedProfile {
+                [ordered]@{
+                    provider = 'qwen'; plan = 'paygo'; region = 'cn-beijing'
+                    endpoint = 'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
+                    auth = [ordered]@{ type = 'api-key' }
+                    secretConfigured = $true
+                }
+            }
+            Mock Read-Host { 'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1' }
+            Mock Test-AiCliSecretExists { $true }
+            Mock Save-AiCliUserProfile { $script:savedQwen37 = $Profile }
+            Mock Read-AiCliSecret { throw 'must not read plaintext during reuse' }
+            Mock New-AiCliSecret { throw 'must not create a secret during reuse' }
+            Mock Write-AiCliInfo {}
+            Mock Write-AiCliWarn {}
+            Mock Write-AiCliSuccess {}
+
+            Invoke-AiCliProfileConfigure -TemplateId 'codex-qwen3-7-max-paygo' `
+                -ReuseSecretFrom 'codex-qwen3-8-max-paygo' | Out-Null
+
+            $script:savedQwen37.id | Should -Be 'codex-qwen3-7-max-paygo'
+            $script:savedQwen37.templateId | Should -Be 'codex-qwen3-7-max-paygo'
+            $script:savedQwen37.models.primary | Should -Be 'qwen3.7-max-2026-06-08'
+            $script:savedQwen37.endpoint | Should -Be 'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
+            $script:savedQwen37.secretRef | Should -Be 'opaque-qwen-workspace-secret-ref'
+            Should -Invoke Read-AiCliSecret -Times 0 -Exactly
+            Should -Invoke New-AiCliSecret -Times 0 -Exactly
+        }
+    }
+
     It 'never deletes a shared DeepSeek SecretRef when saving the target Profile fails' {
         InModuleScope AiCliProfileManager {
             Mock Get-AiCliUserProfile {
@@ -364,6 +466,83 @@ Describe 'Qwen3.7 upgrade retirement migration' {
                 Catalog = $catalog; Profile = Join-Path $profiles 'codex-qwen-paygo.json'
             }
         }
+    }
+
+    It 'preserves the reintroduced exact 06-08 Profile, managed TOML, state and catalog' {
+        $root = Join-Path $TestDrive 'migration-active-exact'
+        $roaming = Join-Path $root 'roaming'
+        $local = Join-Path $root 'local'
+        $codexHome = Join-Path $root 'codex'
+        $profiles = Join-Path $roaming 'profiles'
+        $stateDir = Join-Path $local 'state'
+        $catalogRoot = Join-Path $codexHome 'aicli-model-catalogs'
+        foreach ($directory in @($profiles, $stateDir, $catalogRoot)) {
+            New-Item -ItemType Directory -Force -Path $directory | Out-Null
+        }
+
+        $profileId = 'codex-qwen3-7-max-paygo'
+        $safeId = 'aicli-codex-qwen3-7-max-paygo'
+        $model = 'qwen3.7-max-2026-06-08'
+        $profilePath = Join-Path $profiles "$profileId.json"
+        [ordered]@{
+            schemaVersion = 1; id = $profileId; templateId = $profileId
+            region = 'cn-beijing'; plan = 'paygo'
+            endpoint = 'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
+            models = [ordered]@{ primary = $model; small = $model; candidates = @($model) }
+            secretRef = 'opaque-secret-ref'
+        } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $profilePath -Encoding utf8
+
+        $catalogBytes = [Text.UTF8Encoding]::new($false).GetBytes(
+            ('{"models":[{"slug":"' + $model + '"}]}')
+        )
+        $catalogHash = Get-TestSha256Hex -Bytes $catalogBytes
+        $catalogName = "qwen3.7-max-2026-06-08-codex-$($catalogHash.Substring(0,12)).json"
+        $catalogPath = Join-Path $catalogRoot $catalogName
+        [IO.File]::WriteAllBytes($catalogPath, $catalogBytes)
+
+        $body = @(
+            "model = `"$model`""
+            'model_provider = "aicli_qwen37_max_0608_paygo"'
+            "model_catalog_json = `"$($catalogPath.Replace('\','\\'))`""
+            ''
+        ) -join "`n"
+        $bodyHash = Get-TestSha256Hex -Bytes ([Text.Encoding]::UTF8.GetBytes($body))
+        $tomlPath = Join-Path $codexHome "$safeId.config.toml"
+        $managed = @(
+            '# aicli-managed=true'
+            "# aicli-profile-id=$safeId"
+            "# aicli-content-hash=$bodyHash"
+            '# aicli-do-not-edit-unless-you-accept-unmanaged'
+            $body
+        ) -join "`n"
+        [IO.File]::WriteAllText($tomlPath, $managed, [Text.UTF8Encoding]::new($false))
+        $statePath = Join-Path $stateDir 'codex-managed-profiles.json'
+        [ordered]@{
+            $safeId = [ordered]@{
+                profileId = $profileId; fileName = "$safeId.config.toml"
+                fullPath = $tomlPath; contentHash = $bodyHash
+            }
+        } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding utf8
+        [ordered]@{
+            schemaVersion = 1; defaultProfileId = $profileId; lastProfileId = $profileId
+            projectBookmarks = @(); proxyPorts = [ordered]@{}; verification = [ordered]@{}
+        } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (
+            Join-Path $roaming 'settings.json'
+        ) -Encoding utf8
+
+        $result = & (Join-Path $script:RetirementRepoRoot 'scripts\Invoke-AiCliRetirementMigration.ps1') `
+            -RoamingRoot $roaming -LocalRoot $local -CodexHome $codexHome `
+            -CurrentVersion '0.3.6' -FailOnBlocked
+
+        $result.status | Should -Be 'complete'
+        $result.planned | Should -Be 0
+        foreach ($path in @($profilePath, $tomlPath, $statePath, $catalogPath)) {
+            Test-Path -LiteralPath $path | Should -BeTrue -Because $path
+        }
+        (Get-Content -LiteralPath (Join-Path $roaming 'settings.json') -Raw | ConvertFrom-Json).defaultProfileId |
+            Should -Be $profileId
+        @(Get-ChildItem -LiteralPath (Join-Path $local 'retirement\qwen37-v1') -File -Recurse).Count |
+            Should -Be 0
     }
 
     It 'quarantines verified legacy entrances while preserving SecretRef data and is idempotent' {

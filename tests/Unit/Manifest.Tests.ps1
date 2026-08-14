@@ -95,13 +95,37 @@ Describe 'Manifest' {
         $all['opencode-ollama-main'].modelMetadata.'qwen-main-v1'.compactionReserveTokens | Should -Be 20000
     }
 
-    It 'contains no runnable Qwen3.7 Max or Plus manifest or catalog' {
-        foreach ($relative in @('data\providers','data\model-catalogs')) {
-            foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root $relative) -Filter '*.json' -File) {
-                (Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8) |
-                    Should -Not -Match 'qwen3\.7-(?:max|plus)' -Because $file.Name
-            }
+    It 'publishes only the exact Qwen3.7 Max 06-08 Codex snapshot and keeps every legacy route absent' {
+        $all = Import-AiCliProviderManifests
+        $all.Contains('codex-qwen3-7-max-paygo') | Should -BeTrue
+        $all['codex-qwen3-7-max-paygo'].models.primary | Should -Be 'qwen3.7-max-2026-06-08'
+        foreach ($id in @(
+            'codex-qwen-paygo', 'codex-qwen-token-plan', 'codex-qwen3-7-plus-paygo',
+            'claude-qwen-paygo', 'claude-qwen-token-plan', 'claude-qwen-coding-plan',
+            'oi-qwen-paygo'
+        )) {
+            $all.Contains($id) | Should -BeFalse -Because $id
         }
+
+        $allQwen37Text = @(
+            Get-ChildItem -LiteralPath (Join-Path $root 'data\providers') -Filter '*.json' -File
+            Get-ChildItem -LiteralPath (Join-Path $root 'data\model-catalogs') -Filter '*.json' -File
+        ) | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -Encoding utf8 }
+        ($allQwen37Text -join "`n") | Should -Not -Match 'qwen3\.7-plus|qwen3\.7-max-preview|qwen3\.7-max-2026-05-20'
+        ([regex]::Matches(($allQwen37Text -join "`n"), 'qwen3\.7-max-2026-06-08')).Count |
+            Should -BeGreaterThan 0
+    }
+
+    It 'rebuilds the exact Qwen3.7 Max 06-08 catalog deterministically' {
+        $generated = Join-Path $TestDrive 'qwen3.7-max-2026-06-08-codex.json'
+        & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') `
+            -CatalogKind qwen37max0608 -OutputCatalog $generated | Out-Null
+
+        $checkedIn = Join-Path $root 'data\model-catalogs\qwen3.7-max-2026-06-08-codex.json'
+        Assert-CanonicalCatalogBytes -Path $generated
+        Assert-CanonicalCatalogBytes -Path $checkedIn
+        (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath $checkedIn -Algorithm SHA256).Hash
     }
 
     It 'rebuilds the exact Qwen3.8 Max catalog deterministically' {
