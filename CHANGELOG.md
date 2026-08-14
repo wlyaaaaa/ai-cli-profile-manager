@@ -9,6 +9,7 @@
 - 新增唯一 Qwen3.7 Max Codex 入口 `codex-qwen3-7-max-paygo`，精确固定 `qwen3.7-max-2026-06-08`、北京百炼 Workspace 按量 Responses、单候选、无 fallback、983616/95% 窗口与 262144 自动压缩阈值。
 - 用户可继续选择统一 `max`，启动计划、受管 TOML 与回执按供应商当前最高档发出 effective `xhigh`；SecretRef 只经 `AICLI_CODEX_PROVIDER_KEY` 注入。
 - 同一北京 Workspace endpoint 可通过 `--reuse-secret-from codex-qwen3-8-max-paygo` 复用既有不透明 SecretRef；endpoint 不同即失败关闭，不读取或复制秘密值。
+- 新增 clean commit 专用的 `Install-ExactCodexProfileFast.ps1`：只跑 exact Profile 聚焦门禁、发行 smoke、原子安装和固定入口回读；PDF/ZIP、全量回归与付费 Live 留在正式发布车道。Qwen Workspace 同域复用还会盲复用 endpoint，不再重复询问 Workspace URL。
 
 ### 安全与兼容
 

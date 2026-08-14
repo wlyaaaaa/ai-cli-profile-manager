@@ -120,9 +120,12 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 以下命令只适用于完整源码仓库；面向普通用户的 Release ZIP 不包含测试与构建脚本。
 
 ```powershell
+pwsh -File .\scripts\Install-ExactCodexProfileFast.ps1 -ProfileId codex-qwen3-7-max-paygo
 pwsh -File .\scripts\Test-Release.ps1
 pwsh -File .\scripts\Build.ps1
 ```
+
+`Install-ExactCodexProfileFast.ps1` 是 clean commit 的本机快速启用车道：它只运行 Manifest、exact identity、退役门禁、one-command 与 SecretRef/安全聚焦测试，加发行 smoke 后调用现有原子安装器，并回读 `list/show`；不重建 PDF/ZIP、不运行付费 Live。正式公开发布仍需随后完成全量回归、文档/发行物和独立验收。
 
 贡献规则见 [CONTRIBUTING.md](https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/CONTRIBUTING.md)，版本变化见 [CHANGELOG.md](CHANGELOG.md)。维护者设计与实施史见 [项目设计与实施归档](https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/docs/maintainer/%E9%A1%B9%E7%9B%AE%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E6%96%BD%E5%BD%92%E6%A1%A3.md)。
 

@@ -333,6 +333,7 @@ Describe 'Retired provider identities' {
             $script:savedQwen37.models.primary | Should -Be 'qwen3.7-max-2026-06-08'
             $script:savedQwen37.endpoint | Should -Be 'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
             $script:savedQwen37.secretRef | Should -Be 'opaque-qwen-workspace-secret-ref'
+            Should -Invoke Read-Host -Times 0 -Exactly
             Should -Invoke Read-AiCliSecret -Times 0 -Exactly
             Should -Invoke New-AiCliSecret -Times 0 -Exactly
         }

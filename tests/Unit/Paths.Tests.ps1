@@ -109,3 +109,44 @@ Write-Host "keep-after"
         }
     }
 }
+
+Describe 'Exact Codex Profile fast installer' {
+    BeforeAll {
+        $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+        $script:FastInstallerPath = Join-Path $root 'scripts\Install-ExactCodexProfileFast.ps1'
+        $script:FastInstallerText = Get-Content -LiteralPath $script:FastInstallerPath -Raw
+    }
+
+    It 'is valid PowerShell and keeps the fast lane separate from release artifact and Live work' {
+        $tokens = $null
+        $errors = $null
+        [void][Management.Automation.Language.Parser]::ParseFile(
+            $script:FastInstallerPath,
+            [ref]$tokens,
+            [ref]$errors
+        )
+        @($errors).Count | Should -Be 0
+        $script:FastInstallerText | Should -Not -Match 'Build-Pdfs|Build\.ps1|--live'
+        $script:FastInstallerText | Should -Match "liveAcceptance = 'not-run-by-fast-installer'"
+    }
+
+    It 'requires clean immutable source and the focused exact-profile safety gates before atomic install' {
+        $script:FastInstallerText | Should -Match 'status --porcelain=v1'
+        foreach ($testName in @(
+            'Manifest.Tests.ps1',
+            'ExactCodexProfiles.Tests.ps1',
+            'Retirement.Tests.ps1',
+            'CommandRouter.Tests.ps1',
+            'SecurityRegression.Tests.ps1'
+        )) {
+            $script:FastInstallerText | Should -Match ([regex]::Escape($testName))
+        }
+        $script:FastInstallerText | Should -Match 'scripts\\Test-Release.ps1'
+        $script:FastInstallerText | Should -Match 'scripts\\Install.ps1'
+        $script:FastInstallerText | Should -Match 'pwsh -NoLogo -NoProfile -EncodedCommand'
+        $script:FastInstallerText | Should -Match 'AICLI_FAST_PESTER_RESULT='
+        $script:FastInstallerText | Should -Match '\*>\&1'
+        $script:FastInstallerText | Should -Match 'profile list --available --json'
+        $script:FastInstallerText | Should -Match 'profile show \$ProfileId --json'
+    }
+}

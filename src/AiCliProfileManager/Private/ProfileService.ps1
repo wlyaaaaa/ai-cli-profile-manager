@@ -566,8 +566,19 @@ function Invoke-AiCliProfileConfigure {
             $models = [ordered]@{ primary = $model; small = $model }
         }
     } elseif ([bool](Get-AiCliProperty $template 'workspaceBaseUrlRequired' $false)) {
-        $enteredEndpoint = Read-Host '百炼 Workspace Responses Base URL（北京控制台模型页 Responses API 示例中的 base_url）'
-        $endpoint = Resolve-AiCliQwenWorkspaceResponsesEndpoint -Endpoint $enteredEndpoint
+        if ($ReuseSecretFrom) {
+            $reuseSource = Get-AiCliResolvedProfile -Id $ReuseSecretFrom
+            $endpoint = Resolve-AiCliQwenWorkspaceResponsesEndpoint `
+                -Endpoint ([string](Get-AiCliProperty $reuseSource 'endpoint'))
+            Write-AiCliInfo '将复用来源 Profile 的同域 Workspace Endpoint；不会回显 Workspace 标识。'
+        } elseif ($ReuseExistingSecret -and $existing) {
+            $endpoint = Resolve-AiCliQwenWorkspaceResponsesEndpoint `
+                -Endpoint ([string](Get-AiCliProperty $existing 'endpoint'))
+            Write-AiCliInfo '将保留当前 Profile 的同域 Workspace Endpoint；不会回显 Workspace 标识。'
+        } else {
+            $enteredEndpoint = Read-Host '百炼 Workspace Responses Base URL（北京控制台模型页 Responses API 示例中的 base_url）'
+            $endpoint = Resolve-AiCliQwenWorkspaceResponsesEndpoint -Endpoint $enteredEndpoint
+        }
     } elseif ([bool](Get-AiCliProperty $template 'flexible' $true) -and
         (Get-AiCliProperty $template 'provider') -eq 'qwen' -and
         (Get-AiCliProperty $template 'plan') -eq 'paygo') {
