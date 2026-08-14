@@ -1280,14 +1280,20 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         }
     }
 
-    It 'accepts multiple superseded Codex 0.145 public messages before a completed final' {
+    It 'accepts multiple superseded Codex <CliVersion> public messages before a completed final' -ForEach @(
+        @{ CliVersion = '0.145.0' }
+        @{ CliVersion = '0.147.0' }
+        @{ CliVersion = '99.0.0' }
+    ) {
         InModuleScope AiCliProfileManager -Parameters @{
             Work = $TestDrive
             RepoRoot = $root
+            CliVersion = $CliVersion
         } {
-            $fakeServer = Join-Path $Work 'fake-superseded-message-app-server.ps1'
-            $bridgeConfig = Join-Path $Work 'superseded-message-app-server-bridge.json'
-            $eventFile = Join-Path $Work 'superseded-message-events.jsonl'
+            $versionTag = $CliVersion.Replace('.', '-')
+            $fakeServer = Join-Path $Work "fake-superseded-message-$versionTag-app-server.ps1"
+            $bridgeConfig = Join-Path $Work "superseded-message-$versionTag-app-server-bridge.json"
+            $eventFile = Join-Path $Work "superseded-message-$versionTag-events.jsonl"
             @'
 $utf8 = [Text.UTF8Encoding]::new($false)
 [Console]::InputEncoding = $utf8
@@ -1300,7 +1306,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         }
         'initialized' {}
         'thread/start' {
-            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.145.0"}}}')
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"__CLI_VERSION__"}}}')
         }
         'turn/start' {
             [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
@@ -1340,7 +1346,8 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
     }
     [Console]::Out.Flush()
 }
-'@ | Set-Content -LiteralPath $fakeServer -Encoding utf8
+'@.Replace('__CLI_VERSION__', $CliVersion) |
+                Set-Content -LiteralPath $fakeServer -Encoding utf8
             $config = [ordered]@{
                 fileName = (Get-Command pwsh.exe).Source
                 argumentList = @('-NoProfile', '-File', $fakeServer)
@@ -1398,15 +1405,6 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
     }
 
     It 'rejects unsafe agent-message supersession for <CaseName>' -ForEach @(
-        @{
-            CaseName = 'a future Codex version'
-            CliVersion = '0.146.0'
-            NotificationLines = @(
-                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-orphan","type":"agentMessage","text":""}}}',
-                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-final","type":"agentMessage","text":""}}}',
-                '{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-final","type":"agentMessage","text":"FINAL_PUBLIC"}}}'
-            )
-        }
         @{
             CaseName = 'a missing later final message'
             CliVersion = '0.145.0'

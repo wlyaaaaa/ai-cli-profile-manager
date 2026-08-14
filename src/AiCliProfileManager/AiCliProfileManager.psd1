@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AiCliProfileManager.psm1'
-    ModuleVersion     = '0.3.6'
+    ModuleVersion     = '0.3.7'
     GUID              = 'a1c11c11-0a11-4c11-b111-a1c110110011'
     Author            = 'AI CLI Profile Manager Contributors'
     CompanyName       = 'Independent'
@@ -16,7 +16,7 @@
             Tags         = @('Codex', 'Claude', 'QwenCode', 'OpenCode', 'OpenInterpreter', 'Ollama', 'Qwen', 'DeepSeek', 'CLI', 'Windows', 'Profile', 'Sandbox')
             LicenseUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager'
-            ReleaseNotes = '0.3.6：新增隔离 exact codex-qwen3-7-max-paygo → qwen3.7-max-2026-06-08；旧 Qwen3.7 alias/Plus/Profile 继续退役；Responses、max→xhigh、SecretRef 与 no-fallback 封闭。'
+            ReleaseNotes = '0.3.7：Codex app-server 终态兼容改为安全生命周期形态判定；0.145、0.147 及后续同结构版本可闭合较早的 agentMessage，其他未完成 item 继续失败关闭。'
         }
     }
 }

@@ -5,7 +5,7 @@ param(
     [string]$LocalRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'AiCliProfileManager'),
     [string]$CodexHome = (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.codex'),
     [string]$ModuleRoot,
-    [version]$CurrentVersion = '0.3.6',
+    [version]$CurrentVersion = '0.3.7',
     [switch]$PreflightOnly,
     [switch]$FailOnBlocked
 )

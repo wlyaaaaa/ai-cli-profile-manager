@@ -416,12 +416,6 @@ function Test-BridgeVersionAtLeast {
     }
 }
 
-function Test-BridgeCodex145Compatibility {
-    param([string]$CliVersion)
-
-    return $CliVersion -match '^0\.145\.\d+(?:[-+][0-9A-Za-z.-]+)?$'
-}
-
 function ConvertTo-BridgeItemType {
     param([Parameter(Mandatory)][string]$ItemType)
 
@@ -1008,11 +1002,13 @@ function Handle-BridgeNotification {
                     $script:ItemStates.GetEnumerator() |
                         Where-Object { [string]$_.Value['state'] -ne 'completed' }
                 )
-                # Codex 0.145 can leave each earlier public progress message in
-                # `started` while still completing a later, non-empty final
-                # agentMessage. Accept only that observed output-only pattern.
-                # A future version, any non-message item, a message started
-                # after the final, or a missing final remains a hard failure.
+                # Codex 0.145 and 0.147 can leave each earlier public progress
+                # message in `started` while still completing a later,
+                # non-empty final agentMessage. Compatibility is deliberately
+                # bound to that lifecycle shape instead of a CLI version
+                # allowlist, so schema-compatible later versions keep working.
+                # Any non-message item, a message started after the final, or a
+                # missing final remains a hard failure.
                 $nonMessageUnfinished = @(
                     $unfinishedItems |
                         Where-Object {
@@ -1021,8 +1017,7 @@ function Handle-BridgeNotification {
                 )
                 if (
                     $unfinishedItems.Count -gt 0 -and
-                    $nonMessageUnfinished.Count -eq 0 -and
-                    (Test-BridgeCodex145Compatibility -CliVersion $script:CliVersion)
+                    $nonMessageUnfinished.Count -eq 0
                 ) {
                     $completedFinalMessages = @(
                         $script:ItemStates.GetEnumerator() |
@@ -1458,7 +1453,7 @@ try {
             clientInfo = [ordered]@{
                 name = 'ai-cli-profile-manager'
                 title = 'AI CLI Profile Manager'
-                version = '0.3.6'
+                version = '0.3.7'
             }
             capabilities = [ordered]@{
                 # Codex 0.145 materializes the :workspace profile only when

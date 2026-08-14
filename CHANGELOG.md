@@ -2,6 +2,14 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
+## [0.3.7] - 2026-08-14
+
+### 修复
+
+- 修复本地 Qwen 经 Codex app-server 已完成推理、工具和最终输出后，仍因较早公开 `agentMessage` 保持 `started` 而报 `codex_appserver.item_unfinished` / exit 74 的终态兼容问题。
+- supersession 兼容由 CLI 版本白名单改为严格的生命周期形态判定：只有全部未完成项都是早于同轮次后续、已完成且有非空正文 final 的 `agentMessage` 时才闭合；非消息项、无 final、final 之后的新消息或结构漂移仍失败关闭。该合同已锁定 Codex 0.145、0.147 和模拟高版本，后续保持同一事件结构的版本无需追加版本号。
+- exact Profile、Provider、Responses wire、最高 effort、`:danger-full-access`、actual identity、SecretRef 与 no-fallback 合同不变。
+
 ## [0.3.6] - 2026-08-14
 
 ### 新增
