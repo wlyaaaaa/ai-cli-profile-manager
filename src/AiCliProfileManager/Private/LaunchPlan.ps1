@@ -84,7 +84,12 @@ function Build-AiCliLaunchPlan {
         'opencode' { Build-AiCliOpenCodeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs; break }
         default { throw "未知引擎: $engine" }
     }
-    Assert-AiCliModelIsActive -ModelId ([string](Get-AiCliProperty $plan 'model')) -Context '最终启动计划'
+    $planModel = [string](Get-AiCliProperty $plan 'model')
+    $allowExactQwen37 = (Test-AiCliQwen37Max0608ExactProfile -Profile $merged) -and
+        $planModel -ceq 'qwen3.7-max-2026-06-08'
+    if (-not $allowExactQwen37) {
+        Assert-AiCliModelIsActive -ModelId $planModel -Context '最终启动计划'
+    }
     return (Apply-AiCliContextManagementPolicy -Plan $plan -MergedProfile $merged)
 }
 

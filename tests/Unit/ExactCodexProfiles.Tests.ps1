@@ -381,6 +381,33 @@ Describe 'Exact third-party Codex Profiles' {
         }
     }
 
+    It 'admits the exact Qwen3.7 Max 06-08 identity through the final launch-plan retirement gate' {
+        $profile = InModuleScope AiCliProfileManager {
+            Get-AiCliProviderManifest -Id 'codex-qwen3-7-max-paygo'
+        }
+        $profile = $profile | ConvertTo-Json -Depth 50 | ConvertFrom-Json -AsHashtable
+        $profile.configured = $true
+
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Profile = $profile } {
+            Mock Get-AiCliResolvedProfile { $Profile }
+            Mock Resolve-AiCliProjectPath { $Work }
+            Mock Build-AiCliCodexLaunchPlan {
+                [pscustomobject]@{
+                    engine = 'codex'
+                    model = 'qwen3.7-max-2026-06-08'
+                    modelProvider = 'aicli_qwen37_max_0608_paygo'
+                    argumentList = @()
+                }
+            }
+            Mock Apply-AiCliContextManagementPolicy { $Plan }
+
+            $plan = Build-AiCliLaunchPlan -ProfileId 'codex-qwen3-7-max-paygo' `
+                -ProjectPath $Work
+
+            $plan.model | Should -BeExactly 'qwen3.7-max-2026-06-08'
+        }
+    }
+
     It 'closes both DeepSeek Codex Profiles over exact identity, Responses and max in argv and managed TOML' {
         $expected = @(
             [ordered]@{
