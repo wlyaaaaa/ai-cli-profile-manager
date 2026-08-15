@@ -265,7 +265,7 @@ Describe 'Recoverable Codex runs' {
                         localGpuBrokerSession=[ordered]@{
                             schema='aicli.local-gpu-broker-session-receipt.v1'
                             verified=$true
-                            broker_schema='pcconfig.local-gpu-broker.ollama-session.v1'
+                            broker_schema='pcconfig.local-gpu-broker.***REDACTED***-session.v1'
                             broker_instance_id=('c'*32)
                             lease_id='PRIVATE_LEASE_MUST_NOT_PERSIST'
                             binding_sha256=('sha256:'+$binding)
@@ -277,6 +277,20 @@ Describe 'Recoverable Codex runs' {
                             accepted_model_requests=1;completed_model_requests=1
                             request_chain_sha256=('sha256:'+('f'*64))
                             release_reason='normal';close_reason_requested='normal'
+                            renewed=$false
+                        }
+                        localGpuBrokerSessionSummary=[ordered]@{
+                            schema='aicli.recoverable-broker-summary.v1'
+                            verified=$true
+                            brokerSchema='pcconfig.local-gpu-broker.ollama-session.v1'
+                            brokerInstanceId=('c'*32)
+                            bindingSha256=('sha256:'+$binding)
+                            bindingObservationSha256=('sha256:'+('d'*64))
+                            state='released';activeRequests=0
+                            acceptedRequests=1;completedRequests=1
+                            acceptedModelRequests=1;completedModelRequests=1
+                            requestChainSha256=('sha256:'+('f'*64))
+                            releaseReason='normal';closeReasonRequested='normal'
                             renewed=$false
                         }
                     }

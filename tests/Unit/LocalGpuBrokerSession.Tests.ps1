@@ -904,7 +904,8 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
             Mock Initialize-AiCliMachineRuntime {
                 [pscustomobject]@{
                     RuntimePath = (Join-Path $Work '.runtime'); FileName = 'C:\fake\codex.exe'
-                    ArgumentList = @('exec','--json','-'); EnvironmentDelta = @{}
+                    ArgumentList = @('exec','--json','-')
+                    EnvironmentDelta = @{ AICLI_CODEX_PROVIDER_KEY = 'ollama' }
                     StdInText = 'TASK'; UseOuterSandbox = $false; EventProtocol = 'codex-jsonl'
                     AdditionalReadRoots = @(); PrivateTaskPipeName = $null
                 }
@@ -943,6 +944,9 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     broker_instance_id = '4' * 32; lease_id = '3' * 32
                     owner = 'aicli-machine-run'; owner_pid = [Environment]::ProcessId
                     binding_sha256 = 'sha256:' + ('5' * 64); state = 'released'
+                    binding_observation = [ordered]@{
+                        observation_sha256 = 'sha256:' + ('d' * 64)
+                    }
                     active_requests = 0; accepted_requests = 0; completed_requests = 0
                     accepted_model_requests = 0; completed_model_requests = 0
                     request_chain_sha256 = 'sha256:' + ('6' * 64)
@@ -959,6 +963,14 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                 'prelude', 'participant-start', 'close', 'tree-kill', 'terminal'
             )
             $result.localGpuBrokerSession.release_reason | Should -Be 'timeout'
+            $result.localGpuBrokerSession.broker_schema |
+                Should -Match '\*\*\*REDACTED\*\*\*'
+            $result.localGpuBrokerSessionSummary.schema |
+                Should -BeExactly 'aicli.recoverable-broker-summary.v1'
+            $result.localGpuBrokerSessionSummary.brokerSchema |
+                Should -BeExactly 'pcconfig.local-gpu-broker.ollama-session.v1'
+            $result.localGpuBrokerSessionSummary.state |
+                Should -BeExactly 'released'
             $result.budgetMode | Should -Be 'watchdog-only'
             Should -Invoke Invoke-AiCliChildCapture -Times 1 -Exactly `
                 -ParameterFilter {

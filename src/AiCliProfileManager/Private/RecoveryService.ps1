@@ -33,33 +33,52 @@ function ConvertTo-AiCliRecoverableBrokerReceiptSummary {
 
     if ($null -eq $Receipt) { return $null }
     $hashPattern = '\Asha256:[a-f0-9]{64}\z'
-    $bindingObservation = Get-AiCliProperty $Receipt 'binding_observation'
-    $brokerInstanceId = [string](Get-AiCliProperty $Receipt 'broker_instance_id')
-    $bindingSha256 = [string](Get-AiCliProperty $Receipt 'binding_sha256')
-    $observationSha256 = [string](Get-AiCliProperty `
-        $bindingObservation 'observation_sha256')
-    $requestChainSha256 = [string](Get-AiCliProperty `
-        $Receipt 'request_chain_sha256')
-    $releaseReason = [string](Get-AiCliProperty $Receipt 'release_reason')
-    $closeReason = [string](Get-AiCliProperty `
-        $Receipt 'close_reason_requested')
-    $countNames = @(
-        'active_requests','accepted_requests','completed_requests',
-        'accepted_model_requests','completed_model_requests'
-    )
+    $schema = [string](Get-AiCliProperty $Receipt 'schema')
+    $isSummary = $schema -ceq 'aicli.recoverable-broker-summary.v1'
+    $brokerSchema = [string](Get-AiCliProperty $Receipt $(
+        if ($isSummary) { 'brokerSchema' } else { 'broker_schema' }
+    ))
+    $brokerInstanceId = [string](Get-AiCliProperty $Receipt $(
+        if ($isSummary) { 'brokerInstanceId' } else { 'broker_instance_id' }
+    ))
+    $bindingSha256 = [string](Get-AiCliProperty $Receipt $(
+        if ($isSummary) { 'bindingSha256' } else { 'binding_sha256' }
+    ))
+    $observationSha256 = if ($isSummary) {
+        [string](Get-AiCliProperty $Receipt 'bindingObservationSha256')
+    } else {
+        [string](Get-AiCliProperty `
+            (Get-AiCliProperty $Receipt 'binding_observation') `
+            'observation_sha256')
+    }
+    $requestChainSha256 = [string](Get-AiCliProperty $Receipt $(
+        if ($isSummary) { 'requestChainSha256' } else { 'request_chain_sha256' }
+    ))
+    $releaseReason = [string](Get-AiCliProperty $Receipt $(
+        if ($isSummary) { 'releaseReason' } else { 'release_reason' }
+    ))
+    $closeReason = [string](Get-AiCliProperty $Receipt $(
+        if ($isSummary) { 'closeReasonRequested' } else { 'close_reason_requested' }
+    ))
+    $countNames = [ordered]@{
+        active_requests = $(if ($isSummary) { 'activeRequests' } else { 'active_requests' })
+        accepted_requests = $(if ($isSummary) { 'acceptedRequests' } else { 'accepted_requests' })
+        completed_requests = $(if ($isSummary) { 'completedRequests' } else { 'completed_requests' })
+        accepted_model_requests = $(if ($isSummary) { 'acceptedModelRequests' } else { 'accepted_model_requests' })
+        completed_model_requests = $(if ($isSummary) { 'completedModelRequests' } else { 'completed_model_requests' })
+    }
     $counts = [ordered]@{}
-    foreach ($name in $countNames) {
-        $value = Get-AiCliProperty $Receipt $name
+    foreach ($name in $countNames.Keys) {
+        $value = Get-AiCliProperty $Receipt $countNames[$name]
         if ($value -isnot [ValueType] -or [long]$value -lt 0) {
             throw 'Recoverable broker receipt count is invalid.'
         }
         $counts[$name] = [long]$value
     }
-    if ([string](Get-AiCliProperty $Receipt 'schema') -cne
-            'aicli.local-gpu-broker-session-receipt.v1' -or
+    if (($schema -cne 'aicli.local-gpu-broker-session-receipt.v1' -and
+            -not $isSummary) -or
         [bool](Get-AiCliProperty $Receipt 'verified' $false) -ne $true -or
-        [string](Get-AiCliProperty $Receipt 'broker_schema') -cne
-            'pcconfig.local-gpu-broker.ollama-session.v1' -or
+        $brokerSchema -cne 'pcconfig.local-gpu-broker.ollama-session.v1' -or
         $brokerInstanceId -notmatch '\A[a-f0-9]{32}\z' -or
         $bindingSha256 -notmatch $hashPattern -or
         $observationSha256 -notmatch $hashPattern -or
@@ -1424,8 +1443,14 @@ function Invoke-AiCliRecoverableRunCore {
         }
         $brokerSummary = $null
         try {
+            $brokerReceipt = Get-AiCliProperty `
+                $receipt 'localGpuBrokerSessionSummary'
+            if ($null -eq $brokerReceipt) {
+                $brokerReceipt = Get-AiCliProperty `
+                    $receipt 'localGpuBrokerSession'
+            }
             $brokerSummary = ConvertTo-AiCliRecoverableBrokerReceiptSummary `
-                -Receipt (Get-AiCliProperty $receipt 'localGpuBrokerSession')
+                -Receipt $brokerReceipt
         } catch {
             $state.status = 'failed_closed'
             $state.resume.supported = $false

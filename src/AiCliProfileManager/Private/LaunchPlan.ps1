@@ -418,6 +418,7 @@ function Invoke-AiCliProfileCapture {
     $requireRuntimeIdentity = $engine -eq 'codex'
     $verifiedPublicRuntimeIdentity = $null
     $verifiedRecoveryIds = $null
+    $verifiedPublicBrokerReceiptSummary = $null
     try {
         if ($null -ne $sessionConfiguration) {
             $localGpuBrokerSession = Open-AiCliLocalGpuBrokerSession `
@@ -838,6 +839,9 @@ function Invoke-AiCliProfileCapture {
                     }
                     $terminalBrokerReceipt = Complete-AiCliLocalGpuBrokerSession `
                         -Session $localGpuBrokerSession -Reason $closeReason
+                    $verifiedPublicBrokerReceiptSummary = `
+                        ConvertTo-AiCliRecoverableBrokerReceiptSummary `
+                            -Receipt $terminalBrokerReceipt
                     if ($receipt) {
                         $receipt | Add-Member `
                             -NotePropertyName localGpuBrokerSession `
@@ -891,6 +895,12 @@ function Invoke-AiCliProfileCapture {
             $receipt | Add-Member -NotePropertyName $publicField.Key `
                 -NotePropertyValue $publicField.Value -Force
         }
+    }
+    if ($verifiedPublicBrokerReceiptSummary) {
+        $receipt | Add-Member `
+            -NotePropertyName localGpuBrokerSessionSummary `
+            -NotePropertyValue ([pscustomobject]$verifiedPublicBrokerReceiptSummary) `
+            -Force
     }
     return $receipt
 }
