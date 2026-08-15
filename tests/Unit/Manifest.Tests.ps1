@@ -95,8 +95,9 @@ Describe 'Manifest' {
         $all['claude-ollama-main'].modelMetadata.'qwen-main-v1'.autoCompactWindowTokens | Should -Be 262144
         $all['opencode-ollama-main'].modelMetadata.'qwen-main-v1'.contextWindowTokens | Should -Be 262144
         $all['opencode-ollama-main'].modelMetadata.'qwen-main-v1'.compactionReserveTokens | Should -Be 20000
-        $all['opencode-ollama-qwen3-8-27b'].modelMetadata.'qwen3.8:27b'.contextWindowTokens | Should -Be 262144
-        $all['opencode-ollama-qwen3-8-27b'].modelMetadata.'qwen3.8:27b'.outputWindowTokens | Should -Be 32768
+        $runtimeTag = 'aicli-qwen3.8-27b-256k:2026-08-14'
+        $all['opencode-ollama-qwen3-8-27b'].modelMetadata.$runtimeTag.contextWindowTokens | Should -Be 262144
+        $all['opencode-ollama-qwen3-8-27b'].modelMetadata.$runtimeTag.outputWindowTokens | Should -Be 32768
     }
 
     It 'publishes only the exact Qwen3.7 Max 06-08 Codex snapshot and keeps every legacy route absent' {

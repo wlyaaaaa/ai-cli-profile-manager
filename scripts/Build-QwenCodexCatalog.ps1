@@ -19,10 +19,10 @@ if ([string]::IsNullOrWhiteSpace([string]$baseline.base_instructions) -or $null 
 if ($CatalogKind -in @('local', 'localQwen38_27b')) {
     $definitions = @(
         [ordered]@{
-            slug = $(if ($CatalogKind -eq 'localQwen38_27b') { 'qwen3.8:27b' } else { 'qwen-main-v1' })
+            slug = $(if ($CatalogKind -eq 'localQwen38_27b') { 'aicli-qwen3.8-27b-256k:2026-08-14' } else { 'qwen-main-v1' })
             display = $(if ($CatalogKind -eq 'localQwen38_27b') { 'Qwen3.8-27B Q4_K_M' } else { 'Local Qwen Main' })
             description = $(if ($CatalogKind -eq 'localQwen38_27b') {
-                'Exact local Qwen3.8-27B Responses model using the official Ollama qwen3.8:27b tag.'
+                'Exact local Qwen3.8-27B Responses model using the managed 256K runtime image over the official Ollama weights.'
             } else {
                 'AICLI managed local Qwen Responses model.'
             })

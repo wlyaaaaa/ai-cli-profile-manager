@@ -2,6 +2,14 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
+## [0.3.9] - 2026-08-15
+
+### 修复
+
+- Qwen3.8-27B 的 Codex/OpenCode Profile 改为同一个内容固定的本机运行标签 `aicli-qwen3.8-27b-256k:2026-08-14`；它复用官方 `qwen3.8:27b` Q4_K_M 模型/视觉权重，只增加 `num_ctx 262144` 参数层，避免目录写 256K、Ollama 实际却按 32K 加载。
+- 新增 `scripts/Setup-Qwen38-27B256K.ps1`：经 LocalGpuBroker 公共端点校验官方基础 digest、创建确定性 256K 镜像并回读参数/digest；可安全备份并注册 OpenCode Desktop 的 `Qwen3.8 27B MAX (256K)` 条目，不更改用户当前选择。
+- Codex 仍固定 Responses、`max`、单候选、no-fallback；OpenCode 固定同一模型权重与 262144 context/input、32768 output。
+
 ## [0.3.8] - 2026-08-15
 
 ### 新增

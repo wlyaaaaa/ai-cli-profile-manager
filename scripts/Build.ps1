@@ -110,7 +110,8 @@ foreach ($script in @(
     'Install.ps1',
     'Uninstall.ps1',
     'Import-FromOpenClaw.ps1',
-    'Invoke-AiCliRetirementMigration.ps1'
+    'Invoke-AiCliRetirementMigration.ps1',
+    'Setup-Qwen38-27B256K.ps1'
 )) {
     Copy-Item -LiteralPath (Join-Path $root "scripts\$script") -Destination (Join-Path $stage "scripts\$script") -Force
 }

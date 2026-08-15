@@ -535,7 +535,7 @@ Describe 'Qwen3.7 upgrade retirement migration' {
 
         $result = & (Join-Path $script:RetirementRepoRoot 'scripts\Invoke-AiCliRetirementMigration.ps1') `
             -RoamingRoot $roaming -LocalRoot $local -CodexHome $codexHome `
-            -CurrentVersion '0.3.8' -FailOnBlocked
+            -CurrentVersion '0.3.9' -FailOnBlocked
 
         $result.status | Should -Be 'complete'
         $result.planned | Should -Be 0

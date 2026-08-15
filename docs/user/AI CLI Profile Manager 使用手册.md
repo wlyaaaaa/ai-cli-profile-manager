@@ -1,6 +1,6 @@
 # AI CLI Profile Manager 使用手册
 
-适用版本：`0.3.8`（源码与安装目标；发布、安装和 Live 证据须分别核对）
+适用版本：`0.3.9`（源码与安装目标；发布、安装和 Live 证据须分别核对）
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
@@ -19,7 +19,7 @@ AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter �
 
 ### 1.2 安装本工具
 
-`0.3.8` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
+`0.3.9` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
 
 ```powershell
 $version = '<从 Releases 页面选择的已发布版本>'
@@ -61,7 +61,7 @@ pwsh -File .\scripts\Install.ps1 -Force
 2. 创建 `%LOCALAPPDATA%\aicli\bin\aicli.cmd` 与 `aicli.ps1` 垫片，并尝试加入用户 `PATH`。
 3. 尝试在当前用户 PowerShell 7 配置中加入模块自动导入块。
 4. 先验证临时候选版本，再替换目标版本；失败时恢复原版本。
-5. 升级到 `0.3.8` 时，先预检再隔离可证明由 AICLI 管理的 Qwen3.7 旧入口，同时保留新 06-08 exact Profile。
+5. 升级到 `0.3.9` 时，先预检再隔离可证明由 AICLI 管理的 Qwen3.7 旧入口，同时保留新 06-08 exact Profile。
 
 退役迁移不会把 Qwen3.7 自动改投 Qwen3.8，也不读取、复制、移动或删除 SecretRef/密钥。身份、marker、body/state 哈希与内容寻址都闭合的旧用户 Profile、Codex TOML/catalog 和旧模块版本会移入可恢复目录 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。任何未知、用户改写或 reparse 项都会在任何安装变更前失败关闭；先审计该路径，不要盲目删除。
 
@@ -219,7 +219,7 @@ aicli profile remove qwen-work
 
 Claude Code `2.1.193+` 的 DeepSeek Profile 按最终 `--model` 精确注入 1000000 token 模型窗口。AICLI 不设置会提前压缩的 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`，也不默认禁用自动/手动压缩；未知或自定义模型不猜测。
 
-本机 `claude-ollama-main` 同样按 `qwen-main-v1=262144` 注入 MAX/AUTO；`codex-ollama-main` 使用独立的 262144 受管目录，不再采用 Codex 未知模型 272K 回退。新 `codex-ollama-qwen3-8-27b` 则精确固定官方 Ollama `qwen3.8:27b` Q4_K_M、Responses、`max`、262144 原生上下文和 no-fallback；运行要求 Ollama 0.32.12+。任何第三方 Claude 模型未命中受管元数据时，AICLI 会清除父进程遗留的 MAX/AUTO、提前压缩百分比和两个禁压缩变量，再交给 Claude Code 的保守默认，避免把上一模型的窗口误套到未来模型。
+本机 `claude-ollama-main` 同样按 `qwen-main-v1=262144` 注入 MAX/AUTO；`codex-ollama-main` 使用独立的 262144 受管目录，不再采用 Codex 未知模型 272K 回退。新 `codex-ollama-qwen3-8-27b` 固定 `aicli-qwen3.8-27b-256k:2026-08-14`、Responses、`max`、262144 上下文和 no-fallback；该运行标签与官方 `qwen3.8:27b` 共用 Q4_K_M 权重，只增加 `num_ctx 262144` 参数层。先执行 `scripts\Setup-Qwen38-27B256K.ps1`；它也会把 `Qwen3.8 27B MAX (256K)` 注册到 OpenCode Desktop。运行要求 Ollama 0.32.12+。任何第三方 Claude 模型未命中受管元数据时，AICLI 会清除父进程遗留的 MAX/AUTO、提前压缩百分比和两个禁压缩变量，再交给 Claude Code 的保守默认，避免把上一模型的窗口误套到未来模型。
 
 Codex 的 DeepSeek Key 与其他云端 Profile 一样由 Windows CurrentUser DPAPI 保存。受管 Codex TOML 只写 `env_key`，不会复制官方手工示例中的明文 `experimental_bearer_token` 或 `preferred_auth_method`。Qwen Code 0.21 与 OpenCode 1.18.8 虽有上游原生 DeepSeek 接入，但 AICLI 当前只为它们提供禁网的 machine-only 沙箱，且尚无隔离真实 Key 的远程 egress relay；因此不提供这两类 DeepSeek Profile。
 
@@ -410,7 +410,7 @@ Claude 官方登录与 `ANTHROPIC_API_KEY` 同时存在时，上游可能显示�
 
 原生 ChatGPT + Codex 是基准，保持上游默认。DeepSeek/千问经 Codex 或 Claude Code 时，客户端压缩是可能丢文件细节、数字和未完成分支的摘要；不要为了“省上下文”主动 `/compact`。一个会话只做一个内聚里程碑，在自然边界把目标、约束、已改文件、决定、测试、阻塞和下一步写入项目已有 plan/progress；接近窗口时优先 fresh session 或拆任务。压缩后重新读取适用的 `AGENTS.md` / `CLAUDE.md`、当前 `SKILL.md`、状态文档以及 `git status` / `git diff`。
 
-本机 `qwen-main-v1` 在 Codex、Claude Code 与 OpenCode 中统一声明 262144 context。`opencode-ollama-main` 的一次性配置固定 8192 output；`opencode-ollama-qwen3-8-27b` 固定 exact `qwen3.8:27b`、262144 context/input 和 32768 output。两者使用 20000 reserved，关闭 tool-output pruning并保留最近 4 轮/16384 token；`agent.build.steps` 只算上游软收尾，不冒充 AICLI 硬工具调用门。OpenCode checkpoint 随 run 清理，跨 run 连续性必须靠项目状态文件。远程 DeepSeek/千问 OpenCode 仍因 key-isolated egress relay 缺口不开放。
+本机 `qwen-main-v1` 在 Codex、Claude Code 与 OpenCode 中统一声明 262144 context。`opencode-ollama-main` 的一次性配置固定 8192 output；`opencode-ollama-qwen3-8-27b` 固定同权重 256K 运行标签、262144 context/input 和 32768 output。两者使用 20000 reserved，关闭 tool-output pruning并保留最近 4 轮/16384 token；`agent.build.steps` 只算上游软收尾，不冒充 AICLI 硬工具调用门。OpenCode checkpoint 随 run 清理，跨 run 连续性必须靠项目状态文件。远程 DeepSeek/千问 OpenCode 仍因 key-isolated egress relay 缺口不开放。
 
 第三方模型（如千问）下，Claude 会话结束页的 **Total cost: $… (costs may be inaccurate due to usage of unknown models)** **不是** 阿里云百炼账单。token 量级可能接近真实调用；美元金额多半按 Claude 内置未知模型单价估算，**往往偏高**。真费用以百炼「模型监控 / 账单」为准（调用后约一小时可查）。详见《CLI 中文手册》用量说明。
 
@@ -479,7 +479,7 @@ aicli update guide self
 
 `update check` 和 `update guide` 只检查来源、版本并打印同渠道指引，不静默升级 Codex、Claude Code、Ollama 或本工具。识别来源后，应继续使用原安装渠道，避免 npm、WinGet 和原生安装器互相覆盖。
 
-从任何旧 AICLI 版本升级到 `0.3.8` 时，应使用同一发行包内的 `scripts\Install.ps1`；该安装器会完成旧 Qwen3.7 可验证遗留入口的可恢复隔离，并保留新 06-08 exact Profile。如果预检报告未知或篡改项，安装在写入新版本前中止；请先备份并人工审计，不要绕过门禁。
+从任何旧 AICLI 版本升级到 `0.3.9` 时，应使用同一发行包内的 `scripts\Install.ps1`；该安装器会完成旧 Qwen3.7 可验证遗留入口的可恢复隔离，并保留新 06-08 exact Profile。如果预检报告未知或篡改项，安装在写入新版本前中止；请先备份并人工审计，不要绕过门禁。
 
 Open Interpreter Rust 可按上游支持使用：
 
