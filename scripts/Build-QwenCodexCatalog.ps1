@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [string]$SourceCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\deepseek-v4-flash.json'),
-    [ValidateSet('qwen38', 'qwen37max0608', 'local')][string]$CatalogKind = 'qwen38',
+    [ValidateSet('qwen38', 'qwen37max0608', 'local', 'localQwen38_27b')][string]$CatalogKind = 'qwen38',
     [string]$OutputCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\qwen3.8-max-codex.json')
 )
 
@@ -16,9 +16,17 @@ if ([string]::IsNullOrWhiteSpace([string]$baseline.base_instructions) -or $null 
     throw 'The source catalog must provide non-empty Codex instructions and model messages.'
 }
 
-if ($CatalogKind -eq 'local') {
+if ($CatalogKind -in @('local', 'localQwen38_27b')) {
     $definitions = @(
-        [ordered]@{ slug = 'qwen-main-v1'; display = 'Local Qwen Main'; description = 'AICLI managed local Qwen Responses model.' }
+        [ordered]@{
+            slug = $(if ($CatalogKind -eq 'localQwen38_27b') { 'qwen3.8:27b' } else { 'qwen-main-v1' })
+            display = $(if ($CatalogKind -eq 'localQwen38_27b') { 'Qwen3.8-27B Q4_K_M' } else { 'Local Qwen Main' })
+            description = $(if ($CatalogKind -eq 'localQwen38_27b') {
+                'Exact local Qwen3.8-27B Responses model using the official Ollama qwen3.8:27b tag.'
+            } else {
+                'AICLI managed local Qwen Responses model.'
+            })
+        }
     )
     $contextWindow = 262144
     $defaultReasoningLevel = 'max'
@@ -93,7 +101,7 @@ for ($index = 0; $index -lt $definitions.Count; $index++) {
         supported_reasoning_levels = @($reasoningLevels)
         shell_type = 'default'
         visibility = 'list'
-        minimal_client_version = '0.144.0'
+        minimal_client_version = $(if ($CatalogKind -eq 'localQwen38_27b') { '0.147.0' } else { '0.144.0' })
         supported_in_api = $true
         availability_nux = $null
         upgrade = $null

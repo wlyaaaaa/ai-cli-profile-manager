@@ -2,6 +2,18 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
+## [0.3.8] - 2026-08-15
+
+### 新增
+
+- 新增本机 `Qwen/Qwen3.8-27B` 的两个 exact harness Profile：`codex-ollama-qwen3-8-27b` 与 `opencode-ollama-qwen3-8-27b`，统一固定官方 Ollama `qwen3.8:27b` Q4_K_M 标签、LocalGpuBroker `127.0.0.1:32100` 和原生 262144 context。
+- Codex 路线固定 Responses、单候选、默认/有效 `max`、受管单模型目录和 no-fallback；OpenCode 路线固定同一模型、一次性 pure 配置、262144 input/context 与 32768 output。
+- 帮助、公开 Profile 列表、发行 smoke、确定性目录生成器及聚焦回归同步覆盖新入口；既有 `qwen-main-v1` / `qwen-review-v1` 身份保持不变。
+
+### 运行时
+
+- 官方 `qwen3.8:27b` 要求 Ollama 0.32.12+；本机验收使用稳定版 0.32.13。1M YaRN 属扩展模式且可能损害短上下文质量，不作为 32GB GPU 的默认合同。
+
 ## [0.3.7] - 2026-08-14
 
 ### 修复

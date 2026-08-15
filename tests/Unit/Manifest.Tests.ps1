@@ -39,7 +39,9 @@ Describe 'Manifest' {
         $all.Contains('oi-deepseek') | Should -BeTrue
         $all.Contains('qwen-code-ollama-main') | Should -BeTrue
         $all.Contains('opencode-ollama-main') | Should -BeTrue
+        $all.Contains('opencode-ollama-qwen3-8-27b') | Should -BeTrue
         $all.Contains('codex-ollama-main') | Should -BeTrue
+        $all.Contains('codex-ollama-qwen3-8-27b') | Should -BeTrue
         $all.Contains('claude-ollama-main') | Should -BeTrue
         $all.Contains('codex-deepseek') | Should -BeTrue
     }
@@ -93,6 +95,8 @@ Describe 'Manifest' {
         $all['claude-ollama-main'].modelMetadata.'qwen-main-v1'.autoCompactWindowTokens | Should -Be 262144
         $all['opencode-ollama-main'].modelMetadata.'qwen-main-v1'.contextWindowTokens | Should -Be 262144
         $all['opencode-ollama-main'].modelMetadata.'qwen-main-v1'.compactionReserveTokens | Should -Be 20000
+        $all['opencode-ollama-qwen3-8-27b'].modelMetadata.'qwen3.8:27b'.contextWindowTokens | Should -Be 262144
+        $all['opencode-ollama-qwen3-8-27b'].modelMetadata.'qwen3.8:27b'.outputWindowTokens | Should -Be 32768
     }
 
     It 'publishes only the exact Qwen3.7 Max 06-08 Codex snapshot and keeps every legacy route absent' {

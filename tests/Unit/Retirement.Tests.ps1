@@ -51,15 +51,17 @@ Describe 'Retired provider identities' {
         }
     }
 
-    It 'keeps Qwen cloud only as exact Qwen3.8 Max and preserves both local slots' {
+    It 'keeps the exact Qwen cloud routes and adds Qwen3.8-27B without removing local slots' {
         $manifests = InModuleScope AiCliProfileManager { Import-AiCliProviderManifests }
         @($manifests.Keys | Where-Object { $_ -like '*qwen*' -or $_ -like '*ollama-main' -or $_ -eq 'codex-ollama-review' } | Sort-Object) | Should -Be @(
             'claude-ollama-main',
             'codex-ollama-main',
+            'codex-ollama-qwen3-8-27b',
             'codex-ollama-review',
             'codex-qwen3-7-max-paygo',
             'codex-qwen3-8-max-paygo',
             'opencode-ollama-main',
+            'opencode-ollama-qwen3-8-27b',
             'qwen-code-ollama-main'
         )
         $cloud = $manifests['codex-qwen3-8-max-paygo']
@@ -533,7 +535,7 @@ Describe 'Qwen3.7 upgrade retirement migration' {
 
         $result = & (Join-Path $script:RetirementRepoRoot 'scripts\Invoke-AiCliRetirementMigration.ps1') `
             -RoamingRoot $roaming -LocalRoot $local -CodexHome $codexHome `
-            -CurrentVersion '0.3.7' -FailOnBlocked
+            -CurrentVersion '0.3.8' -FailOnBlocked
 
         $result.status | Should -Be 'complete'
         $result.planned | Should -Be 0

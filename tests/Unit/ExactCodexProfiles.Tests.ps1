@@ -17,6 +17,7 @@ Describe 'Exact third-party Codex Profiles' {
             'codex-deepseek',
             'codex-deepseek-v4-pro',
             'codex-ollama-main',
+            'codex-ollama-qwen3-8-27b',
             'codex-ollama-review'
         )) {
             $ids | Should -Contain $id
@@ -33,7 +34,7 @@ Describe 'Exact third-party Codex Profiles' {
             })
         }
 
-        @($profiles).Count | Should -Be 6
+        @($profiles).Count | Should -Be 7
         foreach ($manifest in @($profiles)) {
             $manifest.transport | Should -Be 'responses' -Because $manifest.id
             $manifest.flexible | Should -BeFalse -Because $manifest.id
@@ -172,9 +173,10 @@ Describe 'Exact third-party Codex Profiles' {
         }
     }
 
-    It 'keeps both local exact identities on max without enabling fallback models' {
+    It 'keeps all local exact identities on max without enabling fallback models' {
         $expected = [ordered]@{
             'codex-ollama-main' = 'qwen-main-v1'
+            'codex-ollama-qwen3-8-27b' = 'qwen3.8:27b'
             'codex-ollama-review' = 'qwen-review-v1'
         }
         foreach ($profileId in $expected.Keys) {
@@ -198,6 +200,7 @@ Describe 'Exact third-party Codex Profiles' {
                 'codex-deepseek',
                 'codex-deepseek-v4-pro',
                 'codex-ollama-main',
+                'codex-ollama-qwen3-8-27b',
                 'codex-ollama-review'
             )) {
                 $profile = Get-AiCliProviderManifest -Id $profileId
@@ -222,6 +225,7 @@ Describe 'Exact third-party Codex Profiles' {
             $qwen37 = Get-AiCliProviderManifest -Id 'codex-qwen3-7-max-paygo'
             $deepSeek = Get-AiCliProviderManifest -Id 'codex-deepseek'
             $local = Get-AiCliProviderManifest -Id 'codex-ollama-main'
+            $localQwen38 = Get-AiCliProviderManifest -Id 'codex-ollama-qwen3-8-27b'
 
             Resolve-AiCliCodexEffort -MergedProfile $qwen -NativeArgs @() |
                 Should -Be 'max'
@@ -234,6 +238,8 @@ Describe 'Exact third-party Codex Profiles' {
             Resolve-AiCliCodexEffectiveEffort -MergedProfile $deepSeek -RequestedEffort 'max' |
                 Should -Be 'max'
             Resolve-AiCliCodexEffectiveEffort -MergedProfile $local -RequestedEffort 'max' |
+                Should -Be 'max'
+            Resolve-AiCliCodexEffectiveEffort -MergedProfile $localQwen38 -RequestedEffort 'max' |
                 Should -Be 'max'
         }
     }
@@ -275,6 +281,7 @@ Describe 'Exact third-party Codex Profiles' {
                 'codex-deepseek',
                 'codex-deepseek-v4-pro',
                 'codex-ollama-main',
+                'codex-ollama-qwen3-8-27b',
                 'codex-ollama-review'
             )
             foreach ($profileId in $expectedProfiles) {

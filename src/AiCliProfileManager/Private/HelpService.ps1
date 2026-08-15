@@ -47,6 +47,7 @@ $name — 命令帮助
   $cmd start codex-deepseek --project <trusted-workspace>
   $cmd start codex-deepseek-v4-pro --project <trusted-workspace>
   $cmd start codex-ollama-main --project <trusted-workspace>
+  $cmd start codex-ollama-qwen3-8-27b --project <trusted-workspace>
   $cmd start codex-ollama-review --project <trusted-workspace>
 
 使用 $cmd profile list --available 查看 exact model 与默认 max；云 Profile 首次使用前只需配置一次 SecretRef。

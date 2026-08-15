@@ -184,7 +184,7 @@ function Invoke-BridgeBingRssRequest {
             $requestUri
         )
             $request.Headers.Accept.ParseAdd('application/rss+xml, application/xml;q=0.9')
-            $request.Headers.UserAgent.ParseAdd('AiCliProfileManager/0.3.7')
+            $request.Headers.UserAgent.ParseAdd('AiCliProfileManager/0.3.8')
             try {
                 $response = $client.Send(
                     $request,

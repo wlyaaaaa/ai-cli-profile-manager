@@ -62,6 +62,7 @@ $requiredExactProfiles = @(
     [pscustomobject]@{ id = 'codex-deepseek'; model = 'deepseek-v4-flash'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-ollama-main'; model = 'qwen-main-v1'; effectiveEffort = 'max' },
+    [pscustomobject]@{ id = 'codex-ollama-qwen3-8-27b'; model = 'qwen3.8:27b'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-ollama-review'; model = 'qwen-review-v1'; effectiveEffort = 'max' }
 )
 foreach ($expected in $requiredExactProfiles) {

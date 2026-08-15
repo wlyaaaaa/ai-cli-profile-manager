@@ -61,6 +61,7 @@ Describe 'CommandRouter' {
             @{ id = 'codex-deepseek'; model = 'deepseek-v4-flash'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-ollama-main'; model = 'qwen-main-v1'; requested = 'max'; effective = 'max' },
+            @{ id = 'codex-ollama-qwen3-8-27b'; model = 'qwen3.8:27b'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-ollama-review'; model = 'qwen-review-v1'; requested = 'max'; effective = 'max' }
         )) {
             $row = @($profiles | Where-Object id -eq $expected.id)
@@ -93,6 +94,7 @@ Describe 'CommandRouter' {
             'codex-deepseek',
             'codex-deepseek-v4-pro',
             'codex-ollama-main',
+            'codex-ollama-qwen3-8-27b',
             'codex-ollama-review'
         )) {
             $help | Should -Match ([regex]::Escape("aicli start $id --project"))

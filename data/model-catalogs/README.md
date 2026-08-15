@@ -35,4 +35,11 @@
 - 与云千问 983616 目录分离，避免把套餐或上下文事实跨 Provider 复用；
 - 目录内容寻址发布后，用当前 Codex `debug models` 回读唯一 slug、窗口和非空基础指令，不发起模型请求。
 
+`qwen3.8-27b-codex.json` 由同一生成器的 `-CatalogKind localQwen38_27b` 模式生成，只服务本机 `codex-ollama-qwen3-8-27b`：
+
+- 上游模型为 <https://huggingface.co/Qwen/Qwen3.8-27B>，公开权重提交 `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`，原生 context 为 262144；1M YaRN 只作为可选扩展事实，不进入本机默认目录；
+- 运行时使用官方 Ollama `qwen3.8:27b` Q4_K_M 标签，manifest digest `sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f`，模型 blob digest `sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d`；
+- `context_window=max_context_window=262144`，输入支持 text/image，默认 effort 为 `max`，只列 `low` / `medium` / `high` / `max`；
+- 与云端 `qwen3.8-max` 及本地 `qwen-main-v1` 分离，避免把供应商套餐、模型权重或上下文事实互相冒充。
+
 目录生成后必须运行 Manifest/CodexAdapter 离线测试，并确认再次运行生成器不产生 diff；任何提示版本升级都要重新绑定并验证，不能把旧基础指令无限沿用。

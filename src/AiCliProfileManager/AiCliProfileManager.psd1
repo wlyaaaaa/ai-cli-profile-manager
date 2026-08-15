@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AiCliProfileManager.psm1'
-    ModuleVersion     = '0.3.7'
+    ModuleVersion     = '0.3.8'
     GUID              = 'a1c11c11-0a11-4c11-b111-a1c110110011'
     Author            = 'AI CLI Profile Manager Contributors'
     CompanyName       = 'Independent'
@@ -16,7 +16,7 @@
             Tags         = @('Codex', 'Claude', 'QwenCode', 'OpenCode', 'OpenInterpreter', 'Ollama', 'Qwen', 'DeepSeek', 'CLI', 'Windows', 'Profile', 'Sandbox')
             LicenseUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager'
-            ReleaseNotes = '0.3.7：Codex app-server 终态兼容改为安全生命周期形态判定；0.145、0.147 及后续同结构版本可闭合较早的 agentMessage，其他未完成 item 继续失败关闭。'
+            ReleaseNotes = '0.3.8：新增本机 Qwen3.8-27B exact Codex/OpenCode Profile；固定官方 qwen3.8:27b Q4_K_M、原生 262144 context、Codex Responses/max/no-fallback。'
         }
     }
 }

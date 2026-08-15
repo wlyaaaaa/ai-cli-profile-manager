@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "opencode-ollama-qwen3-8-27b",
+  "displayName": "OpenCode + local Qwen3.8-27B",
+  "engine": "opencode",
+  "provider": "ollama",
+  "plan": "local",
+  "region": "local",
+  "transport": "openai-compatible",
+  "endpoint": "http://127.0.0.1:32100/v1",
+  "models": { "primary": "qwen3.8:27b", "small": "qwen3.8:27b" },
+  "modelMetadata": {
+    "qwen3.8:27b": {
+      "contextWindowTokens": 262144,
+      "inputWindowTokens": 262144,
+      "outputWindowTokens": 32768,
+      "compactionReserveTokens": 20000,
+      "preserveRecentTokens": 16384,
+      "tailTurns": 4
+    }
+  },
+  "compatibility": {
+    "minCliVersion": "1.18.8",
+    "ollamaArtifact": {
+      "minimumVersion": "0.32.12",
+      "tag": "qwen3.8:27b",
+      "quantization": "Q4_K_M",
+      "manifestDigest": "sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f",
+      "modelBlobDigest": "sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d",
+      "projectorBlobDigest": "sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e"
+    }
+  },
+  "auth": { "type": "none" },
+  "capabilities": { "tools": true, "streaming": true, "images": true, "machineRun": true },
+  "sources": [
+    "https://huggingface.co/Qwen/Qwen3.8-27B",
+    "https://ollama.com/library/qwen3.8:27b",
+    "https://opencode.ai/docs/providers/"
+  ],
+  "requiresSecret": false,
+  "virtualReady": true,
+  "flexible": false,
+  "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
+  "notes": "Exact official qwen3.8:27b Q4_K_M runtime tag at the native 262144 context. Machine-only pure mode and transient config; no cloud or fallback."
+}

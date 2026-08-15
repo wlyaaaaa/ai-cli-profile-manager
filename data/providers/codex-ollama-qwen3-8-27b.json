@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-ollama-qwen3-8-27b",
+  "displayName": "Codex CLI + local Qwen3.8-27B",
+  "engine": "codex",
+  "provider": "ollama",
+  "plan": "local",
+  "region": "local",
+  "transport": "responses",
+  "defaultEffort": "max",
+  "effortLevels": ["low", "medium", "high", "max"],
+  "endpoint": "http://127.0.0.1:32100/v1",
+  "codexProviderId": "aicli_ollama_qwen38_27b",
+  "codexModelCatalog": "qwen3.8-27b-codex.json",
+  "models": { "primary": "qwen3.8:27b", "small": "qwen3.8:27b", "candidates": ["qwen3.8:27b"] },
+  "modelMetadata": {
+    "qwen3.8:27b": { "contextWindowTokens": 262144, "outputWindowTokens": 32768 }
+  },
+  "compatibility": {
+    "minCliVersion": "0.147.0",
+    "ollamaArtifact": {
+      "minimumVersion": "0.32.12",
+      "tag": "qwen3.8:27b",
+      "quantization": "Q4_K_M",
+      "manifestDigest": "sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f",
+      "modelBlobDigest": "sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d",
+      "projectorBlobDigest": "sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e"
+    },
+    "localGpuBrokerSession": {
+      "contractVersion": 1,
+      "requiredForMachineRun": true,
+      "managementOrigin": "http://127.0.0.1:32100"
+    }
+  },
+  "auth": { "type": "none" },
+  "capabilities": { "tools": true, "streaming": true, "images": true, "machineRun": true },
+  "sources": [
+    "https://huggingface.co/Qwen/Qwen3.8-27B",
+    "https://ollama.com/library/qwen3.8:27b",
+    "https://docs.ollama.com/integrations/codex"
+  ],
+  "requiresSecret": false,
+  "virtualReady": true,
+  "flexible": false,
+  "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
+  "notes": "Exact official qwen3.8:27b Q4_K_M runtime tag at the native 262144 context. Every Codex harness run uses native danger-full-access on the capability-bound local broker; no cloud or fallback."
+}

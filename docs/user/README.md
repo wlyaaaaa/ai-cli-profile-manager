@@ -14,7 +14,7 @@
 4. 《[沙箱化 machine run](MACHINE-RUN.md)》
    供上层 AI 使用的 stdin/JSON 协议、本机四智能体 Profile、沙箱和能力边界。
 
-`0.3.7` 的 exact Codex Profile、MAX 映射与 machine run 能力以本目录 Markdown 为当前事实源；根目录 PDF 必须从同一提交的 Markdown 重新生成并完成逐页渲染视觉验收：
+`0.3.8` 的 exact Codex/OpenCode Profile、MAX 映射与 machine run 能力以本目录 Markdown 为当前事实源；根目录 PDF 必须从同一提交的 Markdown 重新生成并完成逐页渲染视觉验收：
 
 - `AI CLI Profile Manager 使用手册.pdf`
 - `Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf`
