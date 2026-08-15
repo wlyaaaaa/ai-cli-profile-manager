@@ -551,7 +551,8 @@ function Write-AiCliMachineEvent {
         [Parameter(Mandatory)][ref]$Sequence,
         [Parameter(Mandatory)][string]$Kind,
         [hashtable]$Data = @{},
-        [string[]]$SecretValues = @()
+        [string[]]$SecretValues = @(),
+        [switch]$VerifiedPublicRuntimeIdentity
     )
 
     $nextSequence = [int]$Sequence.Value + 1
@@ -568,6 +569,33 @@ function Write-AiCliMachineEvent {
         $json = Protect-AiCliExactSecretValues `
             -Text ($value | ConvertTo-Json -Depth 10 -Compress) `
             -SecretValues $SecretValues
+        if ($VerifiedPublicRuntimeIdentity) {
+            if ($Kind -cne 'runtime.identity') {
+                throw 'Verified public runtime identity is valid only for its exact event kind.'
+            }
+            # Exact-secret replacement can collide with a verified public
+            # identity substring (the local compatibility value "ollama" is
+            # the real example). Restore only the closed identity allowlist;
+            # arbitrary/free-form fields remain redacted.
+            $publicFields = @(
+                'model','provider_id','cli_version','approval_policy',
+                'sandbox_policy','sandbox_boundary','sandbox_type','resume_mode',
+                'thread_id','session_id','workspace_hash','run_id',
+                'profile_fingerprint','requested_effort','reasoning_effort',
+                'permission_profile'
+            )
+            $safeValue = $json | ConvertFrom-Json -AsHashtable -Depth 20
+            foreach ($name in $publicFields) {
+                if (-not $Data.ContainsKey($name)) { continue }
+                $publicValue = [string]$Data[$name]
+                if ($publicValue.Length -gt 512 -or
+                    $publicValue -match '[\x00-\x1f]') {
+                    throw 'Verified public runtime identity field is invalid.'
+                }
+                $safeValue[$name] = $publicValue
+            }
+            $json = $safeValue | ConvertTo-Json -Depth 20 -Compress
+        }
         $encoded = [Text.UTF8Encoding]::new($false).GetBytes($json + "`n")
         $primary = if ($Stream -is [IO.FileStream]) {
             $Stream
@@ -1851,7 +1879,10 @@ function Invoke-AiCliChildCapture {
                         Write-AiCliMachineEvent -Stream $machineEventStream `
                             -Sequence ([ref]$machineEventSequence) `
                             -Kind $machineEvent.Kind -Data $machineEvent.Data `
-                            -SecretValues $SecretValues
+                            -SecretValues $SecretValues `
+                            -VerifiedPublicRuntimeIdentity:(
+                                $machineEvent.Kind -ceq 'runtime.identity'
+                            )
                     )) {
                         $machineEventStatus = 'degraded'
                     } elseif ($machineEvent -and $machineEvent.Kind -in @('run.failed','limit.hit')) {

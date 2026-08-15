@@ -94,6 +94,46 @@ Describe 'Recoverable continuity after process loss or quota pause' {
         }
     }
 
+    It 'keeps rejected interrupted identity evidence chained with its precise reason' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $script:AiCliDataRootOverride = Join-Path $Work 'data-invalid-identity'
+            try {
+                Mock Build-AiCliLaunchPlan {
+                    [pscustomobject]@{
+                        engine='codex';profileId='future';profileFingerprint=('9'*64)
+                        workingDirectory=$Work;model='future-model'
+                        modelProvider='future_provider';wire='responses'
+                        effort='max';effectiveEffort='max'
+                    }
+                }
+                $created=New-AiCliRecoverableRun -ProfileId future `
+                    -ProjectPath $Work -TaskText TASK
+                $state=Get-AiCliRecoverableRunState $created.runId
+                $state.status='running';$state.turnContext.attempt=1
+                $state.controller.pid=2147483000
+                $state.controller.processStartUtc='2000-01-01T00:00:00.0000000Z'
+                $state.controller.currentSegment='0001'
+                Write-AiCliRecoverableRunState $state
+                $events=Join-Path (Get-AiCliRecoverableRunRoot $created.runId) `
+                    'segments\0001.events.jsonl'
+                @(
+                    [ordered]@{schema='aicli.machine-event.v1';sequence=1;kind='runtime.identity';model='future-model';provider_id='future_***REDACTED***';workspace_hash=(Get-AiCliRecoveryHash ([IO.Path]::GetFullPath($Work).ToLowerInvariant()));run_id=$created.runId;profile_fingerprint=('9'*64);requested_effort='max';reasoning_effort='max';resume_mode='start';thread_id='11111111-1111-4111-8111-111111111111';session_id='22222222-2222-4222-8222-222222222222';approval_policy='never';sandbox_policy='danger-full-access';sandbox_boundary='codex-native';sandbox_type='dangerFullAccess';permission_profile=':danger-full-access'},
+                    [ordered]@{schema='aicli.machine-event.v1';sequence=2;kind='thread.started';thread_id='11111111-1111-4111-8111-111111111111';session_id='22222222-2222-4222-8222-222222222222'}
+                ) | ForEach-Object {$_|ConvertTo-Json -Compress} |
+                    Set-Content -LiteralPath $events -Encoding utf8
+
+                $status=Get-AiCliRecoverableRunStatus $created.runId
+                $status.status | Should -BeExactly 'failed_closed'
+                $status.resumeSupported | Should -BeFalse
+                $status.resumeReason |
+                    Should -BeExactly 'interrupted_runtime_identity_incomplete'
+                $status.eventCursor | Should -Be 2
+                $closed=Get-AiCliRecoverableRunState $created.runId
+                Assert-AiCliRecoverableEvidenceChain $closed | Should -BeTrue
+            } finally {$script:AiCliDataRootOverride=$null}
+        }
+    }
+
     It 'fails closed on duplicate or late event sequence after reboot' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $script:AiCliDataRootOverride=Join-Path $Work 'data'

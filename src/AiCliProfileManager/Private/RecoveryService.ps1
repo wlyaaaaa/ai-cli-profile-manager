@@ -826,6 +826,11 @@ function Sync-AiCliRecoverableRunState {
         $evidence = Read-AiCliRecoverableSegmentEvidence `
             -State $State -SegmentName $segment
         $identity = $evidence.runtimeIdentity
+        # Once a closed writer segment has been read and is about to receive
+        # its immutable receipt, its cursor advances even when the contained
+        # runtime identity is rejected. This preserves the precise failure
+        # reason instead of creating a receipt/state cursor contradiction.
+        $State.turnContext.eventCursor = [int]$evidence.sequenceEnd
         if (-not $evidence.threadId -or -not $evidence.sessionId -or
             $null -eq $identity -or
             [string](Get-AiCliProperty $identity 'model') -cne
@@ -874,7 +879,6 @@ function Sync-AiCliRecoverableRunState {
             if ($evidence.turnId) {
                 $State.turnContext.lastTurnId = $evidence.turnId
             }
-            $State.turnContext.eventCursor = [int]$evidence.sequenceEnd
             $abortRequested = Test-Path -LiteralPath (Join-Path (
                 Get-AiCliRecoverableRunRoot -RunId ([string]$State.runId)
             ) 'abort.requested') -PathType Leaf

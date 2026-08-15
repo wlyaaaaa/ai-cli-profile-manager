@@ -29,6 +29,37 @@ $text = [Console]::In.ReadToEnd()
         Import-Module (Join-Path $root 'src\AiCliProfileManager\AiCliProfileManager.psd1') -Force
     }
 
+    It 'preserves only verified public runtime identity when a local key collides' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $path = Join-Path $Work 'runtime-identity-event.jsonl'
+            $stream = [IO.FileStream]::new(
+                $path,
+                [IO.FileMode]::CreateNew,
+                [IO.FileAccess]::Write,
+                [IO.FileShare]::Read
+            )
+            try {
+                $sequence = 0
+                $ok = Write-AiCliMachineEvent -Stream $stream `
+                    -Sequence ([ref]$sequence) -Kind 'runtime.identity' `
+                    -Data @{
+                        model = 'qwen-main-v1'
+                        provider_id = 'aicli_ollama_main'
+                        cli_version = '0.147.0'
+                        unsafe_note = 'ollama'
+                    } -SecretValues @('ollama') `
+                    -VerifiedPublicRuntimeIdentity
+                $ok | Should -BeTrue
+            } finally {
+                $stream.Dispose()
+            }
+
+            $event = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+            $event.provider_id | Should -BeExactly 'aicli_ollama_main'
+            $event.unsafe_note | Should -BeExactly '***REDACTED***'
+        }
+    }
+
     It 'captures a profile without exposing its launch environment' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             Mock Build-AiCliLaunchPlan {
