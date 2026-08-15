@@ -1457,6 +1457,34 @@ function Invoke-AiCliRecoverableRun {
     }
 }
 
+function New-AiCliRecoverableControllerStartInfo {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ControllerScript,
+        [Parameter(Mandatory)][string]$ModuleManifest,
+        [Parameter(Mandatory)][string]$RunId,
+        [AllowEmptyString()][string]$TaskPipeName = ''
+    )
+    $psi = [Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = Join-Path $PSHOME 'pwsh.exe'
+    # ShellExecute gives the hidden controller its own standard handles. With
+    # UseShellExecute=false, a caller that captures aicli stdout can retain the
+    # pipe until the long-lived controller exits, defeating --background.
+    $psi.UseShellExecute = $true
+    $psi.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+    foreach ($arg in @(
+        '-NoLogo','-NoProfile','-File',$ControllerScript,
+        '-ModuleManifest',$ModuleManifest,'-RunId',$RunId
+    )) {
+        [void]$psi.ArgumentList.Add([string]$arg)
+    }
+    if ($TaskPipeName) {
+        [void]$psi.ArgumentList.Add('-TaskPipeName')
+        [void]$psi.ArgumentList.Add($TaskPipeName)
+    }
+    return $psi
+}
+
 function Start-AiCliRecoverableControllerProcess {
     [CmdletBinding()]
     param(
@@ -1523,20 +1551,10 @@ function Start-AiCliRecoverableControllerProcess {
                 throw 'Recoverable background controller payload is unavailable.'
             }
         }
-        $psi = [Diagnostics.ProcessStartInfo]::new()
-        $psi.FileName = Join-Path $PSHOME 'pwsh.exe'
-        $psi.UseShellExecute = $false
-        $psi.CreateNoWindow = $true
-        foreach ($arg in @(
-            '-NoLogo','-NoProfile','-File',$controllerScript,
-            '-ModuleManifest',$moduleManifest,'-RunId',$RunId
-        )) {
-            [void]$psi.ArgumentList.Add([string]$arg)
-        }
-        if ($taskPipeName) {
-            [void]$psi.ArgumentList.Add('-TaskPipeName')
-            [void]$psi.ArgumentList.Add($taskPipeName)
-        }
+        $psi = New-AiCliRecoverableControllerStartInfo `
+            -ControllerScript $controllerScript `
+            -ModuleManifest $moduleManifest -RunId $RunId `
+            -TaskPipeName $taskPipeName
         $process = [Diagnostics.Process]::Start($psi)
         if ($null -eq $process) {
             throw 'Recoverable background controller did not start.'

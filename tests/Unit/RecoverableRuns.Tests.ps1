@@ -53,6 +53,24 @@ Describe 'Recoverable Codex runs' {
         }
     }
 
+    It 'detaches background controller standard handles from captured callers' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $controller = Join-Path $Work 'controller.ps1'
+            $manifest = Join-Path $Work 'module.psd1'
+            $startInfo = New-AiCliRecoverableControllerStartInfo `
+                -ControllerScript $controller -ModuleManifest $manifest `
+                -RunId ('a' * 32) -TaskPipeName 'aicli-test-pipe'
+
+            $startInfo.UseShellExecute | Should -BeTrue
+            $startInfo.WindowStyle | Should -Be `
+                ([Diagnostics.ProcessWindowStyle]::Hidden)
+            $startInfo.RedirectStandardOutput | Should -BeFalse
+            $startInfo.RedirectStandardError | Should -BeFalse
+            @($startInfo.ArgumentList) | Should -Contain '-TaskPipeName'
+            @($startInfo.ArgumentList) | Should -Contain 'aicli-test-pipe'
+        }
+    }
+
     It 'automatically resumes only the exact same thread and session' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $script:AiCliDataRootOverride = Join-Path $Work 'data'

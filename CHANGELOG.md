@@ -8,6 +8,7 @@
 
 - `aicli run` 为所有当前和未来 Codex harness Profile 增加 root-owned 可恢复运行：每个 run 持久化 exact thread/session、workspace、Profile 指纹、model/provider、requested/effective effort、协议、attempt 与事件游标；任务正文、隐藏推理和工具载荷不落盘。
 - 新增稳定机器控制面：`run start`、`run resume`、`run status`、`run abort`；`start/resume --background` 通过仅当前用户可连接的命名管道交付首次任务并立即返回 run id，供 benchmark/observer 后台轮询。
+- 后台控制器使用隐藏的独立进程句柄；即使 GUI 或脚本正在捕获 stdout/stderr，命名管道交付任务后也会立即返回，不再等待控制器终态。
 - app-server 恢复改用真实 `thread/resume`。只有返回同一 thread/session 且工作区、Profile、模型、Provider、effort、CLI 与五项完全访问权限身份都一致时才继续；任何新 thread、reroute、身份漂移或证据不足均失败关闭。
 
 ### 可靠性与审计
