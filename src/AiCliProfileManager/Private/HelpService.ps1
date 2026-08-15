@@ -36,7 +36,7 @@ $name — 命令帮助
   $cmd run status|abort <run-id> --json
   $cmd run resume <run-id> --json [--background]
   $cmd doctor [profile]
-  $cmd test <profile> --live [--level text|tool|all] [--yes]
+  $cmd test <profile> --live [--level text|tool|agent|all] [--yes]
   $cmd proxy <ccp|cliproxy> status
   $cmd native <profile>
   $cmd eject <profile>
@@ -217,7 +217,7 @@ function Show-AiCliHelpCommand {
         start     = @('在指定项目目录中启动真实上游 CLI。','aicli start <精确 Profile ID> --project <项目路径>','第三方 Profile 封闭 Provider、模型、Responses、max 映射和 SecretRef；用户无需拼底层参数。')
         run       = @('供上层程序通过 stdin 调用可恢复、受墙钟/步数/工具/输出预算监管的任务；预算不等于权限沙箱。','aicli run start <Profile ID> --stdin --json --project <路径> [--background]；aicli run status|resume|abort <run-id> --json','所有当前及未来 Codex harness Profile 固定使用原生 danger-full-access，并默认提供受管 public_web_search。每个 run 绑定持久 thread/session 与工作区/Profile/模型/Provider/effort；恢复身份变化、证据链损坏或新 thread 都失败关闭。后台控制器可供 benchmark 轮询，瞬态错误最多自动 exact-resume 3 次。')
         doctor    = @('检查 CLI、Profile、端点、代理和配置冲突，不发送模型请求。','aicli doctor [Profile ID] [--json]','输出“通过 / 可用 / 可用但有限制 / 不可用”及下一步。')
-        test      = @('通过目标 CLI 发送一次真实连通请求。','aicli test <Profile ID> --live --level text --yes','会消耗额度；最终正文必须严格匹配 PONG，未执行的工具测试不会冒充通过。')
+        test      = @('通过目标 CLI 发送真实连通或 Agent 能力请求。','aicli test <Profile ID> --live --level agent --yes --json','agent 会在隔离目录运行可恢复的非平凡文件任务，并由独立 verifier 验收；真实请求可能消耗额度。')
         proxy     = @('安装、登录、启停和检查 ccp / CLIProxyAPI。','aicli proxy <ccp|cliproxy> status','只允许 loopback 监听；ChatGPT 通道为可选第三方方案。')
         update    = @('检查本工具和上游 CLI 版本，或显示官方更新命令。','aicli update check；aicli update guide codex','只报告与指导，不静默自动升级。')
         native    = @('查看实际可执行文件、参数、子进程环境和数据去向。','aicli native <Profile ID>','秘密字段始终脱敏。')

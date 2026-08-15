@@ -1,6 +1,6 @@
 # AI CLI Profile Manager 使用手册
 
-适用版本：`0.3.11`（源码与安装目标；发布、安装和 Live 证据须分别核对）
+适用版本：`0.3.12`（源码与安装目标；发布、安装和 Live 证据须分别核对）
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
@@ -19,7 +19,7 @@ AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter �
 
 ### 1.2 安装本工具
 
-`0.3.11` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
+`0.3.12` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
 
 ```powershell
 $version = '<从 Releases 页面选择的已发布版本>'
@@ -334,6 +334,7 @@ aicli test codex-deepseek --live --level text
 aicli test claude-deepseek --live --level text
 aicli test claude-deepseek --live --level text --yes
 aicli test claude-deepseek --live --level all --yes --json
+aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 ```
 
 `--live` 必须显式给出；没有 `--yes` 时会再次确认。文本测试在随机临时空目录中运行，通过目标 CLI 发出最小请求，并要求正常退出、最终模型正文严格等于 `PONG`，且观测到的工具调用数为 0。Codex 路径仍固定 `danger-full-access`；只要 app-server 报告首个工具事件就终止并判失败，但这不是执行前工具禁用，工具仍可能在事件被观测前产生本机副作用，只应在明确授权时执行。提示和回复正文不写日志。
@@ -342,9 +343,12 @@ aicli test claude-deepseek --live --level all --yes --json
 |------|------|
 | `text` | 验证目标 CLI、Provider、模型和最小文本链路 |
 | `tool` | 只验证隔离的单用途 nonce 工具链 |
-| `all` | 依次验证两层 |
+| `agent` | 在全新临时目录完成真实文件任务，并由独立 verifier 验收 |
+| `all` | 依次验证既有 text+tool 两层；不隐式启动 Agent 任务 |
 
 无法证明工具隔离时，工具层会跳过并显示“可用但有限制”，不会冒充完整文件或 Shell 编程能力已经通过。
+
+`agent` 只支持 Codex Profile。它复用 root-owned 可恢复 run，瞬态上游、进程或 stream 中断最多自动 exact-resume 3 次；恢复必须保持同一 thread/session、workspace、Profile 指纹、模型、Provider、requested/effective effort 和全访问权限。模型必须真实读取确定性输入并写出结果文件，AICLI 随后用独立 verifier 计算排序、去重、频次、求和和 SHA-256。模型自述“完成”、普通 `PONG`、仅能打开 CLI 或新 thread 重跑都不能通过。回执不保存提示、回复正文、工具载荷、endpoint 或秘密。
 
 当前哪些 Profile 已完成文本验收、哪些仍待验收，以《[兼容性与最终验收状态](../compatibility/VERIFIED-COMPATIBILITY.md)》为准；成功记录也不能跨模型、端点或公开默认配置外推。
 
@@ -692,7 +696,7 @@ aicli native <Profile ID>
 aicli eject <Profile ID> [--output <新目录>]
 
 aicli doctor [Profile ID] [--json]
-aicli test <Profile ID> --live [--level text|tool|all] [--yes] [--json]
+aicli test <Profile ID> --live [--level text|tool|agent|all] [--yes] [--json]
 
 aicli proxy <ccp|cliproxy> install
 aicli proxy ccp login [codex|device]

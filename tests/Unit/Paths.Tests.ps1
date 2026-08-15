@@ -21,8 +21,8 @@ Describe 'Paths' {
         }
     }
 
-    It 'brand version is 0.3.11' {
-        (Get-AiCliVersion) | Should -Be '0.3.11'
+    It 'brand version is 0.3.12' {
+        (Get-AiCliVersion) | Should -Be '0.3.12'
         (Get-AiCliBrand).CommandName | Should -Be 'aicli'
     }
 

@@ -380,9 +380,9 @@ Describe 'Exact third-party Codex Profiles' {
             $plan.argumentList | Should -Contain 'model_providers.aicli_qwen37_max_0608_paygo.wire_api="responses"'
             $plan.argumentList | Should -Contain 'model_providers.aicli_qwen37_max_0608_paygo.env_key="AICLI_CODEX_PROVIDER_KEY"'
             $plan.environmentDelta.AICLI_CODEX_PROVIDER_KEY | Should -BeExactly 'qwen37-secret-canary-never-serialize'
-            $script:qwen37Toml | Should -Match '(?m)^model = "qwen3\.7-max-2026-06-08"$'
-            $script:qwen37Toml | Should -Match '(?m)^model_provider = "aicli_qwen37_max_0608_paygo"$'
-            $script:qwen37Toml | Should -Match '(?m)^model_reasoning_effort = "xhigh"$'
+            $script:qwen37Toml | Should -Match '(?m)^model = "qwen3\.7-max-2026-06-08"\r?$'
+            $script:qwen37Toml | Should -Match '(?m)^model_provider = "aicli_qwen37_max_0608_paygo"\r?$'
+            $script:qwen37Toml | Should -Match '(?m)^model_reasoning_effort = "xhigh"\r?$'
             (($plan.argumentList -join "`n") + "`n" + $script:qwen37Toml) |
                 Should -Not -Match 'qwen37-secret-canary-never-serialize|opaque-qwen37-secret-ref'
         }
@@ -483,12 +483,12 @@ Describe 'Exact third-party Codex Profiles' {
                 $plan.environmentDelta.AICLI_CODEX_PROVIDER_KEY |
                     Should -BeExactly 'deepseek-secret-canary-never-serialize'
                 $script:managedToml | Should -Match (
-                    '(?m)^model = "' + [regex]::Escape($Spec.Model) + '"$'
+                    '(?m)^model = "' + [regex]::Escape($Spec.Model) + '"\r?$'
                 )
                 $script:managedToml | Should -Match (
-                    '(?m)^model_provider = "' + [regex]::Escape($Spec.ProviderId) + '"$'
+                    '(?m)^model_provider = "' + [regex]::Escape($Spec.ProviderId) + '"\r?$'
                 )
-                $script:managedToml | Should -Match '(?m)^model_reasoning_effort = "max"$'
+                $script:managedToml | Should -Match '(?m)^model_reasoning_effort = "max"\r?$'
                 $script:managedToml | Should -Match '(?m)^wire_api = "responses"\r?$'
                 $script:managedToml | Should -Match '(?m)^env_key = "AICLI_CODEX_PROVIDER_KEY"\r?$'
                 $allPublicText = ($plan.argumentList -join "`n") + "`n" + $script:managedToml

@@ -2,6 +2,18 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
+## [0.3.12] - 2026-08-15
+
+### 新增
+
+- 新增显式 `aicli test <Profile> --live --level agent --yes --json`。它在全新临时目录运行确定性的非平凡文件任务，并由独立 verifier 验收实际产物；不能用模型自述、提示回显或普通连通性冒充 Agent 能力通过。
+- Agent 验收直接复用 `0.3.11` 的 root-owned 可恢复 run：瞬态中断最多自动 exact-resume 3 次，恢复前后必须保持同一 thread/session、workspace、Profile 指纹、model/provider、requested/effective effort 与完全访问权限。
+
+### 可靠性与审计
+
+- 验收回执绑定实际模型、Provider、CLI 版本、`danger-full-access` 权限、工具活动、进程树清理、恢复次数、任务合同哈希与 verifier 哈希/结果；提示、回复正文、工具载荷、endpoint 与秘密不进入回执。
+- `all` 保持既有 text+tool 语义，Agent 验收只在显式选择 `agent` 时运行，避免升级后意外发起较长或有副作用的模型任务。
+
 ## [0.3.11] - 2026-08-15
 
 ### 新增

@@ -288,6 +288,8 @@ function Resolve-AiCliProfileStatus {
     $textPass = [bool](Get-AiCliProperty $ver 'textPass' $false)
     $toolPass = [bool](Get-AiCliProperty $ver 'toolPass' $false)
     $toolSkipped = [bool](Get-AiCliProperty $ver 'toolSkipped' $false)
+    $agentPass = [bool](Get-AiCliProperty $ver 'agentPass' $false)
+    if ($level -eq 'agent' -and $result -eq 'pass' -and $agentPass) { return '可用' }
     if ($level -eq 'all' -and $result -eq 'pass' -and $textPass -and $toolPass -and -not $toolSkipped) { return '可用' }
     if ($result -eq 'pass' -and ($textPass -or $toolPass)) { return '可用但有限制' }
     return '可用但有限制'

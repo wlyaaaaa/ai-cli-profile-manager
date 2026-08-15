@@ -14,6 +14,9 @@ $task | aicli run start codex-ollama-main `
 aicli run status <run-id> --json
 aicli run resume <run-id> --json --background
 aicli run abort <run-id> --json
+
+# 显式验证 exact Profile 的真实 Agent 能力（不是 CACB 重跑）
+aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 ```
 
 本机 Profile：
@@ -37,7 +40,7 @@ aicli run abort <run-id> --json
 - 调用接口只从 stdin 接收任务正文，不把正文放入 argv、环境变量、工作区或临时任务文件。返回值是一个 JSON envelope。
 - `run start/resume/status/abort` 是稳定的恢复控制面。`--background` 只用于 `start` 或 `resume`，立即返回 run id；首次任务通过仅当前 Windows 用户可连接的命名管道交给隐藏控制器，正文不写入恢复状态。同步形式保留给简单调用。
 - 每个 Codex run 在 `%LOCALAPPDATA%\AiCliProfileManager\state\recoverable-runs\<run-id>` 保存独立持久 `CODEX_HOME`、带 `stateHash` 的状态、前向 hash-chain journal，以及按 attempt 不可变的 `.events.jsonl` / `.receipt.json`。检测到重写、孤儿、重复 sequence、迟到终态或哈希漂移后 `resumeSupported=false`。
-- 瞬态 upstream/process/stream 错误可在同一控制器内自动 exact-resume，最多 3 次。额度/会话预算只依据 app-server 公开 `codexErrorInfo` 进入 `quota_paused`，不消耗恢复次数；硬预算、用户 abort、上下文超限、认证/策略/沙箱错误、协议结构错误不重试。
+- 瞬态 upstream/process/stream 错误可在同一控制器内自动 exact-resume，最多 3 次。额度/会话预算只依据 app-server 公开 `codexErrorInfo` 进入 `quota_paused`，不消耗恢复次数；硬预算、用户 abort、上下文超限、认证/策略/沙箱错误、协议结构错误不重试。显式 `--level agent` 直接复用此控制器，在全新临时目录运行确定性文件任务，并以独立 verifier 而非模型自述判定通过。
 - `accounting` 分开 wall time、已验证 attempt active time、quota pause、重复 continuation 字节、累计 provider usage 与恢复差分。控制器丢失的分段无法证明精确 active duration 时，`activeAttemptEvidence=partial-after-controller-loss`，不用 0 或 wall time 伪装模型有效工作时间。
 - 重启或控制器消失后，`status` 先等待旧事件 writer 关闭，再对账最后分段。`resume` 必须调用真实 `thread/resume`，并现场回读同一 thread/session、workspace、Profile fingerprint、model/provider、requested/effective effort、CLI 与五项完全访问权限。任何字段变化或恢复成新 thread 都失败关闭；调用方必须创建新 workspace/new attempt 全量重跑，旧 partial 永不合并。
 - **所有当前和未来 Codex 模型一律完全访问。** AICLI 在 `thread/start` 与 `turn/start` 都选择命名权限 `permissions=:danger-full-access`；规则按 `engine=codex` 生效，不维护模型 allowlist。省略 `--sandbox-policy` 时自动选择全访问；显式传 `read-only` / `workspace-write` 会失败关闭，不能静默降权。
@@ -68,7 +71,7 @@ aicli run abort <run-id> --json
 - 其他 CLI 只有在自身回执能证明相同硬边界时才可被上层当作有限预算 runner；`upstream` 或 `not-enforced` 不能冒充 `hard`。
 - CLI 更新不应直接等同于受管 machine runtime 晋升。应先校验包内可执行文件与资源闭包、版本/协议、actual identity、全访问权限对象和少量 smoke，再按当前版本与 Profile 指纹重新验收。
 
-`0.3.11` 是当前源码与安装目标，包含 exact Qwen3.7 06-08/Qwen3.8/DeepSeek/local Codex Profile、Qwen3.8-27B 256K Codex/OpenCode Profile、MAX 映射、统一 `danger-full-access`、actual identity/no-reroute、同 thread 持久恢复、后台控制面，以及同一未完成 item 的幂等 `item/started` 兼容。源代码验收必须明确使用仓库入口并在回执中保留来源；正式安装/晋升前，不得把 source 结果宣称为 installed 或 runtime current。
+`0.3.12` 是当前源码与安装目标，包含 exact Qwen3.7 06-08/Qwen3.8/DeepSeek/local Codex Profile、Qwen3.8-27B 256K Codex/OpenCode Profile、MAX 映射、统一 `danger-full-access`、actual identity/no-reroute、同 thread 持久恢复、后台控制面、独立 verifier Agent 验收，以及同一未完成 item 的幂等 `item/started` 兼容。源代码验收必须明确使用仓库入口并在回执中保留来源；正式安装/晋升前，不得把 source 结果宣称为 installed 或 runtime current。
 
 2026-07-29 的 Spark 源代码入口真实任务证明工作区写权限已生效；但 `code_repair` 在硬上限 `maxSteps=80` 下到达 `81/80` 并终止，确定性得分为 `2/9`。这属于模型/Agent 能力验收不通过，不是权限链仍然只读，也不应通过重复复测改变结论。
 

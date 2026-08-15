@@ -571,14 +571,14 @@ function Invoke-AiCliRunCommand {
 function Invoke-AiCliTestCommand {
     param($Tokens)
     $tokenList = ConvertTo-AiCliTokenList $Tokens
-    if ($tokenList.Count -lt 1) { throw '用法: aicli test <id> --live [--level text|tool|all] [--yes] [--json]' }
+    if ($tokenList.Count -lt 1) { throw '用法: aicli test <id> --live [--level text|tool|agent|all] [--yes] [--json]' }
     $pos = Assert-AiCliTokenShape -Tokens $tokenList -MinPositionals 1 -MaxPositionals 1 -Switches @('--live','--yes','--json') -ValueOptions @('--level')
     if (-not (Test-AiCliHasFlag $tokenList '--live')) {
         throw '必须显式指定 --live。用法: aicli test <id> --live [--yes]'
     }
     $id = [string]$pos[0]
     $level = Get-AiCliFlagValue -Tokens $tokenList -Name '--level' -Default 'text'
-    if ($level -notin @('text','tool','all')) { throw "参数 --level 无效: $level" }
+    if ($level -notin @('text','tool','agent','all')) { throw "参数 --level 无效: $level" }
     return (Invoke-AiCliLiveTest -ProfileId $id -Level $level -Yes:(Test-AiCliHasFlag $tokenList '--yes') -Json:(Test-AiCliHasFlag $tokenList '--json'))
 }
 

@@ -124,6 +124,31 @@ function Test-AiCliVerificationRecordCurrent {
             return [pscustomobject]@{ Current = $false; Reason = 'Codex 验证记录缺少 danger-full-access 运行时权限证据' }
         }
         $recordLevel = [string](Get-AiCliProperty $Record 'level')
+        if ($recordLevel -eq 'agent') {
+            $agentReceipt = Get-AiCliProperty $Record 'agentReceipt'
+            $acceptance = Get-AiCliProperty $agentReceipt 'acceptance'
+            $verifier = Get-AiCliProperty $acceptance 'verifier'
+            $recovery = Get-AiCliProperty $agentReceipt 'recovery'
+            $effective = Get-AiCliProperty $agentReceipt 'effective'
+            $agent = Get-AiCliProperty $agentReceipt 'agent'
+            if ([string](Get-AiCliProperty $agentReceipt 'receipt_schema') -cne
+                    'aicli.agent.acceptance-receipt.v1' -or
+                [string](Get-AiCliProperty $agentReceipt 'result') -cne 'pass' -or
+                @((Get-AiCliProperty $agentReceipt 'failure_codes')).Count -ne 0 -or
+                -not [bool](Get-AiCliProperty $verifier 'passed' $false) -or
+                [string](Get-AiCliProperty $recovery 'status') -cne 'completed' -or
+                [int](Get-AiCliProperty $agent 'tool_calls' 0) -lt 1 -or
+                -not [bool](Get-AiCliProperty $agent 'cleanup_confirmed' $false) -or
+                [string](Get-AiCliProperty $effective 'model') -cne
+                    [string](Get-AiCliProperty $Record 'model') -or
+                [string](Get-AiCliProperty $effective 'provider_id') -cne
+                    [string](Get-AiCliProperty $Record 'modelProvider')) {
+                return [pscustomobject]@{
+                    Current = $false
+                    Reason = 'Agent 验收记录缺少闭合的恢复、身份、工具、清理或 verifier 证据'
+                }
+            }
+        }
         if ($recordLevel -in @('text', 'all') -or
             [bool](Get-AiCliProperty $Record 'textPass' $false)) {
             $observedToolCalls = Get-AiCliProperty $Record 'observedToolCalls'
@@ -178,7 +203,7 @@ function Set-AiCliVerificationRecord {
 function Invoke-AiCliLiveTest {
     param(
         [Parameter(Mandatory)][string]$ProfileId,
-        [ValidateSet('text','tool','all')][string]$Level = 'text',
+        [ValidateSet('text','tool','agent','all')][string]$Level = 'text',
         [switch]$Yes,
         [switch]$Json
     )
@@ -188,7 +213,9 @@ function Invoke-AiCliLiveTest {
     if (-not $Yes) {
         Write-AiCliWarn 'Live Test 会通过目标 CLI 向 Provider/模型发送真实请求，可能消耗 API 或订阅额度。'
         Write-AiCliInfo "Profile: $ProfileId  level: $Level"
-        if ($liveEngine -eq 'codex') {
+        if ($liveEngine -eq 'codex' -and $Level -eq 'agent') {
+            Write-AiCliWarn 'Agent 验收会在全新临时目录执行真实文件与命令任务，并通过可恢复 Codex thread 自动续跑瞬态中断。'
+        } elseif ($liveEngine -eq 'codex') {
             Write-AiCliWarn 'Codex 文本验收在临时空目录运行并要求零工具调用；harness 仍是 danger-full-access，首个工具可能在事件被观测和终止前产生本机副作用，只应在明确授权时继续。'
         } else {
             Write-AiCliInfo '文本测试在临时空目录运行，禁用工具、持久化和项目配置；不记录提示或回复正文。'
@@ -209,6 +236,10 @@ function Invoke-AiCliLiveTest {
     $textObservedToolCalls = $null
     $toolPass = $false
     $toolSkipped = $false
+    $agentPass = $false
+    $agentReceipt = $null
+    $agentRuntimeIdentity = $null
+    $agentRuntimeCliPath = $null
     $plan = $null
     $failureSummary = $null
 
@@ -231,11 +262,21 @@ function Invoke-AiCliLiveTest {
             $toolPass = [bool]$toolResult.Pass
             $toolSkipped = [bool]$toolResult.Skipped
         }
+        if ($Level -eq 'agent') {
+            $agentResult = Invoke-AiCliAgentLiveTest -Plan $plan `
+                -MergedProfile $merged -WorkDir $tmp -Checks $checks
+            $agentPass = [bool]$agentResult.Pass
+            $agentReceipt = Get-AiCliProperty $agentResult 'Receipt'
+            $agentRuntimeIdentity = Get-AiCliProperty $agentResult 'RuntimeIdentity'
+            $agentRuntimeCliPath = [string](Get-AiCliProperty $agentResult 'RuntimeCliPath')
+        }
 
         if ($Level -eq 'text') {
             $overall = if ($textPass) { '可用但有限制' } else { '不可用' }
         } elseif ($Level -eq 'tool') {
             $overall = if ($toolPass -and -not $toolSkipped) { '可用但有限制' } else { '可用但有限制' }
+        } elseif ($Level -eq 'agent') {
+            $overall = if ($agentPass) { '可用' } else { '不可用' }
         } else {
             $overall = if (-not $textPass) { '不可用' }
                 elseif ($toolPass -and -not $toolSkipped) { '可用' }
@@ -260,6 +301,8 @@ function Invoke-AiCliLiveTest {
                     observedToolCalls  = $textObservedToolCalls
                     toolPass           = $toolPass
                     toolSkipped        = $toolSkipped
+                    agentPass          = $agentPass
+                    agentReceipt       = $agentReceipt
                     timestampUtc       = (Get-Date).ToUniversalTime().ToString('o')
                     productVersion     = (Get-AiCliVersion)
                     profileFingerprint = (Get-AiCliProfileFingerprint -Profile $merged)
@@ -270,29 +313,35 @@ function Invoke-AiCliLiveTest {
                         $endpoint = [string](Get-AiCliProperty $merged 'endpoint')
                         if ($endpoint) { Get-AiCliContentHash -Text $endpoint } else { $null }
                     )
-                    model              = $(if ($textRuntimeIdentity) {
+                    model              = $(if ($agentRuntimeIdentity) {
+                        Get-AiCliProperty $agentRuntimeIdentity 'model'
+                    } elseif ($textRuntimeIdentity) {
                         Get-AiCliProperty $textRuntimeIdentity 'model'
                     } elseif ($plan) {
                         Get-AiCliProperty $plan 'model'
                     } else {
                         Get-AiCliProperty $models 'primary'
                     })
-                    modelProvider      = $(if ($textRuntimeIdentity) {
+                    modelProvider      = $(if ($agentRuntimeIdentity) {
+                        Get-AiCliProperty $agentRuntimeIdentity 'model_provider'
+                    } elseif ($textRuntimeIdentity) {
                         Get-AiCliProperty $textRuntimeIdentity 'model_provider'
                     } elseif ($plan) {
                         Get-AiCliProperty $plan 'modelProvider'
                     } else { $null })
-                    modelEvidence      = $(if ($textRuntimeIdentity) { 'runtime-identity' } elseif ($plan) { 'launch-plan' } else { $null })
-                    runtimeCliVersion  = $(if ($textRuntimeIdentity) { Get-AiCliProperty $textRuntimeIdentity 'cli_version' } else { $null })
-                    runtimePermission  = $(if ($textRuntimeIdentity) { Get-AiCliProperty $textRuntimeIdentity 'permission' } else { $null })
-                    permissionEvidence = $(if ($textRuntimeIdentity) { 'runtime-identity' } else { $null })
+                    modelEvidence      = $(if ($agentRuntimeIdentity -or $textRuntimeIdentity) { 'runtime-identity' } elseif ($plan) { 'launch-plan' } else { $null })
+                    runtimeCliVersion  = $(if ($agentRuntimeIdentity) { Get-AiCliProperty $agentRuntimeIdentity 'cli_version' } elseif ($textRuntimeIdentity) { Get-AiCliProperty $textRuntimeIdentity 'cli_version' } else { $null })
+                    runtimePermission  = $(if ($agentRuntimeIdentity) { Get-AiCliProperty $agentRuntimeIdentity 'permission' } elseif ($textRuntimeIdentity) { Get-AiCliProperty $textRuntimeIdentity 'permission' } else { $null })
+                    permissionEvidence = $(if ($agentRuntimeIdentity -or $textRuntimeIdentity) { 'runtime-identity' } else { $null })
                     wire               = $(if ($plan) { Get-AiCliProperty $plan 'wire' } else { Get-AiCliProperty $merged 'transport' })
                     requestedEffort    = $(if ($plan) { Get-AiCliProperty $plan 'effort' } else { Get-AiCliProperty $merged 'defaultEffort' })
                     effectiveEffort    = $(if ($plan) { Get-AiCliProperty $plan 'effectiveEffort' } else { $null })
                     effortEvidence     = $(if ($plan) { 'launch-plan' } else { 'profile-default' })
                     attestedEffort     = $null
-                    cliPath            = $(if ($textRuntimeCliPath) { $textRuntimeCliPath } elseif ($plan) { Get-AiCliProperty $plan 'fileName' } else { $null })
-                    cliVersion         = $(if ($textRuntimeCliPath) {
+                    cliPath            = $(if ($agentRuntimeCliPath) { $agentRuntimeCliPath } elseif ($textRuntimeCliPath) { $textRuntimeCliPath } elseif ($plan) { Get-AiCliProperty $plan 'fileName' } else { $null })
+                    cliVersion         = $(if ($agentRuntimeIdentity) {
+                        Get-AiCliProperty $agentRuntimeIdentity 'cli_version'
+                    } elseif ($textRuntimeCliPath) {
                         Get-AiCliPlanVersionEvidence -Plan ([pscustomobject]@{
                             engine = 'codex'; fileName = $textRuntimeCliPath; argumentList = @()
                         })
@@ -312,6 +361,7 @@ function Invoke-AiCliLiveTest {
         profileId = $ProfileId
         level     = $Level
         note      = '真实目标 CLI；不记录提示/回复正文；未执行的工具层不会标记为通过'
+        agentReceipt = $agentReceipt
     }
     if ($Json) { Write-AiCliJson $result } else { Write-AiCliDoctorText -Result $result }
     return (Get-AiCliExitCodeFromStatus $overall)
