@@ -3162,20 +3162,29 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
     It 'routes stdin and native arguments through run and emits one JSON envelope' {
         InModuleScope AiCliProfileManager {
             Mock Get-AiCliResolvedProfile { [ordered]@{ id = 'local'; engine = 'codex' } }
-            Mock Invoke-AiCliProfileCapture {
+            Mock New-AiCliRecoverableRun {
+                [pscustomobject]@{ runId = ('d' * 32); status = 'pending' }
+            }
+            Mock Invoke-AiCliRecoverableRun {
                 [pscustomobject]@{
-                    profileId = $ProfileId
-                    engine = 'codex'
-                    exitCode = 0
-                    stdout = '{"ok":true}'
-                    stderr = ''
-                    timedOut = $false
-                    durationMs = 10
-                    outputTruncated = $false
-                    usage = [ordered]@{
-                        input_tokens = [long]21
-                        cached_input_tokens = [long]8
-                        output_tokens = [long]5
+                    runId = ('d' * 32)
+                    status = 'completed'
+                    resumeSupported = $false
+                    resumeReason = 'terminal_completed'
+                    receipt = [pscustomobject]@{
+                        profileId = 'local'
+                        engine = 'codex'
+                        exitCode = 0
+                        stdout = '{"ok":true}'
+                        stderr = ''
+                        timedOut = $false
+                        durationMs = 10
+                        outputTruncated = $false
+                        usage = [ordered]@{
+                            input_tokens = [long]21
+                            cached_input_tokens = [long]8
+                            output_tokens = [long]5
+                        }
                     }
                 }
             }
@@ -3186,9 +3195,10 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
             try {
                 [Console]::SetIn($reader)
                 [Console]::SetOut($writer)
-                $eventFile = Join-Path $TestDrive 'router-events.jsonl'
+                $eventFile = Join-Path (Split-Path -Parent $TestDrive) `
+                    ('router-events-{0}.jsonl' -f (Split-Path -Leaf $TestDrive))
                 $code = Invoke-AiCliRouter -Tokens @(
-                    'run', 'local', '--project', 'C:\work', '--stdin', '--json', '--sandbox-policy', 'danger-full-access',
+                    'run', 'local', '--project', $TestDrive, '--stdin', '--json', '--sandbox-policy', 'danger-full-access',
                     '--timeout-seconds', '9', '--max-output-chars', '4096', '--event-file', $eventFile, '--',
                     'exec', '--json', '-'
                 )
@@ -3204,17 +3214,17 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
             $payload.run.stdout | Should -Be '{"ok":true}'
             ($payload.run.usage | ConvertTo-Json -Compress) |
                 Should -Be '{"input_tokens":21,"cached_input_tokens":8,"output_tokens":5}'
-            Should -Invoke Invoke-AiCliProfileCapture -Times 1 -Exactly -ParameterFilter {
+            Should -Invoke New-AiCliRecoverableRun -Times 1 -Exactly -ParameterFilter {
                 $ProfileId -eq 'local' -and
-                $ProjectPath -eq 'C:\work' -and
-                $StdInText -eq 'PROMPT_FROM_STDIN' -and
+                $ProjectPath -eq $TestDrive -and
+                $TaskText -eq 'PROMPT_FROM_STDIN' -and
                 $TimeoutMs -eq 9000 -and
                 $MaxCaptureChars -eq 4096 -and
-                $MachineEventFile -eq $eventFile -and
-                $SandboxPolicy -eq 'danger-full-access' -and
-                $NativeArgs.Count -eq 3 -and
-                $NativeArgs[0] -eq 'exec' -and
-                $NativeArgs[2] -eq '-'
+                $ConsumerEventFile -eq $eventFile
+            }
+            Should -Invoke Invoke-AiCliRecoverableRun -Times 1 -Exactly -ParameterFilter {
+                $RunId -eq ('d' * 32) -and
+                $InitialTaskText -eq 'PROMPT_FROM_STDIN'
             }
         }
     }

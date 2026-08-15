@@ -1,6 +1,6 @@
 # Codex、Claude Code 与 Open Interpreter CLI 中文手册
 
-适用版本：AI CLI Profile Manager `0.3.10`（source/install/runtime/live 分层验收）
+适用版本：AI CLI Profile Manager `0.3.11`（source/install/runtime/live 分层验收）
 用途：帮助中文用户直接使用原生 Codex CLI、Claude Code 和当前官方 Rust Open Interpreter。
 
 > aicli 只负责选择 Profile 并启动原生 CLI。本手册保留上游英文命令，便于复制和搜索。上游版本会变化；某条命令不在当前 CLI 的 `/help` 或斜杠菜单中时，以当前官方界面为准。
@@ -39,6 +39,17 @@ aicli start codex-deepseek --project "D:\项目\演示"
 ```
 
 启动参数在进程创建时生效，会话内斜杠命令在当前会话中生效。需要更换 Provider 时退出当前 CLI，重新运行 `aicli start <Profile ID>`。
+
+程序、benchmark 或 Observer 应使用可恢复 machine 入口，而不是把 `codex exec resume` 字符串塞入新会话：
+
+```powershell
+$task | aicli run start codex-ollama-main --stdin --json --project C:\Work\Project --background
+aicli run status <run-id> --json
+aicli run resume <run-id> --json --background
+aicli run abort <run-id> --json
+```
+
+`run resume` 调用 app-server `thread/resume`，必须回读原 thread/session 和同一 workspace/Profile/model/provider/effort；新 thread 或任何身份漂移都返回 `resumeSupported=false`。事件和回执按 attempt 追加并链式校验，旧 partial 不得和新 workspace attempt 合并。上层可调用该控制面自动续跑，不需要用户再发一条“继续”消息。
 
 ## 2. Codex CLI
 

@@ -16,10 +16,10 @@ Describe 'Docs contract' {
         }
     }
 
-    It 'README mentions aicli and 0.3.10' {
+    It 'README mentions aicli and 0.3.11' {
         $readme = Get-Content (Join-Path $script:Root 'README.md') -Raw
         $readme | Should -Match 'aicli'
-        $readme | Should -Match '0\.3\.10'
+        $readme | Should -Match '0\.3\.11'
     }
 
     It 'no TODO placeholders in user docs' {
@@ -29,10 +29,10 @@ Describe 'Docs contract' {
         }
     }
 
-    It 'binds generated handbook PDFs to the current 0.3.10 main documentation' {
+    It 'binds generated handbook PDFs to the current 0.3.11 main documentation' {
         $builder = Get-Content (Join-Path $script:Root 'scripts\Build-Pdfs.py') -Raw
         $playwrightHelper = Join-Path $script:Root 'scripts\Print-HtmlPdfPlaywright.js'
-        $builder | Should -Match 'VERSION\s*=\s*"0\.3\.10"'
+        $builder | Should -Match 'VERSION\s*=\s*"0\.3\.11"'
         $builder | Should -Match 'REPOSITORY_BLOB\s*=\s*"https://github\.com/wlyaaaaa/ai-cli-profile-manager/blob/main"'
         $builder | Should -Match 'render_with_playwright'
         Test-Path -LiteralPath $playwrightHelper -PathType Leaf | Should -BeTrue

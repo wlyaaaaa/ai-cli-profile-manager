@@ -32,7 +32,9 @@ $name — 命令帮助
   $cmd setup
   $cmd profile list
   $cmd start <profile> [--project <path>] [-- <native-args...>]
-  $cmd run <profile> --stdin --json --project <path> [--sandbox-policy <policy>] [--no-web-search] -- <native-args...>
+  $cmd run start <profile> --stdin --json --project <path> [--background] [--no-web-search]
+  $cmd run status|abort <run-id> --json
+  $cmd run resume <run-id> --json [--background]
   $cmd doctor [profile]
   $cmd test <profile> --live [--level text|tool|all] [--yes]
   $cmd proxy <ccp|cliproxy> status
@@ -167,6 +169,11 @@ function Show-AiCliHelpResume {
 命令：
   Codex:   codex resume   或会话内恢复命令（见官方）
   Claude:  claude -c / --continue  或 /resume
+  AICLI harness:
+    aicli run start <profile> --stdin --json --project <path> --background
+    aicli run status <run-id> --json
+    aicli run resume <run-id> --json [--background]
+    aicli run abort <run-id> --json
 
 执行后：加载历史上下文；不是新进程的“干净状态”。
 
@@ -176,6 +183,11 @@ function Show-AiCliHelpResume {
   - 新进程：重新 aicli start（可换 Profile）
   - 新会话：在同一 CLI 内开新 thread
   - 恢复会话：继续旧 thread
+
+AICLI harness 只在 app-server 回读同一 thread/session、工作区、Profile 指纹、
+模型、Provider、effort 与全访问权限后 exact resume。进程退出、瞬态上游错误或
+重启后证据不足会返回 resume_supported=false 与原因；禁止把旧上下文塞入新
+thread 冒充恢复。默认最多自动恢复 3 次，额度暂停不消耗该次数。
 '@
 }
 
@@ -203,7 +215,7 @@ function Show-AiCliHelpCommand {
         setup     = @('首次引导与本机体检。','aicli setup','显示环境状态并选择要配置的 Profile。')
         profile   = @('查看、配置、设默认值或删除用户 Profile。','aicli profile list --available；aicli profile configure <模板 ID> [--reuse-existing-secret | --reuse-secret-from <Profile ID>]；aicli profile remove <ID>','秘密复用只允许同一凭据域且不读取明文；删除最后一个引用某密钥的 Profile 时，也会删除对应 DPAPI 密钥文件。')
         start     = @('在指定项目目录中启动真实上游 CLI。','aicli start <精确 Profile ID> --project <项目路径>','第三方 Profile 封闭 Provider、模型、Responses、max 映射和 SecretRef；用户无需拼底层参数。')
-        run       = @('供上层程序通过 stdin 调用一个受墙钟、步数、工具和输出预算监管的任务；预算不等于权限沙箱。','aicli run <Profile ID> --stdin --json --project <路径> [--sandbox-policy <policy>] [--no-web-search] -- <原生参数>','所有当前及未来 Codex harness Profile 固定使用原生 danger-full-access，并默认提供固定 HTTPS RSS 的受管 public_web_search；显式较低权限会失败关闭，--no-web-search 只关闭搜索。回读 exact 运行时模型/Provider/权限身份，只返回公开结果与结果侧元数据，不返回环境或密钥。')
+        run       = @('供上层程序通过 stdin 调用可恢复、受墙钟/步数/工具/输出预算监管的任务；预算不等于权限沙箱。','aicli run start <Profile ID> --stdin --json --project <路径> [--background]；aicli run status|resume|abort <run-id> --json','所有当前及未来 Codex harness Profile 固定使用原生 danger-full-access，并默认提供受管 public_web_search。每个 run 绑定持久 thread/session 与工作区/Profile/模型/Provider/effort；恢复身份变化、证据链损坏或新 thread 都失败关闭。后台控制器可供 benchmark 轮询，瞬态错误最多自动 exact-resume 3 次。')
         doctor    = @('检查 CLI、Profile、端点、代理和配置冲突，不发送模型请求。','aicli doctor [Profile ID] [--json]','输出“通过 / 可用 / 可用但有限制 / 不可用”及下一步。')
         test      = @('通过目标 CLI 发送一次真实连通请求。','aicli test <Profile ID> --live --level text --yes','会消耗额度；最终正文必须严格匹配 PONG，未执行的工具测试不会冒充通过。')
         proxy     = @('安装、登录、启停和检查 ccp / CLIProxyAPI。','aicli proxy <ccp|cliproxy> status','只允许 loopback 监听；ChatGPT 通道为可选第三方方案。')

@@ -787,14 +787,23 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
 Describe 'LocalGpuBroker machine-run timeout ordering' {
     It 'routes the static Toolkit ABI without enabling step or tool budgets' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
-            Mock Invoke-AiCliProfileCapture {
+            Mock New-AiCliRecoverableRun {
+                [pscustomobject]@{ runId = ('e' * 32); status = 'pending' }
+            }
+            Mock Invoke-AiCliRecoverableRun {
                 [pscustomobject]@{
-                    profileId = $ProfileId; engine = 'codex'; model = 'qwen-main-v1'
-                    exitCode = 0; stdout = ''; stderr = ''; timedOut = $false
-                    durationMs = 1; outputTruncated = $false; usage = @{}
+                    runId = ('e' * 32); status = 'completed'
+                    resumeSupported = $false; resumeReason = 'terminal_completed'
+                    receipt = [pscustomobject]@{
+                        profileId = 'codex-ollama-main'; engine = 'codex'
+                        model = 'qwen-main-v1'; exitCode = 0; stdout = ''
+                        stderr = ''; timedOut = $false; durationMs = 1
+                        outputTruncated = $false; usage = @{}
+                    }
                 }
             }
-            $eventFile = Join-Path $Work 'toolkit-events.jsonl'
+            $eventFile = Join-Path (Split-Path -Parent $Work) `
+                ('toolkit-events-{0}.jsonl' -f (Split-Path -Leaf $Work))
             $oldOut = [Console]::Out
             $writer = [IO.StringWriter]::new()
             try {
@@ -811,17 +820,18 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
             }
 
             $code | Should -Be 0
-            Should -Invoke Invoke-AiCliProfileCapture -Times 1 -Exactly `
+            Should -Invoke New-AiCliRecoverableRun -Times 1 -Exactly `
                 -ParameterFilter {
                     $ProfileId -eq 'codex-ollama-main' -and
-                    $StdInText -eq 'STATIC TASK' -and
+                    $TaskText -eq 'STATIC TASK' -and
                     $TimeoutMs -eq 7200000 -and
                     $MaxCaptureChars -eq 1000000 -and
-                    $SandboxPolicy -eq 'danger-full-access' -and
                     $WatchdogOnly -and $AuthorityPreludeStdout -and
-                    -not $EnforceStepLimit -and -not $EnforceToolCallLimit -and
-                    $MachineEventFile -eq $eventFile -and
-                    @($NativeArgs) -join "`n" -eq "exec`n--json`n-"
+                    $ConsumerEventFile -eq $eventFile
+                }
+            Should -Invoke Invoke-AiCliRecoverableRun -Times 1 -Exactly `
+                -ParameterFilter {
+                    $RunId -eq ('e' * 32) -and $InitialTaskText -eq 'STATIC TASK'
                 }
         }
     }
@@ -1064,8 +1074,11 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
             $json = $writer.ToString()
             $payload = $json | ConvertFrom-Json -Depth 30
             $payload.overallStatus | Should -Be '不可用'
-            $payload.error.category | Should -BeExactly 'invalid_run'
-            $payload.error.summary | Should -Match '\*\*\*REDACTED\*\*\*'
+            $payload.recovery.status | Should -BeExactly 'failed_closed'
+            $payload.recovery.resumeReason | Should -BeExactly `
+                'capture_exception_before_verified_receipt'
+            $payload.run.stderr | Should -BeExactly `
+                'Recoverable capture failed before a verified receipt.'
             foreach ($variant in $variants) {
                 $json | Should -Not -Match ([regex]::Escape($variant))
             }

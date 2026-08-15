@@ -2,6 +2,20 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
+## [0.3.11] - 2026-08-15
+
+### 新增
+
+- `aicli run` 为所有当前和未来 Codex harness Profile 增加 root-owned 可恢复运行：每个 run 持久化 exact thread/session、workspace、Profile 指纹、model/provider、requested/effective effort、协议、attempt 与事件游标；任务正文、隐藏推理和工具载荷不落盘。
+- 新增稳定机器控制面：`run start`、`run resume`、`run status`、`run abort`；`start/resume --background` 通过仅当前用户可连接的命名管道交付首次任务并立即返回 run id，供 benchmark/observer 后台轮询。
+- app-server 恢复改用真实 `thread/resume`。只有返回同一 thread/session 且工作区、Profile、模型、Provider、effort、CLI 与五项完全访问权限身份都一致时才继续；任何新 thread、reroute、身份漂移或证据不足均失败关闭。
+
+### 可靠性与审计
+
+- 事件与 receipt 按 attempt 追加为不可变分段，使用单调 sequence、文件 SHA256、segmentHash、stateHash 与前向 journal hash 链；重启后只从已关闭的事件 writer 对账，孤儿/重复/迟到终态或重放覆盖都会失效。
+- 瞬态上游错误、进程退出和 app-server stream 断开最多自动 exact-resume 3 次；额度暂停来自公开 `codexErrorInfo` 的结构化分类，不消耗恢复次数，也不依赖或公开厂商错误文本。硬预算、取消、身份错误和结构性协议错误不重试。
+- 回执分开记录首次/恢复 active time、额度等待、重复 continuation 字节、各 attempt usage 与 wall time；重复输入不冒充模型有效工作或费用证据。控制器丢失时无法回读的 active duration 显式标为 partial，不用 0 或 wall time 伪造。无法证明旧版/旧 ephemeral thread 可恢复时明确返回 `resumeSupported=false`，不得把 partial 与新 workspace attempt 合并。
+
 ## [0.3.10] - 2026-08-15
 
 ### 修复

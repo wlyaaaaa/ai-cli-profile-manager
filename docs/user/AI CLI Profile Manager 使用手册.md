@@ -1,6 +1,6 @@
 # AI CLI Profile Manager 使用手册
 
-适用版本：`0.3.10`（源码与安装目标；发布、安装和 Live 证据须分别核对）
+适用版本：`0.3.11`（源码与安装目标；发布、安装和 Live 证据须分别核对）
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
@@ -19,7 +19,7 @@ AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter �
 
 ### 1.2 安装本工具
 
-`0.3.10` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
+`0.3.11` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
 
 ```powershell
 $version = '<从 Releases 页面选择的已发布版本>'
@@ -61,7 +61,7 @@ pwsh -File .\scripts\Install.ps1 -Force
 2. 创建 `%LOCALAPPDATA%\aicli\bin\aicli.cmd` 与 `aicli.ps1` 垫片，并尝试加入用户 `PATH`。
 3. 尝试在当前用户 PowerShell 7 配置中加入模块自动导入块。
 4. 先验证临时候选版本，再替换目标版本；失败时恢复原版本。
-5. 升级到 `0.3.10` 时，先预检再隔离可证明由 AICLI 管理的 Qwen3.7 旧入口，同时保留新 06-08 exact Profile。
+5. 从 `0.3.10` 之前的版本升级时，先预检再隔离可证明由 AICLI 管理的 Qwen3.7 旧入口，同时保留新 06-08 exact Profile。
 
 退役迁移不会把 Qwen3.7 自动改投 Qwen3.8，也不读取、复制、移动或删除 SecretRef/密钥。身份、marker、body/state 哈希与内容寻址都闭合的旧用户 Profile、Codex TOML/catalog 和旧模块版本会移入可恢复目录 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。任何未知、用户改写或 reparse 项都会在任何安装变更前失败关闭；先审计该路径，不要盲目删除。
 
@@ -168,6 +168,17 @@ aicli version
 `aicli run` 是供上层程序使用的 Codex harness，不等于交互式 `start`：所有当前和未来 Codex 模型固定使用原生 `danger-full-access` 与 `approvalPolicy=never`。规则按 `engine=codex` 生效，因此未来新增 Profile 自动继承；显式请求 `read-only` / `workspace-write` 会在模型调用前失败关闭。运行还必须回读 actual model、modelProvider 与 `dangerFullAccess` 权限身份，并拒绝任何模型重路由。只把受信任工作区交给该入口。
 
 同一通用规则默认注册受管 `public_web_search`：仅访问固定 `https://cn.bing.com/search` RSS，拒绝重定向、Cookie、模型指定 endpoint/Header/Key，并把结果标作不可信公共文本。Windows 系统代理只用于固定 HTTPS 出口且不提供默认凭据。事件和回执仅记录搜索生命周期、provider 与次数，不记录查询/结果正文；本次不需要网络时使用 `--no-web-search`，权限仍是 `danger-full-access`。
+
+`0.3.11` 起，`aicli run start` 为每个任务建立 root-owned 持久 run；任务正文仍只从 stdin 输入，不写入恢复状态。调用方用 `run status` 读取状态，用 `run resume` 继续被中断的 exact thread，用 `run abort` 协作中止；`start/resume --background` 会立即返回 run id。恢复前后必须一致回读 thread/session、workspace、Profile 指纹、model/provider、requested/effective effort 和权限；任一项变化都会失败关闭。不能证明 exact resume 时，只能在新 workspace 建立新 attempt 全量重跑，不得合并旧 partial。
+
+非交互恢复控制面：
+
+```powershell
+$task | aicli run start codex-ollama-main --stdin --json --project C:\Work\Project --background
+aicli run status <run-id> --json
+aicli run resume <run-id> --json --background
+aicli run abort <run-id> --json
+```
 
 ## 3. Profile 管理
 
@@ -479,7 +490,7 @@ aicli update guide self
 
 `update check` 和 `update guide` 只检查来源、版本并打印同渠道指引，不静默升级 Codex、Claude Code、Ollama 或本工具。识别来源后，应继续使用原安装渠道，避免 npm、WinGet 和原生安装器互相覆盖。
 
-从任何旧 AICLI 版本升级到 `0.3.10` 时，应使用同一发行包内的 `scripts\Install.ps1`；该安装器会完成旧 Qwen3.7 可验证遗留入口的可恢复隔离，并保留新 06-08 exact Profile。如果预检报告未知或篡改项，安装在写入新版本前中止；请先备份并人工审计，不要绕过门禁。
+从 `0.3.10` 之前的 AICLI 版本升级时，应使用同一发行包内的 `scripts\Install.ps1`；该安装器会完成旧 Qwen3.7 可验证遗留入口的可恢复隔离，并保留新 06-08 exact Profile。如果预检报告未知或篡改项，安装在写入新版本前中止；请先备份并人工审计，不要绕过门禁。
 
 Open Interpreter Rust 可按上游支持使用：
 

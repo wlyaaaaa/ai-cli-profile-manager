@@ -531,7 +531,7 @@ function Resolve-AiCliCodexLaunchExecutable {
     $provider = Get-AiCliProperty $MergedProfile 'provider'
     $id = Get-AiCliProperty $MergedProfile 'id'
     # Interactive official sessions may use the Desktop launcher. Machine runs
-    # require the npm entry because the disposable runtime and event parser
+    # require the npm entry because the managed machine runtime and event parser
     # bind to the exact codex.js package rather than the private Desktop tree.
     $preferDesktop = -not $MachineRun -and ($provider -eq 'openai' -or $id -eq 'codex-official')
     $resolved = $null
@@ -607,7 +607,7 @@ function Build-AiCliCodexLaunchPlan {
             }
             $authSourceFile = [IO.Path]::GetFullPath($authCandidate)
             $sandboxBoundary = 'codex-native'
-            $notes += '机器入口仅复制 auth.json 到一次性 CODEX_HOME；不复制配置、规则、skills、sessions 或历史。'
+            $notes += '机器入口仅复制 auth.json 到本次受管 CODEX_HOME；可恢复 run 在终态前持久保留该独占 home，不复制配置、规则、skills 或其他会话。'
             $notes += 'Codex harness 固定原生 danger-full-access；只应传入可信工作区与任务。'
         }
     }

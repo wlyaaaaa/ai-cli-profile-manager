@@ -53,7 +53,8 @@ function Initialize-AiCliMachineRuntime {
         [ValidateSet('danger-full-access','read-only','workspace-write')][string]$Policy = 'read-only',
         [int]$MaxSteps = 20,
         [int]$MaxToolCalls = 80,
-        [switch]$DisableWebSearch
+        [switch]$DisableWebSearch,
+        [object]$RecoveryContext = $null
     )
     $workspace = [IO.Path]::GetFullPath([string](Get-AiCliProperty $Plan 'workingDirectory'))
     if (-not (Test-Path -LiteralPath $workspace -PathType Container)) {
@@ -158,8 +159,36 @@ function Initialize-AiCliMachineRuntime {
                 $arguments[-1] -ne '-') {
                 throw 'Codex machine run requires native arguments: exec --json ... -'
             }
-            $codexHome = Join-Path $runtimePath 'codex-home'
-            New-Item -ItemType Directory -Path $codexHome -Force | Out-Null
+            $codexHome = if ($null -ne $RecoveryContext) {
+                $recoveryRunId = [string](
+                    Get-AiCliProperty $RecoveryContext 'runId'
+                )
+                $requestedHome = [string](
+                    Get-AiCliProperty $RecoveryContext 'durableCodexHome'
+                )
+                $expectedHome = Join-Path (
+                    Get-AiCliRecoverableRunRoot -RunId $recoveryRunId
+                ) 'codex-home'
+                if ([string]::IsNullOrWhiteSpace($requestedHome) -or
+                    -not [IO.Path]::GetFullPath($requestedHome).Equals(
+                        [IO.Path]::GetFullPath($expectedHome),
+                        [StringComparison]::OrdinalIgnoreCase
+                    )) {
+                    throw 'Recoverable Codex home is outside the bound run root.'
+                }
+                $homeItem = Get-Item -LiteralPath $expectedHome -Force `
+                    -ErrorAction Stop
+                if (-not $homeItem.PSIsContainer -or
+                    ($homeItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                    throw 'Recoverable Codex home must be an ordinary directory.'
+                }
+                [IO.Path]::GetFullPath($expectedHome)
+            } else {
+                Join-Path $runtimePath 'codex-home'
+            }
+            if (-not (Test-Path -LiteralPath $codexHome -PathType Container)) {
+                New-Item -ItemType Directory -Path $codexHome -Force | Out-Null
+            }
             foreach ($configFile in @((Get-AiCliProperty $runtimeConfig 'configFiles'))) {
                 if (-not [string]::IsNullOrWhiteSpace([string]$configFile) -and
                     (Test-Path -LiteralPath ([string]$configFile) -PathType Leaf)) {
@@ -208,8 +237,9 @@ function Initialize-AiCliMachineRuntime {
             )
             # Codex 0.145 accepts --profile for interactive/runtime commands,
             # but rejects it for app-server before initialize. Keep the
-            # explicit -c provider/model overrides and disposable CODEX_HOME,
-            # while removing only this runtime-only selector.
+            # explicit -c provider/model overrides and isolated CODEX_HOME,
+            # while removing only this runtime-only selector. Recovery runs
+            # bind that home to one durable run; one-shot captures still clean it.
             $appServerGlobalArguments = [System.Collections.Generic.List[string]]::new()
             for ($index = 0; $index -lt $globalArguments.Count; $index++) {
                 if ([string]$globalArguments[$index] -eq '--profile') {
@@ -277,6 +307,16 @@ function Initialize-AiCliMachineRuntime {
                 webSearchEnabled = (
                     $Policy -eq 'danger-full-access' -and -not $DisableWebSearch
                 )
+            }
+            if ($null -ne $RecoveryContext) {
+                foreach ($name in @(
+                    'runId','mode','threadId','sessionId','workspaceHash',
+                    'profileFingerprint','requestedEffort','effectiveEffort'
+                )) {
+                    $bridgeConfig[$name] = Get-AiCliProperty `
+                        $RecoveryContext $name
+                }
+                $bridgeConfig['durableSession'] = $true
             }
             if ($requireRuntimeIdentity) {
                 $bridgeConfig['expectedModel'] = $expectedModel
@@ -393,6 +433,10 @@ function Initialize-AiCliMachineRuntime {
                 $Policy -eq 'danger-full-access' -and
                 -not $DisableWebSearch
             )
+            DurableSession = $null -ne $RecoveryContext
+            CodexHome = if ($kind -eq 'codex') {
+                [string]$environment['CODEX_HOME']
+            } else { $null }
         }
     } catch {
         Remove-AiCliMachineRuntime -RuntimePath $runtimePath -Workspace $workspace

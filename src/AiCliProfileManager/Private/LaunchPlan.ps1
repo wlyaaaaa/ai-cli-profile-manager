@@ -342,7 +342,8 @@ function Invoke-AiCliProfileCapture {
         [switch]$EnforceToolCallLimit,
         [switch]$WatchdogOnly,
         [switch]$AuthorityPreludeStdout,
-        [switch]$DisableWebSearch
+        [switch]$DisableWebSearch,
+        [object]$RecoveryContext = $null
     )
     $enforceStepLimitEffective = if ($PSBoundParameters.ContainsKey('EnforceStepLimit')) {
         [bool]$EnforceStepLimit
@@ -362,12 +363,41 @@ function Invoke-AiCliProfileCapture {
     if ($engine -ne 'codex' -and $DisableWebSearch) {
         throw '--no-web-search is supported only by Codex harness runs.'
     }
+    if ($null -ne $RecoveryContext) {
+        if ($engine -ne 'codex') {
+            throw 'Recoverable sessions require the Codex app-server harness.'
+        }
+        foreach ($binding in @(
+            @{ Name='workspace'; Actual=[string](Get-AiCliProperty $plan 'workingDirectory') },
+            @{ Name='profileFingerprint'; Actual=[string](Get-AiCliProperty $plan 'profileFingerprint') },
+            @{ Name='model'; Actual=[string](Get-AiCliProperty $plan 'model') },
+            @{ Name='modelProvider'; Actual=[string](Get-AiCliProperty $plan 'modelProvider') },
+            @{ Name='requestedEffort'; Actual=[string](Get-AiCliProperty $plan 'effort') },
+            @{ Name='effectiveEffort'; Actual=[string](Get-AiCliProperty $plan 'effectiveEffort') }
+        )) {
+            $expected = [string](Get-AiCliProperty $RecoveryContext $binding.Name)
+            $actual = $binding.Actual
+            $matches = if ($binding.Name -eq 'workspace') {
+                try {
+                    [IO.Path]::GetFullPath($expected).Equals(
+                        [IO.Path]::GetFullPath($actual),
+                        [StringComparison]::OrdinalIgnoreCase
+                    )
+                } catch { $false }
+            } else {
+                $expected -ceq $actual
+            }
+            if (-not $matches) {
+                throw "Recoverable run binding changed: $($binding.Name)."
+            }
+        }
+    }
     if ($engine -eq 'codex' -and @($NativeArgs).Count -eq 0) {
         $plan.argumentList = @((Get-AiCliProperty $plan 'argumentList')) + @('exec', '--json', '-')
     }
     $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText $StdInText `
         -Policy $SandboxPolicy -MaxSteps $MaxSteps -MaxToolCalls $MaxToolCalls `
-        -DisableWebSearch:$DisableWebSearch
+        -DisableWebSearch:$DisableWebSearch -RecoveryContext $RecoveryContext
     $started = [System.Diagnostics.Stopwatch]::StartNew()
     $defaultEventProtocol = if ($engine -eq 'codex') { 'codex-jsonl' } else { 'none' }
     $runtimeEventProtocol = [string](Get-AiCliProperty $runtime 'EventProtocol')
@@ -387,6 +417,7 @@ function Invoke-AiCliProfileCapture {
         (Get-AiCliProperty $plan 'machineRuntime') 'localGpuBrokerSession'
     $requireRuntimeIdentity = $engine -eq 'codex'
     $verifiedPublicRuntimeIdentity = $null
+    $verifiedRecoveryIds = $null
     try {
         if ($null -ne $sessionConfiguration) {
             $localGpuBrokerSession = Open-AiCliLocalGpuBrokerSession `
@@ -468,6 +499,15 @@ function Invoke-AiCliProfileCapture {
             } else { '' }) `
             -ExpectedRuntimeModelProvider $(if ($requireRuntimeIdentity) {
                 [string](Get-AiCliProperty $plan 'modelProvider')
+            } else { '' }) `
+            -MachineEventSequenceBase $(if ($null -ne $RecoveryContext) {
+                [int](Get-AiCliProperty $RecoveryContext 'eventSequenceBase' 0)
+            } else { 0 }) `
+            -AbortSignalPath $(if ($null -ne $RecoveryContext) {
+                [string](Get-AiCliProperty $RecoveryContext 'abortSignalPath')
+            } else { '' }) `
+            -MachineEventMirrorFile $(if ($null -ne $RecoveryContext) {
+                [string](Get-AiCliProperty $RecoveryContext 'consumerEventFile')
             } else { '' })
         if ($requireRuntimeIdentity) {
             $capturedIdentity = Get-AiCliProperty $captured 'RuntimeIdentity'
@@ -522,6 +562,77 @@ function Invoke-AiCliProfileCapture {
                     )
                 }
             }
+            if ($null -ne $RecoveryContext) {
+                $capturedRecovery = Get-AiCliProperty `
+                    $capturedIdentity 'recovery'
+                $capturedThreadId = Get-AiCliPublicThreadId (
+                    Get-AiCliProperty $captured 'ThreadId'
+                )
+                $capturedSessionId = Get-AiCliPublicThreadId (
+                    Get-AiCliProperty $captured 'SessionId'
+                )
+                $capturedTurnId = Get-AiCliPublicThreadId (
+                    Get-AiCliProperty $captured 'TurnId'
+                )
+                $recoveryMode = [string](
+                    Get-AiCliProperty $RecoveryContext 'mode'
+                )
+                if ($null -eq $capturedRecovery -or
+                    [string](Get-AiCliProperty $capturedRecovery 'mode') -cne
+                        $recoveryMode -or
+                    [string](Get-AiCliProperty $capturedRecovery 'thread_id') -cne
+                        $capturedThreadId -or
+                    [string](Get-AiCliProperty $capturedRecovery 'session_id') -cne
+                        $capturedSessionId -or
+                    [string](Get-AiCliProperty $capturedRecovery 'workspace_hash') -cne
+                        [string](Get-AiCliProperty $RecoveryContext 'workspaceHash') -or
+                    [string](Get-AiCliProperty $capturedRecovery 'run_id') -cne
+                        [string](Get-AiCliProperty $RecoveryContext 'runId') -or
+                    [string](Get-AiCliProperty $capturedRecovery 'profile_fingerprint') -cne
+                        [string](Get-AiCliProperty $RecoveryContext 'profileFingerprint') -or
+                    [string](Get-AiCliProperty $capturedRecovery 'requested_effort') -cne
+                        [string](Get-AiCliProperty $RecoveryContext 'requestedEffort') -or
+                    [string](Get-AiCliProperty $capturedRecovery 'reasoning_effort') -cne
+                        [string](Get-AiCliProperty $RecoveryContext 'effectiveEffort') -or
+                    [string]::IsNullOrWhiteSpace($capturedThreadId) -or
+                    [string]::IsNullOrWhiteSpace($capturedSessionId) -or
+                    [string]::IsNullOrWhiteSpace($capturedTurnId) -or
+                    ($recoveryMode -eq 'resume' -and (
+                        $capturedThreadId -cne [string](
+                            Get-AiCliProperty $RecoveryContext 'threadId'
+                        ) -or
+                        $capturedSessionId -cne [string](
+                            Get-AiCliProperty $RecoveryContext 'sessionId'
+                        )
+                    ))) {
+                    throw 'Codex recoverable run has no matching session/thread/turn identity.'
+                }
+                $verifiedPublicRuntimeIdentity['recovery'] = [ordered]@{
+                    mode = $recoveryMode
+                    thread_id = $capturedThreadId
+                    session_id = $capturedSessionId
+                    workspace_hash = [string](
+                        Get-AiCliProperty $capturedRecovery 'workspace_hash'
+                    )
+                    run_id = [string](
+                        Get-AiCliProperty $capturedRecovery 'run_id'
+                    )
+                    profile_fingerprint = [string](
+                        Get-AiCliProperty $capturedRecovery 'profile_fingerprint'
+                    )
+                    requested_effort = [string](
+                        Get-AiCliProperty $capturedRecovery 'requested_effort'
+                    )
+                    reasoning_effort = [string](
+                        Get-AiCliProperty $capturedRecovery 'reasoning_effort'
+                    )
+                }
+                $verifiedRecoveryIds = [ordered]@{
+                    threadId = $capturedThreadId
+                    sessionId = $capturedSessionId
+                    turnId = $capturedTurnId
+                }
+            }
         }
         $codexLimitsHard = $engine -eq 'codex' -and [bool](Get-AiCliProperty $captured 'LimitsHard' $false)
         $cleanupConfirmed = [bool](Get-AiCliProperty $captured 'CleanupConfirmed' $true)
@@ -554,6 +665,17 @@ function Invoke-AiCliProfileCapture {
             machineEventCount = [int](
                 Get-AiCliProperty $captured 'MachineEventCount' 0
             )
+            machineEventSequenceStart = [int](
+                Get-AiCliProperty $captured 'MachineEventSequenceStart' 0
+            )
+            machineEventSequenceEnd = [int](
+                Get-AiCliProperty $captured 'MachineEventSequenceEnd' (
+                    Get-AiCliProperty $captured 'MachineEventCount' 0
+                )
+            )
+            threadId = Get-AiCliProperty $captured 'ThreadId'
+            sessionId = Get-AiCliProperty $captured 'SessionId'
+            turnId = Get-AiCliProperty $captured 'TurnId'
             usage = ConvertTo-AiCliSafeUsage (
                 Get-AiCliProperty $captured 'Usage'
             )
@@ -644,6 +766,15 @@ function Invoke-AiCliProfileCapture {
                 'disabled'
             }
             machineEventCount = 0
+            machineEventSequenceStart = $(if ($null -ne $RecoveryContext) {
+                [int](Get-AiCliProperty $RecoveryContext 'eventSequenceBase' 0)
+            } else { 0 })
+            machineEventSequenceEnd = $(if ($null -ne $RecoveryContext) {
+                [int](Get-AiCliProperty $RecoveryContext 'eventSequenceBase' 0)
+            } else { 0 })
+            threadId = $null
+            sessionId = $null
+            turnId = $null
             usage = [ordered]@{}
             runtimeIdentity = $null
             webSearch = [ordered]@{
@@ -751,6 +882,12 @@ function Invoke-AiCliProfileCapture {
             modelProvider = [string](Get-AiCliProperty $plan 'modelProvider')
             runtimeIdentity = [pscustomobject]$verifiedPublicRuntimeIdentity
         }).GetEnumerator()) {
+            $receipt | Add-Member -NotePropertyName $publicField.Key `
+                -NotePropertyValue $publicField.Value -Force
+        }
+    }
+    if ($verifiedRecoveryIds) {
+        foreach ($publicField in $verifiedRecoveryIds.GetEnumerator()) {
             $receipt | Add-Member -NotePropertyName $publicField.Key `
                 -NotePropertyValue $publicField.Value -Force
         }

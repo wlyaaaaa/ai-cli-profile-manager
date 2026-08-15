@@ -2,9 +2,9 @@
 
 面向 Windows 11 x64 的中文 PowerShell 工具：用统一 Profile 启动原生 Codex CLI、Claude Code、Qwen Code、OpenCode 和当前官方 Rust Open Interpreter，并提供 Provider 隔离、Doctor、显式 Live Test、Codex harness 与可选的第三方代理运维。
 
-命令：`aicli`　版本：`0.3.10`（`main` 源码；source/install/runtime/live 分层回读）　许可证：MIT
+命令：`aicli`　版本：`0.3.11`（`main` 源码；source/install/runtime/live 分层回读）　许可证：MIT
 
-它不是新的 Agent 或聊天外壳，不接管历史会话，也不汉化上游 CLI。本工具只负责“选哪条连接、怎样安全启动、出了问题如何验证”。
+它不是新的 Agent、聊天外壳或通用历史库，也不汉化上游 CLI。Codex harness 只额外保存恢复同一 thread 所需的身份、游标和哈希账本，不保存任务正文、隐藏推理或工具载荷。
 
 ## 三步开始
 
@@ -17,7 +17,7 @@ aicli start codex-official
 
 目标版本已安装时，确认替换可加 `-Force`。安装后请新开 PowerShell 7，再运行 `aicli version`。
 
-从旧版升级到 `0.3.10` 时，安装器继续先只读预检 Qwen3.7 遗留入口，再把身份与哈希闭合的旧 Profile、旧受管 Codex 文件和旧模块版本移入 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。新 `codex-qwen3-7-max-paygo`、其 exact 06-08 TOML 与被引用目录会被明确保留。迁移不读取、移动或删除 SecretRef/密钥；未知或被修改的遗留物会在安装变更前阻断。
+从旧版升级到 `0.3.11` 时，安装器继续先只读预检 Qwen3.7 遗留入口，再把身份与哈希闭合的旧 Profile、旧受管 Codex 文件和旧模块版本移入 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。新 `codex-qwen3-7-max-paygo`、其 exact 06-08 TOML 与被引用目录会被明确保留。迁移不读取、移动或删除 SecretRef/密钥；未知或被修改的遗留物会在安装变更前阻断。
 
 不安装的开发入口：
 
@@ -30,7 +30,7 @@ pwsh -File .\bin\aicli.ps1 doctor
 
 | 引擎 | 已实现的公开路径 | 验收口径 |
 |------|------------------|----------|
-| Codex CLI | 官方登录、精确 Qwen3.7 Max 06-08 / Qwen3.8 Max Workspace 按量、精确 DeepSeek V4 Flash 0731 / Pro 0813、本机 qwen-main/review / Qwen3.8-27B | `0.3.10` source/static；安装与 Live 只认同提交、同指纹回执 |
+| Codex CLI | 官方登录、精确 Qwen3.7 Max 06-08 / Qwen3.8 Max Workspace 按量、精确 DeepSeek V4 Flash 0731 / Pro 0813、本机 qwen-main/review / Qwen3.8-27B | `0.3.11` source/static；安装与 Live 只认同提交、同指纹回执 |
 | Claude Code | 官方登录、DeepSeek V4 Flash、Ollama、自定义 Anthropic Messages | Qwen3.7 Max/Plus 云模板已移除 |
 | Qwen Code | 本机 Ollama `qwen-main-v1` machine run | 仅机器入口 |
 | OpenCode | 本机 Ollama `qwen-main-v1` / Qwen3.8-27B 256K machine run；Desktop 目录可见 | 仅机器入口 |
@@ -57,7 +57,10 @@ Claude 官方路径在未登录机器上出现 `401`，通常表示需要先完�
 aicli profile list --available
 aicli profile configure <模板 ID>
 aicli start <精确 Profile ID> --project <可信项目路径>
-aicli run <Profile ID> --stdin --json --project <项目路径> [--sandbox-policy danger-full-access] [--no-web-search] [--event-file <绝对 JSONL 路径>] -- <原生参数...>
+aicli run start <Profile ID> --stdin --json --project <项目路径> [--background] [--no-web-search] [--event-file <绝对 JSONL 路径>]
+aicli run status <run-id> --json
+aicli run resume <run-id> --json [--background]
+aicli run abort <run-id> --json
 aicli doctor [Profile ID] [--json]
 aicli test <Profile ID> --live [--level text|tool|all] [--yes]
 aicli native <Profile ID>
@@ -65,7 +68,9 @@ aicli eject <Profile ID> [--output <新目录>]
 aicli help [主题或命令]
 ```
 
-`run` 是供上层 AI/程序使用的非交互入口：任务正文只从 stdin 输入，并返回 JSON envelope。所有当前和未来 Codex Profile 共用一个稳定权限合同：AICLI 固定 app-server 原生 `danger-full-access`，显式传入 `read-only` / `workspace-write` 会失败关闭；AICLI 不根据模型或 Provider 降权。每次 run 仍使用一次性 `CODEX_HOME`，清除无关父环境，并在公开任何模型输出前验证 app-server 返回的 actual model、modelProvider、CLI version 与 `dangerFullAccess` 权限身份。缺失、错配或 `model/rerouted` 均失败，不把 launch plan 冒充实际身份。非 Codex 引擎仍保留自己的 `read-only` / `workspace-write` 合同。
+`run` 是供上层 AI/程序使用的非交互入口：任务正文只从 stdin 输入，不写入持久状态，并返回 JSON envelope。每个 Codex run 在 `%LOCALAPPDATA%\AiCliProfileManager\state\recoverable-runs\<run-id>` 使用独立、持久 `CODEX_HOME` 与 append-only 分段事件/receipt；`--background` 会立即返回 run id，调用方可用 `status/resume/abort` 监督。瞬态上游或进程错误最多自动 exact-resume 3 次；额度暂停不消耗该次数。重启后 `resume` 只有在 app-server 真正复用同一 thread/session，且 workspace、Profile 指纹、model/provider、requested/effective effort 与全访问权限全部回读一致时才继续。任何新 thread、身份漂移、证据链损坏、迟到终态或孤儿分段都返回 `resumeSupported=false`，旧 partial 不得并入新 attempt。
+
+所有当前和未来 Codex Profile 同时共用稳定权限合同：AICLI 固定 app-server 原生 `danger-full-access`，显式传入 `read-only` / `workspace-write` 会失败关闭；AICLI 不根据模型或 Provider 降权。公开任何模型输出前仍验证 actual model、modelProvider、CLI version 与 `dangerFullAccess` 权限身份。非 Codex 引擎保留自己的 `read-only` / `workspace-write` 合同，且不宣称 exact thread resume。
 
 Codex harness 在 `thread/start` 和 `turn/start` 都选择命名权限 `permissions=:danger-full-access`；thread receipt 必须实际返回 `activePermissionProfile=:danger-full-access` 与 `sandbox.type=dangerFullAccess`。这一规则不枚举模型，因此未来 Profile 自动继承。`approvalPolicy=never` 只表示不弹审批，不把全访问伪装成沙箱。交互式 `aicli start` 仍直接进入上游 Codex CLI，由上游会话权限界面负责。
 
@@ -73,7 +78,7 @@ Codex app-server 的公开消息 supersession 同样不枚举 CLI 版本：只�
 
 所有 Codex harness 当前及未来模型还默认获得同一个受管 `public_web_search` 动态工具；它固定访问 `https://cn.bing.com/search` 的 RSS 响应，拒绝重定向、Cookie、任意 endpoint/Header/凭据，并把结果作为不可信公共文本交给模型。Windows 受管系统代理可用于建立固定 HTTPS 连接，但不会注入默认凭据。公开事件只记录 `web_search` 生命周期、`public_web_search`、`bing-rss-v1` 与计数，不记录查询或结果正文。无需联网时显式加 `--no-web-search`；其他 Codex 权限仍保持 `danger-full-access`。
 
-machine child 的父环境按运行时 allowlist 重建，不继承无关凭据或调试设置；受管 `EnvironmentDelta` 只显式注入本次 Profile 所需变量。官方 Codex/Spark 使用一次性 `CODEX_HOME` 中的登录 `auth.json` 副本；第三方 Provider Key 由 SecretRef 解封后只进入目标子进程环境。Qwen Code/OpenCode 不提供交互式 `start`。
+machine child 的父环境按运行时 allowlist 重建，不继承无关凭据或调试设置；受管 `EnvironmentDelta` 只显式注入本次 Profile 所需变量。官方 Codex/Spark 的可恢复 run 只把登录 `auth.json` 副本放入该 run 独占的持久 `CODEX_HOME`，不复制用户配置、rules、skills 或其他会话；非恢复 capture 仍使用一次性 home。第三方 Provider Key 由 SecretRef 解封后只进入目标子进程环境。Qwen Code/OpenCode 不提供 exact thread resume。
 
 除 `codex-qwen3-7-max-paygo` → exact 06-08 外，Qwen3.7 Cloud Agent route、兼容 ID 和历史 Flash/Plus 入口均已退役；历史记录只保留在变更史，不能启动、导入或作为当前证据。
 
@@ -81,7 +86,7 @@ machine child 的父环境按运行时 allowlist 重建，不继承无关凭据�
 
 上层若考虑免费本地模型或订阅内 Spark，唯一收益口径是减少边际付费 token/API 成本；简单、低风险、可验证且净节省为正时才值得委派。疑难任务、授权、高风险动作和最终判断保留给顶级模型，亲自完成不是故障。
 
-`0.3.10` 的 source/static/install/runtime/live 必须分开报告。旧安装态、旧受管 TOML 或旧回执不是本版本证据；只有从最终提交安装并固定路径回读后才能声明 installed current。云 Live 只在现有授权与 SecretRef 下各执行一次，失败不自动重试。
+`0.3.11` 的 source/static/install/runtime/live 必须分开报告。旧安装态、旧受管 TOML 或旧回执不是本版本证据；只有从最终提交安装并固定路径回读后才能声明 installed current。云 Live 只在现有授权与 SecretRef 下各执行一次，失败不自动重试。
 
 已有 OpenClaw DeepSeek 配置时，可先安全预览再导入；脚本可生成 Codex Flash 0731、Codex Pro 0813、Claude Flash、OI Flash 四个 Profile。Qwen3.7 配置不会由导入器读取、复制或迁移；06-08 必须显式配置新 exact Profile：
 
@@ -102,7 +107,7 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 
 4. [Codex harness / machine run](docs/user/MACHINE-RUN.md)：stdin/JSON 协议、全访问合同、运行时身份与能力限制。
 
-根目录同时保留两本可打印手册；PDF 只在由当前 `0.3.10` Markdown 重新生成并完成视觉验收后才算 current：
+根目录同时保留两本可打印手册；PDF 只在由当前 `0.3.11` Markdown 重新生成并完成视觉验收后才算 current：
 
 - 《[AI CLI Profile Manager 使用手册（PDF）](<AI CLI Profile Manager 使用手册.pdf>)》
 - 《[Codex、Claude Code 与 Open Interpreter CLI 中文手册（PDF）](<Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf>)》

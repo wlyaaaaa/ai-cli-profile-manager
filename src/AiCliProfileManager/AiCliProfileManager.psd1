@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AiCliProfileManager.psm1'
-    ModuleVersion     = '0.3.10'
+    ModuleVersion     = '0.3.11'
     GUID              = 'a1c11c11-0a11-4c11-b111-a1c110110011'
     Author            = 'AI CLI Profile Manager Contributors'
     CompanyName       = 'Independent'
@@ -16,7 +16,7 @@
             Tags         = @('Codex', 'Claude', 'QwenCode', 'OpenCode', 'OpenInterpreter', 'Ollama', 'Qwen', 'DeepSeek', 'CLI', 'Windows', 'Profile', 'Sandbox')
             LicenseUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager'
-            ReleaseNotes = '0.3.10：兼容 Codex app-server 对同一未完成 item 的幂等 started 重发，同时保持类型、生命周期、终态与身份门禁。'
+            ReleaseNotes = '0.3.11：为所有 Codex harness Profile 提供同 thread、同身份、可审计的持久恢复，以及 start/resume/status/abort 后台接口。'
         }
     }
 }

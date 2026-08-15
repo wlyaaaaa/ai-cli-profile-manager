@@ -375,6 +375,48 @@ function Resolve-AiCliMachineEventFile {
     return $full
 }
 
+function Resolve-AiCliMachineEventMirrorFile {
+    param(
+        [string]$Path,
+        [int]$ExpectedSequence = 0
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    if (-not [IO.Path]::IsPathRooted($Path) -or
+        [IO.Path]::GetExtension($Path) -ine '.jsonl') {
+        throw 'Machine event mirror file must be an absolute .jsonl path.'
+    }
+    $full = [IO.Path]::GetFullPath($Path)
+    $parent = Split-Path -Parent $full
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        throw 'Machine event mirror parent directory must already exist.'
+    }
+    if (Test-Path -LiteralPath $full) {
+        $item = Get-Item -LiteralPath $full -Force -ErrorAction Stop
+        if ($item.PSIsContainer -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'Machine event mirror must be an ordinary file.'
+        }
+        $lastLine = [IO.File]::ReadLines($full, [Text.Encoding]::UTF8) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Select-Object -Last 1
+        $lastSequence = 0
+        if ($lastLine) {
+            try {
+                $last = $lastLine | ConvertFrom-Json -AsHashtable -Depth 30
+                $lastSequence = [int](Get-AiCliProperty $last 'sequence' -1)
+            } catch { $lastSequence = -1 }
+        }
+        if ($lastSequence -ne $ExpectedSequence) {
+            throw 'Machine event mirror cursor does not match the recoverable run.'
+        }
+    } elseif ($ExpectedSequence -ne 0) {
+        throw 'Machine event mirror is missing prior recoverable segments.'
+    } else {
+        [IO.File]::WriteAllBytes($full, [byte[]]::new(0))
+    }
+    return $full
+}
+
 function Test-AiCliPathWithinRoot {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -505,7 +547,7 @@ function Merge-AiCliSafeRunUsage {
 
 function Write-AiCliMachineEvent {
     param(
-        [Parameter(Mandatory)][IO.FileStream]$Stream,
+        [Parameter(Mandatory)]$Stream,
         [Parameter(Mandatory)][ref]$Sequence,
         [Parameter(Mandatory)][string]$Kind,
         [hashtable]$Data = @{},
@@ -527,9 +569,29 @@ function Write-AiCliMachineEvent {
             -Text ($value | ConvertTo-Json -Depth 10 -Compress) `
             -SecretValues $SecretValues
         $encoded = [Text.UTF8Encoding]::new($false).GetBytes($json + "`n")
-        $Stream.Write($encoded, 0, $encoded.Length)
-        $Stream.Flush()
+        $primary = if ($Stream -is [IO.FileStream]) {
+            $Stream
+        } else { Get-AiCliProperty $Stream 'Primary' }
+        $mirror = if ($Stream -is [IO.FileStream]) {
+            $null
+        } else { Get-AiCliProperty $Stream 'Mirror' }
+        if ($null -eq $primary) {
+            throw 'Machine event primary stream is unavailable.'
+        }
+        # The per-attempt primary is authoritative. Commit its cursor before
+        # trying the optional observer mirror so a mirror I/O failure cannot
+        # make the next authoritative event reuse the same sequence number.
+        $primary.Write($encoded, 0, $encoded.Length)
+        $primary.Flush($true)
         $Sequence.Value = $nextSequence
+        if ($null -ne $mirror) {
+            try {
+                $mirror.Write($encoded, 0, $encoded.Length)
+                $mirror.Flush($true)
+            } catch {
+                return $false
+            }
+        }
         return $true
     } catch {
         return $false
@@ -640,7 +702,10 @@ function Invoke-AiCliChildCapture {
         [string[]]$SecretValues = @(),
         [switch]$RequireRuntimeIdentity,
         [string]$ExpectedRuntimeModel = '',
-        [string]$ExpectedRuntimeModelProvider = ''
+        [string]$ExpectedRuntimeModelProvider = '',
+        [int]$MachineEventSequenceBase = 0,
+        [string]$AbortSignalPath = '',
+        [string]$MachineEventMirrorFile = ''
     )
     $enforceStepLimitEffective = if ($PSBoundParameters.ContainsKey('EnforceStepLimit')) {
         [bool]$EnforceStepLimit
@@ -712,8 +777,48 @@ function Invoke-AiCliChildCapture {
         $null = Assert-AiCliLocalGpuBrokerBindingObservation `
             -Observation $AuthorityMachineEvent
     }
-    $machineEventSequence = 0
+    if ($MachineEventSequenceBase -lt 0) {
+        throw 'Machine event sequence base cannot be negative.'
+    }
+    $resolvedMachineEventMirrorFile = if (
+        -not [string]::IsNullOrWhiteSpace($MachineEventMirrorFile) -and
+        $isCodexEventProtocol
+    ) {
+        Resolve-AiCliMachineEventMirrorFile -Path $MachineEventMirrorFile `
+            -ExpectedSequence $MachineEventSequenceBase
+    } elseif (-not [string]::IsNullOrWhiteSpace($MachineEventMirrorFile)) {
+        throw 'Machine event mirror is supported only by Codex event protocols.'
+    } else { $null }
+    if ($resolvedMachineEventMirrorFile -and
+        $resolvedMachineEventFile -and
+        $resolvedMachineEventMirrorFile.Equals(
+            $resolvedMachineEventFile,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw 'Machine event mirror must differ from the durable segment file.'
+    }
+    $resolvedAbortSignalPath = $null
+    if (-not [string]::IsNullOrWhiteSpace($AbortSignalPath)) {
+        if (-not [IO.Path]::IsPathRooted($AbortSignalPath) -or
+            (Split-Path -Leaf $AbortSignalPath) -cne 'abort.requested') {
+            throw 'Recoverable abort signal path is invalid.'
+        }
+        $resolvedAbortSignalPath = [IO.Path]::GetFullPath($AbortSignalPath)
+        $abortRunRoot = Split-Path -Parent $resolvedAbortSignalPath
+        $abortRunId = Split-Path -Leaf $abortRunRoot
+        $expectedAbortRoot = Get-AiCliRecoverableRunRoot -RunId $abortRunId
+        if (-not $abortRunRoot.Equals(
+            [IO.Path]::GetFullPath($expectedAbortRoot),
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+            throw 'Recoverable abort signal is outside the bound run root.'
+        }
+    }
+    $machineEventSequenceStart = $MachineEventSequenceBase
+    $machineEventSequence = $MachineEventSequenceBase
     $machineEventStream = $null
+    $machineEventPrimaryStream = $null
+    $machineEventMirrorStream = $null
     $machineTerminalEventWritten = $false
     # Redirect to temp files — avoids pipe-buffer deadlock when CLI dumps large logs (e.g. models list)
     $outFile = Join-Path ([IO.Path]::GetTempPath()) ("aicli-out-" + [guid]::NewGuid().ToString('N') + '.txt')
@@ -875,6 +980,7 @@ function Invoke-AiCliChildCapture {
     $stderrTask = $null
     $upstreamFailed = $false
     $terminalUpstreamFailed = $false
+    $upstreamFailureCode = ''
     $recoverableUpstreamErrorSeen = $false
     $lastRecoverableErrorEvent = 0
     $lastCompletedTurnEvent = 0
@@ -882,6 +988,10 @@ function Invoke-AiCliChildCapture {
     $safeTurnUsage = [ordered]@{}
     $safeContextUsage = [ordered]@{}
     $runtimeIdentity = $null
+    $publicThreadId = ''
+    $publicSessionId = ''
+    $publicTurnId = ''
+    $abortRequested = $false
     $compactionCount = 0
     $reasoningSummaryGroups = @{}
     $reasoningSummaryGroupCount = 0
@@ -908,6 +1018,9 @@ function Invoke-AiCliChildCapture {
         'codex_appserver.initialize_rejected',
         'codex_appserver.thread_start_failed',
         'codex_appserver.thread_start_rejected',
+        'codex_appserver.thread_resume_failed',
+        'codex_appserver.thread_resume_rejected',
+        'codex_appserver.resume_identity_mismatch',
         'codex_appserver.turn_start_failed',
         'codex_appserver.turn_start_rejected',
         'codex_appserver.turn_stream_failed',
@@ -937,6 +1050,18 @@ function Invoke-AiCliChildCapture {
         'codex_appserver.server_request_unsupported',
         'codex_appserver.cleanup_unconfirmed',
         'codex_appserver.failure_code_invalid'
+    )
+    $knownUpstreamFailureCodes = @(
+        'codex_appserver.provider_quota_pause',
+        'codex_appserver.upstream_transient',
+        'codex_appserver.context_window_exceeded',
+        'codex_appserver.authorization_failed',
+        'codex_appserver.request_rejected',
+        'codex_appserver.policy_rejected',
+        'codex_appserver.thread_rollback_failed',
+        'codex_appserver.sandbox_failed',
+        'codex_appserver.active_turn_not_steerable',
+        'codex_appserver.upstream_failure_unclassified'
     )
     $knownItemTypes = @(
         'user_message',
@@ -978,14 +1103,26 @@ function Invoke-AiCliChildCapture {
     )
     try {
         if ($resolvedMachineEventFile) {
-            $machineEventStream = [IO.FileStream]::new(
+            $machineEventPrimaryStream = [IO.FileStream]::new(
                 $resolvedMachineEventFile,
                 [IO.FileMode]::Open,
                 [IO.FileAccess]::Write,
                 [IO.FileShare]::Read
             )
-            $machineEventStream.SetLength(0)
-            $machineEventStream.Position = 0
+            $machineEventPrimaryStream.SetLength(0)
+            $machineEventPrimaryStream.Position = 0
+            if ($resolvedMachineEventMirrorFile) {
+                $machineEventMirrorStream = [IO.FileStream]::new(
+                    $resolvedMachineEventMirrorFile,
+                    [IO.FileMode]::Append,
+                    [IO.FileAccess]::Write,
+                    [IO.FileShare]::Read
+                )
+            }
+            $machineEventStream = [pscustomobject]@{
+                Primary = $machineEventPrimaryStream
+                Mirror = $machineEventMirrorStream
+            }
         }
         if ($null -ne $AuthorityMachineEvent -and -not (
             Write-AiCliMachineEvent -Stream $machineEventStream `
@@ -1067,6 +1204,13 @@ function Invoke-AiCliChildCapture {
                 }
                 $readTask = $proc.StandardOutput.ReadLineAsync()
                 while (-not $readTask.IsCompleted) {
+                    if ($resolvedAbortSignalPath -and
+                        (Test-Path -LiteralPath $resolvedAbortSignalPath -PathType Leaf)) {
+                        $abortRequested = $true
+                        $termination = Stop-AiCliProcessTree -Process $proc `
+                            -Reason cancelled
+                        break
+                    }
                     $remainingReadMs = $TimeoutMs - [int]$stopwatch.ElapsedMilliseconds
                     if ($remainingReadMs -le 0) {
                         $termination = Stop-AiCliProcessTree -Process $proc -Reason timeout
@@ -1074,6 +1218,7 @@ function Invoke-AiCliChildCapture {
                     }
                     [void]$readTask.Wait([Math]::Min(50, $remainingReadMs))
                 }
+                if ($abortRequested) { break }
                 $line = $readTask.GetAwaiter().GetResult()
                 if ($null -eq $line) { break }
                 if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
@@ -1171,6 +1316,31 @@ function Invoke-AiCliChildCapture {
                     $identityPermissionProfile = [string](
                         Get-AiCliProperty $identityPermission 'permission_profile'
                     )
+                    $identityResumeMode = [string](
+                        Get-AiCliProperty $event 'resume_mode'
+                    )
+                    $identityThreadId = Get-AiCliPublicThreadId (
+                        Get-AiCliProperty $event 'thread_id'
+                    )
+                    $identitySessionId = Get-AiCliPublicThreadId (
+                        Get-AiCliProperty $event 'session_id'
+                    )
+                    $identityWorkspaceHash = [string](
+                        Get-AiCliProperty $event 'workspace_hash'
+                    )
+                    $identityRunId = [string](Get-AiCliProperty $event 'run_id')
+                    $identityProfileFingerprint = [string](
+                        Get-AiCliProperty $event 'profile_fingerprint'
+                    )
+                    $identityRequestedEffort = [string](
+                        Get-AiCliProperty $event 'requested_effort'
+                    )
+                    $identityEffort = [string](
+                        Get-AiCliProperty $event 'reasoning_effort'
+                    )
+                    $hasRecoveryIdentity = -not [string]::IsNullOrWhiteSpace(
+                        $identityResumeMode
+                    )
                     if ($null -ne $runtimeIdentity -or
                         $identityModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$' -or
                         $identityProvider -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$' -or
@@ -1182,7 +1352,17 @@ function Invoke-AiCliChildCapture {
                         $identityRequestedPolicy -notin @('danger-full-access','read-only','workspace-write') -or
                         [string](Get-AiCliProperty $identityPermission 'sandbox_boundary') -notin @('outer-codex','codex-native') -or
                         [string](Get-AiCliProperty $identityPermission 'sandbox_type') -notin @('dangerFullAccess','readOnly','workspaceWrite','externalSandbox') -or
-                        $identityPermissionProfile -ne (':' + $identityRequestedPolicy)) {
+                        $identityPermissionProfile -ne (':' + $identityRequestedPolicy) -or
+                        ($hasRecoveryIdentity -and (
+                            $identityResumeMode -notin @('start','resume') -or
+                            [string]::IsNullOrWhiteSpace($identityThreadId) -or
+                            [string]::IsNullOrWhiteSpace($identitySessionId) -or
+                            $identityWorkspaceHash -notmatch '^[a-f0-9]{64}$' -or
+                            $identityRunId -notmatch '^[a-f0-9]{32}$' -or
+                            $identityProfileFingerprint -notmatch '^[a-f0-9]{64}$' -or
+                            [string]::IsNullOrWhiteSpace($identityRequestedEffort) -or
+                            [string]::IsNullOrWhiteSpace($identityEffort)
+                        ))) {
                         $protocolValid = $false
                         $protocolErrorCode = 'codex_appserver.runtime_identity_mismatch'
                         $protocolError = 'Codex app-server runtime identity is invalid.'
@@ -1199,6 +1379,18 @@ function Invoke-AiCliChildCapture {
                             sandbox_boundary = [string](Get-AiCliProperty $identityPermission 'sandbox_boundary')
                             sandbox_type = [string](Get-AiCliProperty $identityPermission 'sandbox_type')
                             permission_profile = $identityPermissionProfile
+                        }
+                    }
+                    if ($hasRecoveryIdentity) {
+                        $runtimeIdentity['recovery'] = [ordered]@{
+                            mode = $identityResumeMode
+                            thread_id = $identityThreadId
+                            session_id = $identitySessionId
+                            workspace_hash = $identityWorkspaceHash
+                            run_id = $identityRunId
+                            profile_fingerprint = $identityProfileFingerprint
+                            requested_effort = $identityRequestedEffort
+                            reasoning_effort = $identityEffort
                         }
                     }
                 }
@@ -1280,6 +1472,24 @@ function Invoke-AiCliChildCapture {
                     ($isItemEvent -and $itemType -eq 'error')
                 )
                 if ($isTerminalUpstreamFailureEvent) {
+                    $candidateFailureCode = [string](
+                        Get-AiCliProperty $event 'failure_code'
+                    )
+                    if ([string]::IsNullOrWhiteSpace($candidateFailureCode)) {
+                        $candidateFailureCode = `
+                            'codex_appserver.upstream_transient'
+                    }
+                    if ($candidateFailureCode -notin
+                            $knownUpstreamFailureCodes) {
+                        $protocolValid = $false
+                        $protocolErrorCode = `
+                            'codex_appserver.failure_code_invalid'
+                        $protocolError = `
+                            'Codex emitted an invalid upstream failure code.'
+                        $termination = Stop-AiCliProcessTree -Process $proc
+                        break
+                    }
+                    $upstreamFailureCode = $candidateFailureCode
                     $terminalUpstreamFailed = $true
                 } elseif ($isRecoverableUpstreamErrorEvent) {
                     $recoverableUpstreamErrorSeen = $true
@@ -1328,10 +1538,18 @@ function Invoke-AiCliChildCapture {
                     $publicThreadId = Get-AiCliPublicThreadId (
                         Get-AiCliProperty $event 'thread_id'
                     )
+                    $publicSessionId = Get-AiCliPublicThreadId (
+                        Get-AiCliProperty $event 'session_id'
+                    )
                     $safeEvent = [ordered]@{
                         type = 'thread.started'
                         thread_id = $publicThreadId
                     }
+                }
+                elseif ($eventType -eq 'turn.started') {
+                    $publicTurnId = Get-AiCliPublicThreadId (
+                        Get-AiCliProperty $event 'turn_id'
+                    )
                 }
                 elseif ($eventType -eq 'item.completed' -and $itemType -eq 'agent_message') {
                     $safeEvent = [ordered]@{
@@ -1363,20 +1581,53 @@ function Invoke-AiCliChildCapture {
                             Kind = 'thread.started'
                             Data = @{
                                 thread_id = $publicThreadId
+                                session_id = $publicSessionId
                             }
                         }
                     } elseif ($eventType -eq 'runtime.identity') {
+                        $runtimeIdentityData = @{
+                            model = $runtimeIdentity.model
+                            provider_id = $runtimeIdentity.model_provider
+                            cli_version = $runtimeIdentity.cli_version
+                            approval_policy = $runtimeIdentity.permission.approval_policy
+                            sandbox_policy = $runtimeIdentity.permission.requested_policy
+                            sandbox_boundary = $runtimeIdentity.permission.sandbox_boundary
+                            sandbox_type = $runtimeIdentity.permission.sandbox_type
+                        }
+                        $recoveryIdentity = Get-AiCliProperty `
+                            $runtimeIdentity 'recovery'
+                        if ($null -ne $recoveryIdentity) {
+                            $runtimeIdentityData['resume_mode'] = [string](
+                                Get-AiCliProperty $recoveryIdentity 'mode'
+                            )
+                            $runtimeIdentityData['thread_id'] = [string](
+                                Get-AiCliProperty $recoveryIdentity 'thread_id'
+                            )
+                            $runtimeIdentityData['session_id'] = [string](
+                                Get-AiCliProperty $recoveryIdentity 'session_id'
+                            )
+                            $runtimeIdentityData['workspace_hash'] = [string](
+                                Get-AiCliProperty $recoveryIdentity 'workspace_hash'
+                            )
+                            $runtimeIdentityData['run_id'] = [string](
+                                Get-AiCliProperty $recoveryIdentity 'run_id'
+                            )
+                            $runtimeIdentityData['profile_fingerprint'] = [string](
+                                Get-AiCliProperty $recoveryIdentity 'profile_fingerprint'
+                            )
+                            $runtimeIdentityData['requested_effort'] = [string](
+                                Get-AiCliProperty $recoveryIdentity 'requested_effort'
+                            )
+                            $runtimeIdentityData['reasoning_effort'] = [string](
+                                Get-AiCliProperty $recoveryIdentity 'reasoning_effort'
+                            )
+                            $runtimeIdentityData['permission_profile'] = [string](
+                                Get-AiCliProperty $runtimeIdentity.permission 'permission_profile'
+                            )
+                        }
                         $machineEvent = @{
                             Kind = 'runtime.identity'
-                            Data = @{
-                                model = $runtimeIdentity.model
-                                provider_id = $runtimeIdentity.model_provider
-                                cli_version = $runtimeIdentity.cli_version
-                                approval_policy = $runtimeIdentity.permission.approval_policy
-                                sandbox_policy = $runtimeIdentity.permission.requested_policy
-                                sandbox_boundary = $runtimeIdentity.permission.sandbox_boundary
-                                sandbox_type = $runtimeIdentity.permission.sandbox_type
-                            }
+                            Data = $runtimeIdentityData
                         }
                     } elseif ($eventType -eq 'bridge.failed') {
                         $failureData = @{
@@ -1400,6 +1651,7 @@ function Invoke-AiCliChildCapture {
                             Data = @{
                                 status = 'failed'
                                 error_category = 'upstream_error'
+                                error_code = $upstreamFailureCode
                                 steps = $stepCount
                                 tool_calls = $toolCallCount
                                 events_seen = $eventsSeen
@@ -1408,6 +1660,7 @@ function Invoke-AiCliChildCapture {
                     } elseif ($eventType -in @('turn.started','turn.completed')) {
                         $turnData = @{
                             status = $eventType.Substring(5)
+                            turn_id = $publicTurnId
                             steps = $stepCount
                             tool_calls = $toolCallCount
                             events_seen = $eventsSeen
@@ -1703,7 +1956,9 @@ function Invoke-AiCliChildCapture {
             $stderr = $stderr.Substring(0, $MaxCaptureChars)
             $outputTruncated = $true
         }
-        $exitCode = if ($limitHit) {
+        $exitCode = if ($abortRequested) {
+            Get-AiCliExitCode Cancelled
+        } elseif ($limitHit) {
             75
         } elseif (-not $protocolValid) {
             74
@@ -1712,7 +1967,9 @@ function Invoke-AiCliChildCapture {
         } else {
             $proc.ExitCode
         }
-        if ($limitHit) {
+        if ($abortRequested) {
+            $stderr = 'Recoverable run was aborted by request.'
+        } elseif ($limitHit) {
             $stderr = "Agent exceeded the configured hard limit: $limitHit."
         } elseif (-not $protocolValid) {
             $stderr = Protect-AiCliExactSecretValues `
@@ -1734,13 +1991,19 @@ function Invoke-AiCliChildCapture {
             if ($limitHit) {
                 $terminalData['limit'] = $limitHit
             } else {
-                $terminalData['error_category'] = if ($upstreamFailed) {
+                $terminalData['error_category'] = if ($abortRequested) {
+                    'aborted'
+                } elseif ($upstreamFailed) {
                     'upstream_error'
                 } else {
                     'protocol_or_process_failure'
                 }
                 if (-not [string]::IsNullOrWhiteSpace($protocolErrorCode)) {
                     $terminalData['error_code'] = $protocolErrorCode
+                } elseif (-not [string]::IsNullOrWhiteSpace(
+                    $upstreamFailureCode
+                )) {
+                    $terminalData['error_code'] = $upstreamFailureCode
                 }
             }
             if (-not (
@@ -1748,6 +2011,33 @@ function Invoke-AiCliChildCapture {
                     -Sequence ([ref]$machineEventSequence) `
                     -Kind $terminalKind -Data $terminalData `
                     -SecretValues $SecretValues
+            )) {
+                $machineEventStatus = 'degraded'
+            } else {
+                $machineTerminalEventWritten = $true
+            }
+        }
+        if (
+            $machineEventStatus -eq 'ok' -and
+            $null -ne $machineEventStream -and
+            $exitCode -eq 0 -and
+            -not $machineTerminalEventWritten
+        ) {
+            if (-not (
+                Write-AiCliMachineEvent -Stream $machineEventStream `
+                    -Sequence ([ref]$machineEventSequence) `
+                    -Kind 'run.completed' -Data @{
+                        status = 'completed'
+                        thread_id = $publicThreadId
+                        session_id = $publicSessionId
+                        turn_id = $publicTurnId
+                        steps = $stepCount
+                        tool_calls = $toolCallCount
+                        events_seen = $eventsSeen
+                        usage = (Merge-AiCliSafeRunUsage `
+                            -TurnUsage $safeTurnUsage `
+                            -ContextUsage $safeContextUsage)
+                    } -SecretValues $SecretValues
             )) {
                 $machineEventStatus = 'degraded'
             } else {
@@ -1763,10 +2053,16 @@ function Invoke-AiCliChildCapture {
             ExitCode = $exitCode
             StdOut   = $stdout
             StdErr   = $stderr
-            ErrorCode = if ([string]::IsNullOrWhiteSpace($protocolErrorCode)) {
-                $null
-            } else {
+            ErrorCode = if (-not [string]::IsNullOrWhiteSpace(
                 $protocolErrorCode
+            )) {
+                $protocolErrorCode
+            } elseif (-not [string]::IsNullOrWhiteSpace(
+                $upstreamFailureCode
+            )) {
+                $upstreamFailureCode
+            } else {
+                $null
             }
             TimedOut = $false
             DurationMs = [int]$stopwatch.ElapsedMilliseconds
@@ -1782,7 +2078,13 @@ function Invoke-AiCliChildCapture {
             CleanupMethod = [string]$termination.Method
             MachineEventProjection = $machineEventProjection
             MachineEventStatus = $machineEventStatus
-            MachineEventCount = $machineEventSequence
+            MachineEventCount = $machineEventSequence - $machineEventSequenceStart
+            MachineEventSequenceStart = $machineEventSequenceStart
+            MachineEventSequenceEnd = $machineEventSequence
+            ThreadId = $publicThreadId
+            SessionId = $publicSessionId
+            TurnId = $publicTurnId
+            AbortRequested = $abortRequested
             Usage = Merge-AiCliSafeRunUsage -TurnUsage $safeTurnUsage `
                 -ContextUsage $safeContextUsage
             RuntimeIdentity = $runtimeIdentity
@@ -1867,7 +2169,13 @@ function Invoke-AiCliChildCapture {
             CleanupMethod = [string]$termination.Method
             MachineEventProjection = $machineEventProjection
             MachineEventStatus = $machineEventStatus
-            MachineEventCount = $machineEventSequence
+            MachineEventCount = $machineEventSequence - $machineEventSequenceStart
+            MachineEventSequenceStart = $machineEventSequenceStart
+            MachineEventSequenceEnd = $machineEventSequence
+            ThreadId = $publicThreadId
+            SessionId = $publicSessionId
+            TurnId = $publicTurnId
+            AbortRequested = $abortRequested
             Usage = Merge-AiCliSafeRunUsage -TurnUsage $safeTurnUsage `
                 -ContextUsage $safeContextUsage
             RuntimeIdentity = $runtimeIdentity
@@ -1899,7 +2207,16 @@ function Invoke-AiCliChildCapture {
     } finally {
         $stopwatch.Stop()
         if ($null -ne $machineEventStream) {
-            try { $machineEventStream.Dispose() } catch {}
+            try {
+                if ($machineEventMirrorStream) {
+                    $machineEventMirrorStream.Dispose()
+                }
+            } catch {}
+            try {
+                if ($machineEventPrimaryStream) {
+                    $machineEventPrimaryStream.Dispose()
+                }
+            } catch {}
         }
         if ($privateTaskWriter) {
             try { $privateTaskWriter.Dispose() } catch {}

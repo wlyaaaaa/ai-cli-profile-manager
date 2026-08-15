@@ -189,6 +189,86 @@ function ConvertTo-BridgeUsage {
     return $safe
 }
 
+function Get-BridgeTurnFailureCode {
+    param(
+        [Parameter(Mandatory)][object]$Turn,
+        [Parameter(Mandatory)][ValidateSet('failed','interrupted')]
+        [string]$Status
+    )
+
+    # Never project the provider message or additionalDetails. Only the public
+    # protocol discriminator and a bounded HTTP status influence recovery.
+    if ($Status -eq 'interrupted') {
+        return 'codex_appserver.upstream_transient'
+    }
+    $turnError = Get-BridgeProperty $Turn 'error'
+    $info = Get-BridgeProperty $turnError 'codexErrorInfo'
+    if ($null -eq $info) {
+        return 'codex_appserver.upstream_transient'
+    }
+    if ($info -is [string]) {
+        switch ([string]$info) {
+            'usageLimitExceeded' {
+                return 'codex_appserver.provider_quota_pause'
+            }
+            'sessionBudgetExceeded' {
+                return 'codex_appserver.provider_quota_pause'
+            }
+            'serverOverloaded' {
+                return 'codex_appserver.upstream_transient'
+            }
+            'internalServerError' {
+                return 'codex_appserver.upstream_transient'
+            }
+            'contextWindowExceeded' {
+                return 'codex_appserver.context_window_exceeded'
+            }
+            'unauthorized' {
+                return 'codex_appserver.authorization_failed'
+            }
+            'badRequest' {
+                return 'codex_appserver.request_rejected'
+            }
+            'cyberPolicy' {
+                return 'codex_appserver.policy_rejected'
+            }
+            'threadRollbackFailed' {
+                return 'codex_appserver.thread_rollback_failed'
+            }
+            'sandboxError' {
+                return 'codex_appserver.sandbox_failed'
+            }
+            default {
+                return 'codex_appserver.upstream_failure_unclassified'
+            }
+        }
+    }
+    if ($info -isnot [Collections.IDictionary]) {
+        return 'codex_appserver.upstream_failure_unclassified'
+    }
+    $variants = @(
+        'httpConnectionFailed',
+        'responseStreamConnectionFailed',
+        'responseStreamDisconnected',
+        'responseTooManyFailedAttempts'
+    )
+    foreach ($variant in $variants) {
+        if (-not $info.Contains($variant)) { continue }
+        $detail = Get-BridgeProperty $info $variant
+        $httpStatus = ConvertTo-BridgeInt32 (
+            Get-BridgeProperty $detail 'httpStatusCode'
+        )
+        if ($httpStatus -eq 429) {
+            return 'codex_appserver.provider_quota_pause'
+        }
+        return 'codex_appserver.upstream_transient'
+    }
+    if ($info.Contains('activeTurnNotSteerable')) {
+        return 'codex_appserver.active_turn_not_steerable'
+    }
+    return 'codex_appserver.upstream_failure_unclassified'
+}
+
 function Write-BridgeJson {
     param([Parameter(Mandatory)][object]$Value)
 
@@ -283,6 +363,9 @@ function Throw-BridgeFailure {
             'codex_appserver.initialize_rejected',
             'codex_appserver.thread_start_failed',
             'codex_appserver.thread_start_rejected',
+            'codex_appserver.thread_resume_failed',
+            'codex_appserver.thread_resume_rejected',
+            'codex_appserver.resume_identity_mismatch',
             'codex_appserver.turn_start_failed',
             'codex_appserver.turn_start_rejected',
             'codex_appserver.turn_stream_failed',
@@ -325,6 +408,7 @@ function Resolve-BridgeFailureCode {
     $resolved = switch ($script:BridgeStage) {
         'initialize' { 'codex_appserver.initialize_failed' }
         'thread_start' { 'codex_appserver.thread_start_failed' }
+        'thread_resume' { 'codex_appserver.thread_resume_failed' }
         'workspace_write_probe' { 'codex_appserver.workspace_write_unavailable' }
         'turn_start' { 'codex_appserver.turn_start_failed' }
         'turn_stream' { 'codex_appserver.turn_stream_failed' }
@@ -613,15 +697,29 @@ function Write-BridgeThreadStarted {
         Throw-BridgeFailure -Code 'codex_appserver.notification_scope_invalid'
     }
     $script:ThreadId = $threadId
+    $sessionId = [string](Get-BridgeProperty $Thread 'sessionId')
+    if (-not [string]::IsNullOrWhiteSpace($sessionId)) {
+        if ($sessionId -notmatch
+                '\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z' -or
+            (-not [string]::IsNullOrWhiteSpace($script:SessionId) -and
+                $script:SessionId -cne $sessionId)) {
+            Throw-BridgeFailure -Code 'codex_appserver.notification_scope_invalid'
+        }
+        $script:SessionId = $sessionId.ToLowerInvariant()
+    }
     if ($script:RequireRuntimeIdentity -and
         -not $script:RuntimeIdentityVerified) {
         return
     }
     if ($script:ThreadStartedWritten) { return }
-    Write-BridgeJson ([ordered]@{
+    $public = [ordered]@{
         type = 'thread.started'
         thread_id = $threadId
-    })
+    }
+    if (-not [string]::IsNullOrWhiteSpace($script:SessionId)) {
+        $public['session_id'] = $script:SessionId
+    }
+    Write-BridgeJson $public
     $script:ThreadStartedWritten = $true
 }
 
@@ -632,7 +730,14 @@ function Assert-AndWriteBridgeRuntimeIdentity {
         [Parameter(Mandatory)][string]$ExpectedModelProvider,
         [Parameter(Mandatory)][string]$CliVersion,
         [Parameter(Mandatory)][string]$SandboxBoundary,
-        [Parameter(Mandatory)][string]$SandboxPolicy
+        [Parameter(Mandatory)][string]$SandboxPolicy,
+        [string]$RecoveryMode = '',
+        [string]$WorkingDirectory = '',
+        [string]$ExpectedEffort = '',
+        [string]$WorkspaceHash = '',
+        [string]$RecoveryRunId = '',
+        [string]$ProfileFingerprint = '',
+        [string]$RequestedEffort = ''
     )
 
     $actualModelValue = Get-BridgeProperty $ThreadResult 'model'
@@ -671,6 +776,29 @@ function Assert-AndWriteBridgeRuntimeIdentity {
         }
     }
 
+    if (-not [string]::IsNullOrWhiteSpace($RecoveryMode)) {
+        $actualCwd = [string](Get-BridgeProperty $ThreadResult 'cwd')
+        $actualEffort = [string](Get-BridgeProperty $ThreadResult 'reasoningEffort')
+        $thread = Get-BridgeProperty $ThreadResult 'thread'
+        $threadCwd = [string](Get-BridgeProperty $thread 'cwd')
+        $threadEphemeral = Get-BridgeProperty $thread 'ephemeral'
+        $threadProvider = [string](Get-BridgeProperty $thread 'modelProvider')
+        if ($RecoveryMode -notin @('start','resume') -or
+            -not (Test-BridgePathEqual -Left $actualCwd -Right $WorkingDirectory) -or
+            -not (Test-BridgePathEqual -Left $threadCwd -Right $WorkingDirectory) -or
+            $threadEphemeral -isnot [bool] -or [bool]$threadEphemeral -or
+            $threadProvider -cne $ExpectedModelProvider -or
+            [string]::IsNullOrWhiteSpace($ExpectedEffort) -or
+            $actualEffort -cne $ExpectedEffort -or
+            $WorkspaceHash -notmatch '\A[a-f0-9]{64}\z' -or
+            $RecoveryRunId -notmatch '\A[a-f0-9]{32}\z' -or
+            $ProfileFingerprint -notmatch '\A[a-f0-9]{64}\z' -or
+            [string]::IsNullOrWhiteSpace($RequestedEffort) -or
+            [string]::IsNullOrWhiteSpace($script:SessionId)) {
+            Throw-BridgeFailure -Code 'codex_appserver.resume_identity_mismatch'
+        }
+    }
+
     $sandboxType = if ($SandboxPolicy -eq 'danger-full-access') {
         'dangerFullAccess'
     } elseif ($SandboxBoundary -eq 'outer-codex') {
@@ -681,7 +809,7 @@ function Assert-AndWriteBridgeRuntimeIdentity {
         'readOnly'
     }
     $script:RuntimeIdentityVerified = $true
-    Write-BridgeJson ([ordered]@{
+    $identityEvent = [ordered]@{
         type = 'runtime.identity'
         model = $actualModel
         model_provider = $actualProvider
@@ -697,7 +825,18 @@ function Assert-AndWriteBridgeRuntimeIdentity {
                 ':' + $SandboxPolicy
             }
         }
-    })
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RecoveryMode)) {
+        $identityEvent['resume_mode'] = $RecoveryMode
+        $identityEvent['thread_id'] = $script:ThreadId
+        $identityEvent['session_id'] = $script:SessionId
+        $identityEvent['workspace_hash'] = $WorkspaceHash
+        $identityEvent['run_id'] = $RecoveryRunId
+        $identityEvent['profile_fingerprint'] = $ProfileFingerprint
+        $identityEvent['requested_effort'] = $RequestedEffort
+        $identityEvent['reasoning_effort'] = $ExpectedEffort
+    }
+    Write-BridgeJson $identityEvent
 }
 
 function Assert-BridgeNotificationScope {
@@ -1119,7 +1258,11 @@ function Handle-BridgeNotification {
                 })
                 $script:TurnSucceeded = $true
             } else {
-                Write-BridgeJson ([ordered]@{ type = 'turn.failed' })
+                Write-BridgeJson ([ordered]@{
+                    type = 'turn.failed'
+                    failure_code = Get-BridgeTurnFailureCode `
+                        -Turn $turn -Status $status
+                })
                 $script:TurnSucceeded = $false
             }
             $script:TurnTerminal = $true
@@ -1338,6 +1481,7 @@ try {
 
 $script:ServerProcess = $null
 $script:ThreadId = ''
+$script:SessionId = ''
 $script:TurnId = ''
 $script:ThreadStartedWritten = $false
 $script:TurnStartedWritten = $false
@@ -1424,6 +1568,38 @@ try {
     )) {
         throw 'Codex app-server runtime identity expectation is invalid.'
     }
+    $durableSessionValue = Get-BridgeProperty $config 'durableSession' $false
+    if ($durableSessionValue -isnot [bool]) {
+        throw 'Codex app-server durable session setting is invalid.'
+    }
+    $durableSession = [bool]$durableSessionValue
+    $recoveryMode = [string](Get-BridgeProperty $config 'mode')
+    $expectedRecoveryThreadId = [string](Get-BridgeProperty $config 'threadId')
+    $expectedRecoverySessionId = [string](Get-BridgeProperty $config 'sessionId')
+    $workspaceHash = [string](Get-BridgeProperty $config 'workspaceHash')
+    $recoveryRunId = [string](Get-BridgeProperty $config 'runId')
+    $profileFingerprint = [string](
+        Get-BridgeProperty $config 'profileFingerprint'
+    )
+    $requestedEffort = [string](Get-BridgeProperty $config 'requestedEffort')
+    $expectedEffort = [string](Get-BridgeProperty $config 'effectiveEffort')
+    if ($durableSession -and (
+        $recoveryMode -notin @('start','resume') -or
+        -not $script:RequireRuntimeIdentity -or
+        $recoveryRunId -notmatch '\A[a-f0-9]{32}\z' -or
+        $profileFingerprint -notmatch '\A[a-f0-9]{64}\z' -or
+        $workspaceHash -notmatch '\A[a-f0-9]{64}\z' -or
+        [string]::IsNullOrWhiteSpace($requestedEffort) -or
+        [string]::IsNullOrWhiteSpace($expectedEffort) -or
+        ($recoveryMode -eq 'resume' -and (
+            $expectedRecoveryThreadId -notmatch
+                '\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z' -or
+            $expectedRecoverySessionId -notmatch
+                '\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z'
+        ))
+    )) {
+        throw 'Codex app-server recovery identity expectation is invalid.'
+    }
     $taskPipeName = [Environment]::GetEnvironmentVariable(
         'AICLI_CODEX_BRIDGE_TASK_PIPE',
         [EnvironmentVariableTarget]::Process
@@ -1499,7 +1675,7 @@ try {
             clientInfo = [ordered]@{
                 name = 'ai-cli-profile-manager'
                 title = 'AI CLI Profile Manager'
-                version = '0.3.10'
+                version = '0.3.11'
             }
             capabilities = [ordered]@{
                 # Codex 0.145 materializes the :workspace profile only when
@@ -1513,7 +1689,9 @@ try {
     $null = Wait-BridgeResponse -Id 1
     Send-BridgeMessage ([ordered]@{ method = 'initialized' })
 
-    $script:BridgeStage = 'thread_start'
+    $script:BridgeStage = if ($durableSession -and $recoveryMode -eq 'resume') {
+        'thread_resume'
+    } else { 'thread_start' }
     $turnSandbox = if ($sandboxPolicy -eq 'danger-full-access') {
         [ordered]@{
             type = 'dangerFullAccess'
@@ -1549,8 +1727,10 @@ try {
     }
     $threadParams = [ordered]@{
         cwd = $workingDirectory
-        ephemeral = $true
         approvalPolicy = 'never'
+    }
+    if (-not ($durableSession -and $recoveryMode -eq 'resume')) {
+        $threadParams['ephemeral'] = -not $durableSession
     }
     if ($sandboxBoundary -eq 'codex-native') {
         if ($sandboxPolicy -eq 'danger-full-access') {
@@ -1578,16 +1758,42 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($model)) {
         $threadParams['model'] = $model
     }
-    if ($script:WebSearchEnabled) {
+    if ($script:WebSearchEnabled -and
+        -not ($durableSession -and $recoveryMode -eq 'resume')) {
         $threadParams['dynamicTools'] = @(Get-BridgePublicWebSearchToolSpec)
+    }
+    if ($durableSession -and $recoveryMode -eq 'resume') {
+        $threadParams['threadId'] = $expectedRecoveryThreadId
+        $threadParams['modelProvider'] = $expectedModelProvider
+        $threadParams['excludeTurns'] = $false
     }
     Send-BridgeMessage ([ordered]@{
         id = 2
-        method = 'thread/start'
+        method = if ($durableSession -and $recoveryMode -eq 'resume') {
+            'thread/resume'
+        } else { 'thread/start' }
         params = $threadParams
     })
-    $threadResult = Wait-BridgeResponse -Id 2
+    $threadResult = Wait-BridgeResponse -Id 2 -RejectedCode $(
+        if ($durableSession -and $recoveryMode -eq 'resume') {
+            'codex_appserver.thread_resume_rejected'
+        } else { 'codex_appserver.thread_start_rejected' }
+    )
     $thread = Get-BridgeProperty $threadResult 'thread'
+    if ($durableSession) {
+        $observedThreadId = [string](Get-BridgeProperty $thread 'id')
+        $observedSessionId = [string](Get-BridgeProperty $thread 'sessionId')
+        if (($recoveryMode -eq 'resume' -and (
+                $observedThreadId -cne $expectedRecoveryThreadId -or
+                $observedSessionId -cne $expectedRecoverySessionId
+            )) -or
+            $observedThreadId -notmatch
+                '\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z' -or
+            $observedSessionId -notmatch
+                '\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z') {
+            Throw-BridgeFailure -Code 'codex_appserver.resume_identity_mismatch'
+        }
+    }
     if ($script:RequireRuntimeIdentity) {
         # Validate and bind the response thread id while output remains gated.
         Write-BridgeThreadStarted -Thread $thread
@@ -1617,7 +1823,14 @@ try {
             -ExpectedModelProvider $expectedModelProvider `
             -CliVersion $cliVersion `
             -SandboxBoundary $sandboxBoundary `
-            -SandboxPolicy $sandboxPolicy
+            -SandboxPolicy $sandboxPolicy `
+            -RecoveryMode $(if ($durableSession) { $recoveryMode } else { '' }) `
+            -WorkingDirectory $workingDirectory `
+            -ExpectedEffort $(if ($durableSession) { $expectedEffort } else { '' }) `
+            -WorkspaceHash $(if ($durableSession) { $workspaceHash } else { '' }) `
+            -RecoveryRunId $(if ($durableSession) { $recoveryRunId } else { '' }) `
+            -ProfileFingerprint $(if ($durableSession) { $profileFingerprint } else { '' }) `
+            -RequestedEffort $(if ($durableSession) { $requestedEffort } else { '' })
     }
     Write-BridgeThreadStarted -Thread $thread
 

@@ -142,6 +142,10 @@ function Invoke-AiCliRouter {
                         capabilities = [ordered]@{
                             machineEventProjection = 'aicli.machine-event.v1'
                             managedPublicWebSearch = 'public_web_search/bing-rss-v1'
+                            recoverableRuns = 'aicli.recoverable-run.v1'
+                            recoverableRunControl = @(
+                                'start','resume','status','abort'
+                            )
                         }
                     })
                 } else {
@@ -355,12 +359,63 @@ function Invoke-AiCliRunCommand {
     try {
         $tokenList = ConvertTo-AiCliTokenList $Tokens
         if ($tokenList.Count -lt 1) {
-            throw '用法: aicli run <id> --stdin --json [--project <path>] [--sandbox-policy danger-full-access|read-only|workspace-write] [--no-web-search] [--timeout-seconds <n>] [--max-steps <n>] [--max-tool-calls <n>] [--watchdog-only] [--max-output-chars <n>] [--event-file <absolute-jsonl-path>] [--authority-prelude-stdout] -- <native-args...>'
+            throw '用法: aicli run start <id> --stdin --json ... | aicli run resume|status|abort <run-id> --json'
+        }
+        $runAction = ([string]$tokenList[0]).ToLowerInvariant()
+        $legacyStartSyntax = $runAction -notin @('start','resume','status','abort')
+        if ($runAction -in @('resume','status','abort')) {
+            $controlTokens = [Collections.Generic.List[string]]::new()
+            if ($tokenList.Count -gt 1) {
+                for ($i = 1; $i -lt $tokenList.Count; $i++) {
+                    [void]$controlTokens.Add([string]$tokenList[$i])
+                }
+            }
+            $controlPositionals = Assert-AiCliTokenShape `
+                -Tokens $controlTokens -MinPositionals 1 -MaxPositionals 1 `
+                -Switches @('--json','--background')
+            if (-not (Test-AiCliHasFlag $controlTokens '--json')) {
+                throw 'Recoverable run control commands require --json.'
+            }
+            $backgroundControl = Test-AiCliHasFlag `
+                $controlTokens '--background'
+            if ($backgroundControl -and $runAction -ne 'resume') {
+                throw '--background is supported only by run start or run resume.'
+            }
+            $runId = [string]$controlPositionals[0]
+            $controlResult = switch ($runAction) {
+                'resume' {
+                    if ($backgroundControl) {
+                        Start-AiCliRecoverableControllerProcess -RunId $runId
+                    } else {
+                        Invoke-AiCliRecoverableRun -RunId $runId
+                    }
+                }
+                'status' { Get-AiCliRecoverableRunStatus -RunId $runId }
+                'abort' { Stop-AiCliRecoverableRun -RunId $runId }
+            }
+            $controlStatus = if ($runAction -eq 'status' -or
+                $controlResult.status -in @('completed','running','interrupted','quota_paused','abort_requested','aborted')) {
+                '通过'
+            } else { '不可用' }
+            Write-AiCliJson (New-AiCliResult -Command "run.$runAction" `
+                -OverallStatus $controlStatus -Extra @{
+                    recovery = $controlResult
+                })
+            return (Get-AiCliExitCodeFromStatus $controlStatus)
+        }
+        if ($runAction -eq 'start') {
+            $withoutAction = [Collections.Generic.List[string]]::new()
+            if ($tokenList.Count -gt 1) {
+                for ($i = 1; $i -lt $tokenList.Count; $i++) {
+                    [void]$withoutAction.Add([string]$tokenList[$i])
+                }
+            }
+            $tokenList = $withoutAction
         }
         $split = Split-AiCliArgs -Tokens $tokenList
         $pos = Assert-AiCliTokenShape -Tokens $split.Before -MinPositionals 1 -MaxPositionals 1 `
-            -Switches @('--stdin','--json','--watchdog-only','--authority-prelude-stdout','--no-web-search') `
-            -ValueOptions @('--project','--sandbox-policy','--timeout-seconds','--max-steps','--max-tool-calls','--max-output-chars','--event-file')
+            -Switches @('--stdin','--json','--watchdog-only','--authority-prelude-stdout','--no-web-search','--background') `
+            -ValueOptions @('--project','--sandbox-policy','--timeout-seconds','--max-steps','--max-tool-calls','--max-output-chars','--event-file','--max-resume-attempts')
         if (-not (Test-AiCliHasFlag $split.Before '--stdin')) {
             throw '参数 --stdin 是 machine run 的必需项；任务正文不得放入命令行参数。'
         }
@@ -391,10 +446,13 @@ function Invoke-AiCliRunCommand {
         $maxStepsText = Get-AiCliFlagValue -Tokens $split.Before -Name '--max-steps' -Default '20'
         $maxToolCallsText = Get-AiCliFlagValue -Tokens $split.Before -Name '--max-tool-calls' -Default '80'
         $maxOutputText = Get-AiCliFlagValue -Tokens $split.Before -Name '--max-output-chars' -Default '1000000'
+        $maxResumeText = Get-AiCliFlagValue -Tokens $split.Before `
+            -Name '--max-resume-attempts' -Default '3'
         $timeoutSeconds = 0
         $maxSteps = 0
         $maxToolCalls = 0
         $maxOutputChars = 0
+        $maxResumeAttempts = 0
         if (-not [int]::TryParse($timeoutSecondsText, [ref]$timeoutSeconds) -or $timeoutSeconds -lt 1 -or $timeoutSeconds -gt 86400) {
             throw '参数 --timeout-seconds 必须是 1 到 86400。'
         }
@@ -407,10 +465,29 @@ function Invoke-AiCliRunCommand {
         if (-not [int]::TryParse($maxOutputText, [ref]$maxOutputChars) -or $maxOutputChars -lt 1024 -or $maxOutputChars -gt 10000000) {
             throw '参数 --max-output-chars 必须是 1024 到 10000000。'
         }
+        if (-not [int]::TryParse($maxResumeText, [ref]$maxResumeAttempts) -or
+            $maxResumeAttempts -lt 0 -or $maxResumeAttempts -gt 3) {
+            throw '参数 --max-resume-attempts 必须是 0 到 3。'
+        }
         $native = ConvertTo-AiCliTokenList $split.After
-        $machineEventFile = Get-AiCliFlagValue -Tokens $split.Before -Name '--event-file'
-        if ($machineEventFile) {
-            $machineEventFile = Resolve-AiCliMachineEventFile -Path $machineEventFile
+        if ($native.Count -gt 0) {
+            $allowedNative = @(
+                'exec','e','--json','--ephemeral',
+                '--dangerously-bypass-approvals-and-sandbox',
+                '--skip-git-repo-check','-'
+            )
+            if ($native[0] -notin @('exec','e') -or
+                $native[-1] -cne '-' -or
+                $native -notcontains '--json' -or
+                @($native | Where-Object { $_ -notin $allowedNative }).Count -gt 0) {
+                throw 'Recoverable Codex run only accepts the canonical exec --json ... - native shape.'
+            }
+        }
+        $requestedEventFile = Get-AiCliFlagValue -Tokens $split.Before `
+            -Name '--event-file'
+        if ($requestedEventFile) {
+            $requestedEventFile = Resolve-AiCliMachineEventMirrorFile `
+                -Path $requestedEventFile -ExpectedSequence 0
         }
         $taskText = if ($PSBoundParameters.ContainsKey('StdInText')) {
             $StdInText
@@ -421,24 +498,65 @@ function Invoke-AiCliRunCommand {
             throw '参数 --stdin 未提供任务正文；拒绝启动空任务。'
         }
         $watchdogOnly = Test-AiCliHasFlag $split.Before '--watchdog-only'
-        $run = Invoke-AiCliProfileCapture `
-            -ProfileId $profileId `
-            -ProjectPath (Get-AiCliFlagValue -Tokens $split.Before -Name '--project') `
-            -NativeArgs ([string[]]$native.ToArray()) `
-            -StdInText $taskText `
+        $projectPath = Resolve-AiCliProjectPath (
+            Get-AiCliFlagValue -Tokens $split.Before -Name '--project'
+        )
+        $created = New-AiCliRecoverableRun -ProfileId $profileId `
+            -ProjectPath $projectPath -TaskText $taskText `
             -TimeoutMs ($timeoutSeconds * 1000) `
-            -MaxCaptureChars $maxOutputChars `
-            -SandboxPolicy $sandboxPolicy `
-            -MaxSteps $maxSteps `
-            -MaxToolCalls $maxToolCalls `
-            -EnforceStepLimit:(-not $watchdogOnly) `
-            -EnforceToolCallLimit:(-not $watchdogOnly) `
-            -WatchdogOnly:$watchdogOnly `
-            -MachineEventFile $machineEventFile `
+            -MaxCaptureChars $maxOutputChars -MaxSteps $maxSteps `
+            -MaxToolCalls $maxToolCalls -WatchdogOnly:$watchdogOnly `
             -DisableWebSearch:$disableWebSearch `
-            -AuthorityPreludeStdout:(Test-AiCliHasFlag $split.Before '--authority-prelude-stdout')
-        $status = if ([int]$run.exitCode -eq 0 -and -not [bool]$run.timedOut) { '通过' } else { '不可用' }
-        Write-AiCliJson (New-AiCliResult -Command 'run' -OverallStatus $status -Extra @{ run = $run })
+            -AuthorityPreludeStdout:(Test-AiCliHasFlag $split.Before '--authority-prelude-stdout') `
+            -MaxResumeAttempts $maxResumeAttempts `
+            -ConsumerEventFile $requestedEventFile
+        if (Test-AiCliHasFlag $split.Before '--background') {
+            $spawned = Start-AiCliRecoverableControllerProcess `
+                -RunId $created.runId -InitialTaskText $taskText
+            $resultCommand = if ($legacyStartSyntax) {
+                'run'
+            } else { 'run.start' }
+            Write-AiCliJson (New-AiCliResult -Command $resultCommand `
+                -OverallStatus '通过' -Extra @{
+                    run = [ordered]@{
+                        exitCode = 0
+                        timedOut = $false
+                        background = $true
+                        recoveryRunId = $created.runId
+                    }
+                    recovery = $spawned
+                })
+            return (Get-AiCliExitCode Success)
+        }
+        $recovery = Invoke-AiCliRecoverableRun -RunId $created.runId `
+            -InitialTaskText $taskText
+        $run = Get-AiCliProperty $recovery 'receipt'
+        if ($null -eq $run) {
+            $run = [pscustomobject]@{
+                profileId = $profileId
+                exitCode = (Get-AiCliExitCode Unavailable)
+                timedOut = $false
+                stdout = ''
+                stderr = 'Recoverable run ended without a public attempt receipt.'
+            }
+        }
+        $run | Add-Member -NotePropertyName recoveryRunId `
+            -NotePropertyValue $created.runId -Force
+        $run | Add-Member -NotePropertyName resumeSupported `
+            -NotePropertyValue ([bool]$recovery.resumeSupported) -Force
+        $run | Add-Member -NotePropertyName resumeReason `
+            -NotePropertyValue ([string]$recovery.resumeReason) -Force
+        $status = if ($recovery.status -eq 'completed' -and
+            [int]$run.exitCode -eq 0 -and -not [bool]$run.timedOut) {
+            '通过'
+        } else { '不可用' }
+        $publicRecovery = $recovery | Select-Object * -ExcludeProperty receipt
+        $resultCommand = if ($legacyStartSyntax) { 'run' } else { 'run.start' }
+        Write-AiCliJson (New-AiCliResult -Command $resultCommand `
+            -OverallStatus $status -Extra @{
+                run = $run
+                recovery = $publicRecovery
+            })
         return (Get-AiCliExitCodeFromStatus $status)
     } catch {
         $summary = Protect-AiCliSecretText $_.Exception.Message
