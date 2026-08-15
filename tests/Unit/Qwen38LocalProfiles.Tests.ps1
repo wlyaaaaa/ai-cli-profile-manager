@@ -39,6 +39,8 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
         $manifest.compatibility.ollamaArtifact.tag | Should -BeExactly 'qwen3.8:27b'
         $manifest.compatibility.ollamaArtifact.quantization | Should -BeExactly 'Q4_K_M'
         $manifest.compatibility.ollamaArtifact.manifestDigest |
+            Should -BeExactly 'sha256:22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643'
+        $manifest.compatibility.ollamaArtifact.configDigest |
             Should -BeExactly 'sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f'
         $manifest.compatibility.ollamaArtifact.modelBlobDigest |
             Should -BeExactly 'sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d'
@@ -97,6 +99,8 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
         $metadata.compactionReserveTokens | Should -Be 20000
         $manifest.compatibility.minCliVersion | Should -BeExactly '1.18.8'
         $manifest.compatibility.ollamaArtifact.manifestDigest |
+            Should -BeExactly 'sha256:22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643'
+        $manifest.compatibility.ollamaArtifact.configDigest |
             Should -BeExactly 'sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f'
         $manifest.compatibility.ollamaArtifact.quantization | Should -BeExactly 'Q4_K_M'
         $manifest.requiresSecret | Should -BeFalse
@@ -123,6 +127,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
                     'tag',
                     'quantization',
                     'manifestDigest',
+                    'configDigest',
                     'modelBlobDigest',
                     'projectorBlobDigest'
                 )) {
