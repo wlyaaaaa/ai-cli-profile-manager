@@ -104,24 +104,31 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
         $manifest.capabilities.machineRun | Should -BeTrue
     }
 
-    It 'binds Codex and OpenCode to one physical Ollama artifact' {
-        $profiles = InModuleScope AiCliProfileManager {
-            @(
-                Get-AiCliProviderManifest -Id 'codex-ollama-qwen3-8-27b'
-                Get-AiCliProviderManifest -Id 'opencode-ollama-qwen3-8-27b'
-            )
-        }
-        $codexArtifact = $profiles[0].compatibility.ollamaArtifact
-        $openCodeArtifact = $profiles[1].compatibility.ollamaArtifact
+    It 'keeps every shared exact Ollama tag on one physical artifact across harnesses' {
+        $artifactProfiles = @(InModuleScope AiCliProfileManager {
+            foreach ($id in Get-AiCliBuiltinTemplateIds) {
+                $profile = Get-AiCliProviderManifest -Id $id
+                $artifact = Get-AiCliProperty (Get-AiCliProperty $profile 'compatibility') 'ollamaArtifact'
+                if ($null -ne $artifact) {
+                    [pscustomobject]@{ id = $id; tag = [string]$artifact.tag; artifact = $artifact }
+                }
+            }
+        })
+        @($artifactProfiles | Where-Object tag -eq 'qwen3.8:27b').Count | Should -Be 2
 
-        foreach ($field in @(
-            'tag',
-            'quantization',
-            'manifestDigest',
-            'modelBlobDigest',
-            'projectorBlobDigest'
-        )) {
-            $openCodeArtifact.$field | Should -BeExactly $codexArtifact.$field
+        foreach ($group in @($artifactProfiles | Group-Object tag | Where-Object Count -gt 1)) {
+            $reference = $group.Group[0].artifact
+            foreach ($profile in @($group.Group | Select-Object -Skip 1)) {
+                foreach ($field in @(
+                    'tag',
+                    'quantization',
+                    'manifestDigest',
+                    'modelBlobDigest',
+                    'projectorBlobDigest'
+                )) {
+                    $profile.artifact.$field | Should -BeExactly $reference.$field
+                }
+            }
         }
     }
 
