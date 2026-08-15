@@ -24,7 +24,7 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | `codex-deepseek` | `0.3.12` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，1048576 context，Responses，默认/配置/argv `max`。 |
 | `codex-deepseek-v4-pro` | `0.3.12` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`，1048576 context，Responses，默认/配置/argv `max`。 |
 | `codex-ollama-main` | exact source/static 已实现 | 本轮不把旧运行证据晋升为新 Live | `qwen-main-v1`、Responses、max、无 fallback。 |
-| `codex-ollama-qwen3-8-27b` | `0.3.12` exact source/static 已实现 | Agent Live 待最终安装后验收；旧 CACB max-3 未完成且不复用 | 同权重运行标签 `aicli-qwen3.8-27b-256k:2026-08-14`、Responses、`num_ctx=262144`、max、单候选、无 fallback；显式 Agent 验收复用同 thread 最多恢复 3 次。 |
+| `codex-ollama-qwen3-8-27b` | `0.3.12` source/install/runtime/live 已验收 | Agent Live 通过；旧 CACB max-3 未完成且不复用 | 2026-08-15 安装版以 `aicli-qwen3.8-27b-256k:2026-08-14` / `aicli_ollama_qwen38_27b`、Responses、max、Codex `0.147.0`、完全访问运行；14 steps / 7 tool calls 后独立 verifier 通过并确认进程树清理。本次一次完成（resume_count=0），中断恢复能力由同一 root-owned run 合同和既有故障注入 Live 证明。 |
 | `codex-ollama-review` | exact source/static 已实现 | 本轮不把旧运行证据晋升为新 Live | `qwen-review-v1`、Responses、max、无 fallback。 |
 | `codex-spark-xhigh` | 已实现；workspace 修复仅在未发布源码 | 能力验收不通过 | 2026-07-24 的只读严格 JSON smoke 仍只证明文本链路。2026-07-29 使用仓库源代码入口和 `gpt-5.3-codex-spark` / `xhigh` 的真实 `workspace-write` 任务已证明命名权限与工作区写入生效；但 `code_repair` 在硬上限 `maxSteps=80` 下达到 `81/80` 后终止，确定性得分 `2/9`。本轮停止复测，不把权限修复等同于代码 Agent 能力通过。官方 Spark 使用临时 `CODEX_HOME` / `auth.json` 副本，不走付费 API Key。 |
 | `claude-official` | 已实现 | 不可用（本机未登录，401） | 完成 Claude CLI 官方登录后可重新验收；不等于产品安装失败 |
@@ -73,7 +73,7 @@ aicli test <Codex Profile ID> --live --level agent --yes --json
 
 `0.3.10` 起的安装器会只读预检 Qwen3.7 遗留入口；只有能用 marker/body/state/hash 和模块 Manifest 身份证明由 AICLI 管理的旧文件才会移入可恢复 quarantine。新 06-08 exact Profile、受管 TOML/state 与被引用目录会保留。未知/篡改/reparse 项会阻断安装且不会被删除；SecretRef 与密钥不参与迁移。
 
-`0.3.12` 复用 `0.3.11` 的可恢复 Codex run：`thread/start ephemeral=false`、`thread/resume`、同 thread/session 和全部身份回读、进程丢失/配额暂停恢复、append-only 分段 hash 链、最多 3 次瞬态 exact-resume 与累计 token 差分计费证据都有确定性测试；新增显式 Agent fixture/verifier 的 source/static 证据。本版本的 source/install/runtime/live 仍须各自固定；在真实 Agent Live 前不把静态证据写成 Live PASS。旧 `0.3.10` ephemeral 会话未登记持久 run 身份，不得伪造为可恢复。
+`0.3.12` 复用 `0.3.11` 的可恢复 Codex run：`thread/start ephemeral=false`、`thread/resume`、同 thread/session 和全部身份回读、进程丢失/配额暂停恢复、append-only 分段 hash 链、最多 3 次瞬态 exact-resume 与累计 token 差分计费证据都有确定性测试；新增显式 Agent fixture/verifier，并已由上述本地 Qwen3.8-27B 安装版真实 Agent Live 闭合 source/install/runtime/live 四层证据。该次没有发生中断，因此只证明正常 Agent 路径；中断恢复仍引用 `0.3.11` 的同线程定向 kill→resume Live 与本版本确定性回归，不能把 resume_count=0 写成一次恢复。旧 `0.3.10` ephemeral 会话未登记持久 run 身份，不得伪造为可恢复。
 
 `codex-spark-xhigh` 的 machine run 证据与桌面端“能够创建 Spark 任务”是两条不同事实。当前证据进一步拆成三层：旧只读 smoke 证明文本链路，2026-07-29 的写任务证明源码权限修复生效，而同一任务的 `81/80` 与 `2/9` 证明能力验收不通过。额度和限流仍是动态外部状态；aicli 不自动降级，调用方如改投本地模型必须显式重提并保留两份回执。
 
