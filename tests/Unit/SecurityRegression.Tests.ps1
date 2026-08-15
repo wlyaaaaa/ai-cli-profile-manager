@@ -101,6 +101,72 @@ Describe 'Verification evidence' {
             }
         }
     }
+
+    It 'treats the app-server bare version and CLI-prefixed version as the same runtime' {
+        InModuleScope AiCliProfileManager {
+            Mock Get-AiCliProfileCliIdentityEvidence {
+                [pscustomobject]@{
+                    FileName = 'C:\codex.exe'
+                    Version = 'codex-cli 0.147.0'
+                    Kind = 'npm-native'
+                }
+            }
+            $permission = [ordered]@{
+                approval_policy = 'never'
+                requested_policy = 'danger-full-access'
+                sandbox_boundary = 'codex-native'
+                sandbox_type = 'dangerFullAccess'
+                permission_profile = ':danger-full-access'
+            }
+            $record = [ordered]@{
+                productVersion = (Get-AiCliVersion)
+                level = 'tool'
+                permissionEvidence = 'runtime-identity'
+                runtimePermission = $permission
+                cliPath = 'C:\codex.exe'
+                cliVersion = '0.147.0'
+            }
+            $profile = [ordered]@{ engine = 'codex' }
+
+            $current = Test-AiCliVerificationRecordCurrent `
+                -Record $record -MergedProfile $profile
+
+            $current.Current | Should -BeTrue
+            $current.Reason | Should -BeExactly '当前'
+        }
+    }
+
+    It 'keeps distinct CLI prerelease versions stale' {
+        InModuleScope AiCliProfileManager {
+            Mock Get-AiCliProfileCliIdentityEvidence {
+                [pscustomobject]@{
+                    FileName = 'C:\codex.exe'
+                    Version = 'codex-cli 0.148.0-alpha.9'
+                    Kind = 'npm-native'
+                }
+            }
+            $record = [ordered]@{
+                productVersion = (Get-AiCliVersion)
+                level = 'tool'
+                permissionEvidence = 'runtime-identity'
+                runtimePermission = [ordered]@{
+                    approval_policy = 'never'
+                    requested_policy = 'danger-full-access'
+                    sandbox_boundary = 'codex-native'
+                    sandbox_type = 'dangerFullAccess'
+                    permission_profile = ':danger-full-access'
+                }
+                cliPath = 'C:\codex.exe'
+                cliVersion = '0.148.0-alpha.8'
+            }
+
+            $current = Test-AiCliVerificationRecordCurrent `
+                -Record $record -MergedProfile ([ordered]@{ engine = 'codex' })
+
+            $current.Current | Should -BeFalse
+            $current.Reason | Should -BeExactly '目标 CLI 版本已变化'
+        }
+    }
 }
 
 Describe 'Live text evidence' {

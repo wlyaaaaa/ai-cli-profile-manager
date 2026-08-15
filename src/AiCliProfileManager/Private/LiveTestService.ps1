@@ -182,7 +182,27 @@ function Test-AiCliVerificationRecordCurrent {
     if (-not [string]::Equals($recordedPath, [string]$current.FileName, [StringComparison]::OrdinalIgnoreCase)) {
         return [pscustomobject]@{ Current = $false; Reason = '目标 CLI 路径已变化' }
     }
-    if (-not [string]::Equals($recordedVersion, [string]$current.Version, [StringComparison]::Ordinal)) {
+    # app-server reports the semantic version alone (for example 0.147.0),
+    # while `<cli> --version` includes a product prefix.  Compare the exact
+    # extracted SemVer when both sides expose one; retain exact raw matching
+    # for non-semantic version formats.  The extracted value still includes
+    # prerelease/build identifiers, so a different binary version stays stale.
+    $recordedSemantic = Get-AiCliSemanticVersionEvidence -Text $recordedVersion
+    $currentSemantic = Get-AiCliSemanticVersionEvidence -Text ([string]$current.Version)
+    $versionMatches = if ($recordedSemantic -and $currentSemantic) {
+        [string]::Equals(
+            [string]$recordedSemantic.Text,
+            [string]$currentSemantic.Text,
+            [StringComparison]::Ordinal
+        )
+    } else {
+        [string]::Equals(
+            $recordedVersion,
+            [string]$current.Version,
+            [StringComparison]::Ordinal
+        )
+    }
+    if (-not $versionMatches) {
         return [pscustomobject]@{ Current = $false; Reason = '目标 CLI 版本已变化' }
     }
     return [pscustomobject]@{ Current = $true; Reason = '当前'; Evidence = $current }

@@ -12,6 +12,7 @@
 ### 可靠性与审计
 
 - 验收回执绑定实际模型、Provider、CLI 版本、`danger-full-access` 权限、工具活动、进程树清理、恢复次数、任务合同哈希与 verifier 哈希/结果；提示、回复正文、工具载荷、endpoint 与秘密不进入回执。
+- 修复 Agent Live 刚通过后被错误标记为“目标 CLI 版本已变化”：app-server 的裸 `0.147.0` 与 `codex --version` 的 `codex-cli 0.147.0` 现在按完整 SemVer 等价比较；不同 prerelease/build 仍会失败关闭。
 - `all` 保持既有 text+tool 语义，Agent 验收只在显式选择 `agent` 时运行，避免升级后意外发起较长或有副作用的模型任务。
 
 ## [0.3.11] - 2026-08-15
