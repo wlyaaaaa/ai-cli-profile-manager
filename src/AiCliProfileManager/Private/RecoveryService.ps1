@@ -1209,23 +1209,47 @@ function Invoke-AiCliRecoverableRunCore {
         } catch {
             $state.status = 'failed_closed'
             $state.resume.supported = $false
-            $state.resume.reason = `
+            $captureFailureReason = `
                 'capture_exception_before_verified_receipt'
+            $captureErrorCode = 'aicli.recovery.capture_exception'
+            $captureSequenceStart = [int]$state.turnContext.eventCursor
+            $captureSequenceEnd = $captureSequenceStart
+            # Invoke-AiCliProfileCapture can fail its parent identity gate after
+            # the child has already closed a valid public machine-event
+            # segment. Chain those bytes without promoting any partial runtime
+            # identity, and preserve only the structured public terminal code.
+            try {
+                if (-not (Test-AiCliRecoverableEventWriterClosed `
+                        -Path $eventFile)) {
+                    throw 'Recoverable capture event writer is still open.'
+                }
+                $captureEvidence = Read-AiCliRecoverableSegmentEvidence `
+                    -State $state -SegmentName $segmentName
+                $captureSequenceEnd = [int]$captureEvidence.sequenceEnd
+                $terminalCode = [string](Get-AiCliProperty `
+                    $captureEvidence.terminalData 'error_code')
+                if ($terminalCode -match '\A[a-z0-9._-]{1,128}\z') {
+                    $captureErrorCode = $terminalCode
+                    $captureFailureReason += ':' + $terminalCode
+                }
+            } catch {
+                $captureFailureReason = `
+                    'capture_exception_event_evidence_invalid'
+            }
+            $state.resume.reason = $captureFailureReason
             $receipt = [pscustomobject]@{
                 exitCode = (Get-AiCliExitCode Unavailable)
                 timedOut = $false
-                errorCode = 'aicli.recovery.capture_exception'
+                errorCode = $captureErrorCode
                 limitHit = $null
                 abortRequested = $false
                 threadId = $null
                 sessionId = $null
                 turnId = $null
                 durationMs = 0
-                machineEventSequenceStart = `
-                    [int]$state.turnContext.eventCursor
-                machineEventSequenceEnd = `
-                    [int]$state.turnContext.eventCursor
-                machineEventCount = 0
+                machineEventSequenceStart = $captureSequenceStart
+                machineEventSequenceEnd = $captureSequenceEnd
+                machineEventCount = $captureSequenceEnd - $captureSequenceStart
                 usage = [ordered]@{}
                 stdout = ''
                 stderr = `

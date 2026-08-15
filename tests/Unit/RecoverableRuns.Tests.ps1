@@ -430,6 +430,61 @@ Describe 'Recoverable Codex runs' {
             } finally {$script:AiCliDataRootOverride=$null}
         }
     }
+
+    It 'chains public terminal events written before a capture exception' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work=$TestDrive } {
+            $script:AiCliDataRootOverride=Join-Path $Work 'data-event-catch'
+            try {
+                Mock Build-AiCliLaunchPlan {
+                    [pscustomobject]@{
+                        engine='codex';profileId='future'
+                        profileFingerprint=('7'*64);workingDirectory=$Work
+                        model='future-model';modelProvider='future_provider'
+                        wire='responses';effort='max';effectiveEffort='max'
+                    }
+                }
+                Mock Invoke-AiCliProfileCapture {
+                    $base=[int]$RecoveryContext.eventSequenceBase
+                    $lines=@(
+                        [ordered]@{
+                            schema='aicli.machine-event.v1';sequence=$base+1
+                            kind='local-gpu-broker.binding'
+                        },
+                        [ordered]@{
+                            schema='aicli.machine-event.v1';sequence=$base+2
+                            kind='run.failed';status='failed'
+                            error_category='protocol_or_process_failure'
+                            error_code='codex_appserver.notification_scope_invalid'
+                        }
+                    )|ForEach-Object{$_|ConvertTo-Json -Compress}
+                    [IO.File]::WriteAllLines(
+                        $MachineEventFile,$lines,[Text.UTF8Encoding]::new($false)
+                    )
+                    throw 'PRIVATE_CAPTURE_EXCEPTION_CANARY'
+                }
+                $created=New-AiCliRecoverableRun -ProfileId future `
+                    -ProjectPath $Work -TaskText TASK
+                $result=Invoke-AiCliRecoverableRun $created.runId `
+                    -InitialTaskText TASK
+                $result.status|Should -BeExactly 'failed_closed'
+                $result.resumeReason|Should -BeExactly (
+                    'capture_exception_before_verified_receipt:'+
+                    'codex_appserver.notification_scope_invalid'
+                )
+                $result.eventCursor|Should -Be 2
+                $status=Get-AiCliRecoverableRunStatus $created.runId
+                $status.resumeReason|Should -BeExactly $result.resumeReason
+                $status.eventCursor|Should -Be 2
+                $closed=Get-AiCliRecoverableRunState $created.runId
+                Assert-AiCliRecoverableEvidenceChain $closed|Should -BeTrue
+                $receipt=Read-AiCliRecoverableSegmentReceipt `
+                    -State $closed -SegmentName '0001'
+                $receipt.eventSequenceEnd|Should -Be 2
+                $receipt.errorCode|Should -BeExactly `
+                    'codex_appserver.notification_scope_invalid'
+            } finally {$script:AiCliDataRootOverride=$null}
+        }
+    }
 }
 
 Describe 'Codex app-server exact resume protocol' {
@@ -627,6 +682,14 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 continue
             }
             [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'THREAD_RESUME_USED'),'ok')
+            # Codex 0.147 can publish the existing thread status before the
+            # thread/resume response. The bridge must scope that notification
+            # to the exact persisted thread instead of treating it as a new
+            # unbound thread.
+            [Console]::Out.WriteLine((@{
+                method='thread/status/changed'
+                params=@{threadId=$ExpectedThreadId;status=@{type='active'}}
+            }|ConvertTo-Json -Depth 10 -Compress))
             $response = [ordered]@{
                 id = 2
                 result = [ordered]@{

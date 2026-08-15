@@ -1766,6 +1766,12 @@ try {
         $threadParams['threadId'] = $expectedRecoveryThreadId
         $threadParams['modelProvider'] = $expectedModelProvider
         $threadParams['excludeTurns'] = $false
+        # The app-server may publish status for the persisted thread before
+        # returning the thread/resume response. Bind the already-validated
+        # expected identity first so only that exact thread can be accepted;
+        # the response below still has to prove the same thread and session.
+        $script:ThreadId = $expectedRecoveryThreadId
+        $script:SessionId = $expectedRecoverySessionId.ToLowerInvariant()
     }
     Send-BridgeMessage ([ordered]@{
         id = 2
