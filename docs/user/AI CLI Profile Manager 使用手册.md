@@ -1,6 +1,6 @@
 # AI CLI Profile Manager 使用手册
 
-适用版本：`0.3.9`（源码与安装目标；发布、安装和 Live 证据须分别核对）
+适用版本：`0.3.10`（源码与安装目标；发布、安装和 Live 证据须分别核对）
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
@@ -19,7 +19,7 @@ AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter �
 
 ### 1.2 安装本工具
 
-`0.3.9` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
+`0.3.10` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
 
 ```powershell
 $version = '<从 Releases 页面选择的已发布版本>'
@@ -61,7 +61,7 @@ pwsh -File .\scripts\Install.ps1 -Force
 2. 创建 `%LOCALAPPDATA%\aicli\bin\aicli.cmd` 与 `aicli.ps1` 垫片，并尝试加入用户 `PATH`。
 3. 尝试在当前用户 PowerShell 7 配置中加入模块自动导入块。
 4. 先验证临时候选版本，再替换目标版本；失败时恢复原版本。
-5. 升级到 `0.3.9` 时，先预检再隔离可证明由 AICLI 管理的 Qwen3.7 旧入口，同时保留新 06-08 exact Profile。
+5. 升级到 `0.3.10` 时，先预检再隔离可证明由 AICLI 管理的 Qwen3.7 旧入口，同时保留新 06-08 exact Profile。
 
 退役迁移不会把 Qwen3.7 自动改投 Qwen3.8，也不读取、复制、移动或删除 SecretRef/密钥。身份、marker、body/state 哈希与内容寻址都闭合的旧用户 Profile、Codex TOML/catalog 和旧模块版本会移入可恢复目录 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。任何未知、用户改写或 reparse 项都会在任何安装变更前失败关闭；先审计该路径，不要盲目删除。
 
@@ -479,7 +479,7 @@ aicli update guide self
 
 `update check` 和 `update guide` 只检查来源、版本并打印同渠道指引，不静默升级 Codex、Claude Code、Ollama 或本工具。识别来源后，应继续使用原安装渠道，避免 npm、WinGet 和原生安装器互相覆盖。
 
-从任何旧 AICLI 版本升级到 `0.3.9` 时，应使用同一发行包内的 `scripts\Install.ps1`；该安装器会完成旧 Qwen3.7 可验证遗留入口的可恢复隔离，并保留新 06-08 exact Profile。如果预检报告未知或篡改项，安装在写入新版本前中止；请先备份并人工审计，不要绕过门禁。
+从任何旧 AICLI 版本升级到 `0.3.10` 时，应使用同一发行包内的 `scripts\Install.ps1`；该安装器会完成旧 Qwen3.7 可验证遗留入口的可恢复隔离，并保留新 06-08 exact Profile。如果预检报告未知或篡改项，安装在写入新版本前中止；请先备份并人工审计，不要绕过门禁。
 
 Open Interpreter Rust 可按上游支持使用：
 

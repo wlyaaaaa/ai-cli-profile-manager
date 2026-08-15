@@ -2,6 +2,14 @@
 
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
+## [0.3.10] - 2026-08-15
+
+### 修复
+
+- 修复 Codex 0.147 app-server 在本地 Responses 路线中对同一个尚未完成 item 重发 `item/started` 时，AICLI 误报 `codex_appserver.item_started_duplicate` 并提前终止的问题。
+- 兼容只接受同 thread/turn、同 item id/type、仍为 `started` 且生命周期投影一致的幂等重发；载荷补充不重复计步或计工具。类型或生命周期变化、completed 后重发、未知状态和未闭合终态继续失败关闭。
+- 本机 Qwen3.8-27B 命令工具 canary 已证明 exact model/provider/MAX/Responses/完全访问身份、单次工具调用、正常终态与 LocalGpuBroker 清理均闭合；正式能力样本仍使用新工作区独立执行。
+
 ## [0.3.9] - 2026-08-15
 
 ### 修复

@@ -1313,6 +1313,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
             [Console]::Out.WriteLine('{"method":"turn/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
             [Console]::Out.WriteLine('{"method":"thread/tokenUsage/updated","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":3,"totalTokens":41},"total":{"inputTokens":10,"cachedInputTokens":2,"outputTokens":3,"totalTokens":41},"modelContextWindow":262144}}}')
             [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"reason-public","type":"reasoning","summary":[]}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"reason-public","type":"reasoning","summary":["PRIVATE_ENRICHED_REASONING_CANARY"]}}}')
             [Console]::Out.WriteLine('{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"reason-public","summaryIndex":0,"delta":"正在核对公开配置。"}}')
             [Console]::Out.WriteLine('{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"reason-public","delta":"继续核对公开路径。"}}')
             [Console]::Out.WriteLine('{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"reason-public","summaryIndex":0,"delta":"公开摘要包含 PUBLIC_SECRET_CANARY。"}}')
@@ -1330,6 +1331,9 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
             [Console]::Out.WriteLine('{"method":"item/reasoning/textDelta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"reason-public","delta":"PRIVATE_RAW_REASONING_CANARY"}}')
             [Console]::Out.WriteLine('{"method":"item/reasoning/summaryPartAdded","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"reason-public","summaryPart":"PRIVATE_UNKNOWN_SUMMARY_PART_CANARY"}}')
             [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"reason-public","type":"reasoning","summary":["PUBLIC_SUMMARY_SOURCE_CANARY"]}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-idempotent","type":"commandExecution","command":"PRIVATE_IDEMPOTENT_COMMAND_CANARY","status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-idempotent","type":"commandExecution","command":"PRIVATE_IDEMPOTENT_COMMAND_CANARY","status":"inProgress"}}}')
+            [Console]::Out.WriteLine('{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-idempotent","type":"commandExecution","command":"PRIVATE_IDEMPOTENT_COMMAND_CANARY","status":"completed","exitCode":0,"durationMs":1}}}')
             [Console]::Out.WriteLine('{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"message-progress","type":"agentMessage","text":""}}}')
             [Console]::Out.WriteLine('{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"message-progress","delta":"正在"}}')
             [Console]::Out.WriteLine('{"method":"item/agentMessage/delta","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","itemId":"message-progress","delta":"检查 acceptance.md"}}')
@@ -1371,7 +1375,8 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 -SecretValues @('PUBLIC_SECRET_CANARY')
 
             $result.ExitCode | Should -Be 0
-            $result.StepCount | Should -Be 1
+            $result.StepCount | Should -Be 2
+            $result.ToolCallCount | Should -Be 1
             $result.StdOut | Should -Match 'FINAL_PUBLIC'
             $events = @(Get-Content -LiteralPath $eventFile -Encoding utf8 | ConvertFrom-Json)
             $reasoningSummary = @($events | Where-Object kind -eq 'reasoning.summary.delta')
@@ -1398,9 +1403,10 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 '文件已更新。'
             )
             @($events | Where-Object kind -eq 'output.completed').Count | Should -Be 1
+            @($events | Where-Object kind -eq 'tool.activity').Count | Should -Be 2
             (($result | ConvertTo-Json -Depth 10 -Compress) + "`n" +
                 (Get-Content -LiteralPath $eventFile -Raw -Encoding utf8)) |
-                Should -Not -Match 'PRIVATE_RAW_REASONING_CANARY|PRIVATE_UNKNOWN_SUMMARY_PART_CANARY|PUBLIC_SUMMARY_SOURCE_CANARY'
+                Should -Not -Match 'PRIVATE_RAW_REASONING_CANARY|PRIVATE_UNKNOWN_SUMMARY_PART_CANARY|PUBLIC_SUMMARY_SOURCE_CANARY|PRIVATE_IDEMPOTENT_COMMAND_CANARY|PRIVATE_ENRICHED_REASONING_CANARY'
         }
     }
 
@@ -1857,10 +1863,11 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
             ExpectedCode = 'codex_appserver.item_identity_invalid'
         }
         @{
-            CaseName = 'a duplicate item start'
+            CaseName = 'an exact item start replay after completion'
             NotificationLines = @(
-                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"reason-1","type":"reasoning"}}}',
-                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"reason-1","type":"reasoning","summary":["PRIVATE_DUPLICATE_START_CANARY"]}}}'
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_COMPLETED_REPLAY_CANARY","status":"inProgress"}}}',
+                '{"method":"item/completed","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_COMPLETED_REPLAY_CANARY","status":"completed","exitCode":0,"durationMs":1}}}',
+                '{"method":"item/started","params":{"threadId":"019f98ff-110f-7390-8d7b-d85d70bba89f","turnId":"019f98ff-110f-7390-8d7b-d85d70bba890","item":{"id":"command-1","type":"commandExecution","command":"PRIVATE_COMPLETED_REPLAY_CANARY","status":"inProgress"}}}'
             )
             ExpectedCode = 'codex_appserver.item_started_duplicate'
         }

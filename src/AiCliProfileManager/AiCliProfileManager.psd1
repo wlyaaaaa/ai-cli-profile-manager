@@ -1,6 +1,6 @@
 @{
     RootModule        = 'AiCliProfileManager.psm1'
-    ModuleVersion     = '0.3.9'
+    ModuleVersion     = '0.3.10'
     GUID              = 'a1c11c11-0a11-4c11-b111-a1c110110011'
     Author            = 'AI CLI Profile Manager Contributors'
     CompanyName       = 'Independent'
@@ -16,7 +16,7 @@
             Tags         = @('Codex', 'Claude', 'QwenCode', 'OpenCode', 'OpenInterpreter', 'Ollama', 'Qwen', 'DeepSeek', 'CLI', 'Windows', 'Profile', 'Sandbox')
             LicenseUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager'
-            ReleaseNotes = '0.3.9：为 Qwen3.8-27B 固定同权重 256K Ollama 运行镜像，并提供 OpenCode Desktop 可见目录注册。'
+            ReleaseNotes = '0.3.10：兼容 Codex app-server 对同一未完成 item 的幂等 started 重发，同时保持类型、生命周期、终态与身份门禁。'
         }
     }
 }

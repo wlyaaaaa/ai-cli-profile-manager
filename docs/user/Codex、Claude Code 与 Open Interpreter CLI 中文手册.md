@@ -1,6 +1,6 @@
 # Codex、Claude Code 与 Open Interpreter CLI 中文手册
 
-适用版本：AI CLI Profile Manager `0.3.9`（source/install/runtime/live 分层验收）
+适用版本：AI CLI Profile Manager `0.3.10`（source/install/runtime/live 分层验收）
 用途：帮助中文用户直接使用原生 Codex CLI、Claude Code 和当前官方 Rust Open Interpreter。
 
 > aicli 只负责选择 Profile 并启动原生 CLI。本手册保留上游英文命令，便于复制和搜索。上游版本会变化；某条命令不在当前 CLI 的 `/help` 或斜杠菜单中时，以当前官方界面为准。

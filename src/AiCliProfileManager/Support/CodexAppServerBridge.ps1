@@ -196,6 +196,37 @@ function Write-BridgeJson {
     [Console]::Out.Flush()
 }
 
+function Get-BridgeItemStartLifecycleFingerprint {
+    param(
+        [Parameter(Mandatory)][string]$RawItemType,
+        [Parameter(Mandatory)][object]$Item
+    )
+
+    $projection = [ordered]@{ type = $RawItemType }
+    if ($RawItemType -eq 'commandExecution') {
+        $command = ConvertTo-BridgeCommandProjection `
+            -Item $Item `
+            -Method 'item/started'
+        foreach ($name in @('command_status', 'exit_code', 'duration_ms')) {
+            if ($command.Contains($name)) {
+                $projection[$name] = $command[$name]
+            }
+        }
+    } elseif ($RawItemType -eq 'dynamicToolCall') {
+        $projection['tool'] = [string](Get-BridgeProperty $Item 'tool')
+        $projection['status'] = [string](Get-BridgeProperty $Item 'status')
+        $projection['success'] = Get-BridgeProperty $Item 'success'
+    }
+    try {
+        $json = $projection | ConvertTo-Json -Depth 10 -Compress -ErrorAction Stop
+        $bytes = [Text.Encoding]::UTF8.GetBytes([string]$json)
+        $hash = [Security.Cryptography.SHA256]::HashData($bytes)
+        return [Convert]::ToHexString($hash).ToLowerInvariant()
+    } catch {
+        Throw-BridgeFailure -Code 'codex_appserver.item_identity_invalid'
+    }
+}
+
 function Publish-BridgeAgentMessageDeltaBuffer {
     param([Parameter(Mandatory)][string]$ItemId)
 
@@ -892,6 +923,27 @@ function Handle-BridgeNotification {
             } else {
                 $itemType = ConvertTo-BridgeItemType -ItemType $rawItemType
             }
+            $startFingerprint = ''
+            if ($method -eq 'item/started') {
+                $startFingerprint = Get-BridgeItemStartLifecycleFingerprint `
+                    -RawItemType $rawItemType `
+                    -Item $item
+                if ($script:ItemStates.ContainsKey($itemId)) {
+                    $itemState = $script:ItemStates[$itemId]
+                    if ([string]$itemState['type'] -ne $rawItemType) {
+                        Throw-BridgeFailure -Code 'codex_appserver.item_type_changed'
+                    }
+                    if ([string]$itemState['state'] -ne 'started' -or
+                        [string]$itemState['started_fingerprint'] -cne $startFingerprint) {
+                        Throw-BridgeFailure -Code 'codex_appserver.item_started_duplicate'
+                    }
+                    # Some Responses providers can replay a started item while
+                    # enriching its non-lifecycle payload. The item id, type,
+                    # state and lifecycle projection must remain identical;
+                    # completion is still the sole authoritative result.
+                    return
+                }
+            }
             if ($method -eq 'item/started') {
                 Flush-BridgeAgentMessageDeltaBuffers
             } else {
@@ -902,17 +954,11 @@ function Handle-BridgeNotification {
                 if ($rawItemType -eq 'subAgentActivity') {
                     Throw-BridgeFailure -Code 'codex_appserver.item_started_unexpected'
                 }
-                if ($script:ItemStates.ContainsKey($itemId)) {
-                    $itemState = $script:ItemStates[$itemId]
-                    if ([string]$itemState['type'] -ne $rawItemType) {
-                        Throw-BridgeFailure -Code 'codex_appserver.item_type_changed'
-                    }
-                    Throw-BridgeFailure -Code 'codex_appserver.item_started_duplicate'
-                }
                 $script:ItemStates[$itemId] = @{
                     type = $rawItemType
                     state = 'started'
                     started_order = $script:ItemEventSequence
+                    started_fingerprint = $startFingerprint
                 }
                 if ($rawItemType -eq 'agentMessage') {
                     $script:AgentMessageDeltaBuffers[$itemId] = ''
@@ -1453,7 +1499,7 @@ try {
             clientInfo = [ordered]@{
                 name = 'ai-cli-profile-manager'
                 title = 'AI CLI Profile Manager'
-                version = '0.3.9'
+                version = '0.3.10'
             }
             capabilities = [ordered]@{
                 # Codex 0.145 materializes the :workspace profile only when

@@ -61,7 +61,7 @@ $task | aicli run codex-ollama-main `
 - 其他 CLI 只有在自身回执能证明相同硬边界时才可被上层当作有限预算 runner；`upstream` 或 `not-enforced` 不能冒充 `hard`。
 - CLI 更新不应直接等同于受管 machine runtime 晋升。应先校验包内可执行文件与资源闭包、版本/协议、actual identity、全访问权限对象和少量 smoke，再按当前版本与 Profile 指纹重新验收。
 
-`0.3.9` 是当前源码与安装目标，包含 exact Qwen3.7 06-08/Qwen3.8/DeepSeek/local Codex Profile、Qwen3.8-27B 256K Codex/OpenCode Profile、MAX 映射、统一 `danger-full-access`、actual identity/no-reroute 和环境隔离。源代码验收必须明确使用仓库入口并在回执中保留来源；正式安装/晋升前，不得把 source 结果宣称为 installed 或 runtime current。
+`0.3.10` 是当前源码与安装目标，包含 exact Qwen3.7 06-08/Qwen3.8/DeepSeek/local Codex Profile、Qwen3.8-27B 256K Codex/OpenCode Profile、MAX 映射、统一 `danger-full-access`、actual identity/no-reroute、环境隔离，以及同一未完成 item 的幂等 `item/started` 兼容。源代码验收必须明确使用仓库入口并在回执中保留来源；正式安装/晋升前，不得把 source 结果宣称为 installed 或 runtime current。
 
 2026-07-29 的 Spark 源代码入口真实任务证明工作区写权限已生效；但 `code_repair` 在硬上限 `maxSteps=80` 下到达 `81/80` 并终止，确定性得分为 `2/9`。这属于模型/Agent 能力验收不通过，不是权限链仍然只读，也不应通过重复复测改变结论。
 

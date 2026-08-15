@@ -2,7 +2,7 @@
 
 面向 Windows 11 x64 的中文 PowerShell 工具：用统一 Profile 启动原生 Codex CLI、Claude Code、Qwen Code、OpenCode 和当前官方 Rust Open Interpreter，并提供 Provider 隔离、Doctor、显式 Live Test、Codex harness 与可选的第三方代理运维。
 
-命令：`aicli`　版本：`0.3.9`（`main` 源码；source/install/runtime/live 分层回读）　许可证：MIT
+命令：`aicli`　版本：`0.3.10`（`main` 源码；source/install/runtime/live 分层回读）　许可证：MIT
 
 它不是新的 Agent 或聊天外壳，不接管历史会话，也不汉化上游 CLI。本工具只负责“选哪条连接、怎样安全启动、出了问题如何验证”。
 
@@ -17,7 +17,7 @@ aicli start codex-official
 
 目标版本已安装时，确认替换可加 `-Force`。安装后请新开 PowerShell 7，再运行 `aicli version`。
 
-从旧版升级到 `0.3.9` 时，安装器继续先只读预检 Qwen3.7 遗留入口，再把身份与哈希闭合的旧 Profile、旧受管 Codex 文件和旧模块版本移入 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。新 `codex-qwen3-7-max-paygo`、其 exact 06-08 TOML 与被引用目录会被明确保留。迁移不读取、移动或删除 SecretRef/密钥；未知或被修改的遗留物会在安装变更前阻断。
+从旧版升级到 `0.3.10` 时，安装器继续先只读预检 Qwen3.7 遗留入口，再把身份与哈希闭合的旧 Profile、旧受管 Codex 文件和旧模块版本移入 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。新 `codex-qwen3-7-max-paygo`、其 exact 06-08 TOML 与被引用目录会被明确保留。迁移不读取、移动或删除 SecretRef/密钥；未知或被修改的遗留物会在安装变更前阻断。
 
 不安装的开发入口：
 
@@ -30,7 +30,7 @@ pwsh -File .\bin\aicli.ps1 doctor
 
 | 引擎 | 已实现的公开路径 | 验收口径 |
 |------|------------------|----------|
-| Codex CLI | 官方登录、精确 Qwen3.7 Max 06-08 / Qwen3.8 Max Workspace 按量、精确 DeepSeek V4 Flash 0731 / Pro 0813、本机 qwen-main/review / Qwen3.8-27B | `0.3.9` source/static；安装与 Live 只认同提交、同指纹回执 |
+| Codex CLI | 官方登录、精确 Qwen3.7 Max 06-08 / Qwen3.8 Max Workspace 按量、精确 DeepSeek V4 Flash 0731 / Pro 0813、本机 qwen-main/review / Qwen3.8-27B | `0.3.10` source/static；安装与 Live 只认同提交、同指纹回执 |
 | Claude Code | 官方登录、DeepSeek V4 Flash、Ollama、自定义 Anthropic Messages | Qwen3.7 Max/Plus 云模板已移除 |
 | Qwen Code | 本机 Ollama `qwen-main-v1` machine run | 仅机器入口 |
 | OpenCode | 本机 Ollama `qwen-main-v1` / Qwen3.8-27B 256K machine run；Desktop 目录可见 | 仅机器入口 |
@@ -81,7 +81,7 @@ machine child 的父环境按运行时 allowlist 重建，不继承无关凭据�
 
 上层若考虑免费本地模型或订阅内 Spark，唯一收益口径是减少边际付费 token/API 成本；简单、低风险、可验证且净节省为正时才值得委派。疑难任务、授权、高风险动作和最终判断保留给顶级模型，亲自完成不是故障。
 
-`0.3.9` 的 source/static/install/runtime/live 必须分开报告。旧安装态、旧受管 TOML 或旧回执不是本版本证据；只有从最终提交安装并固定路径回读后才能声明 installed current。云 Live 只在现有授权与 SecretRef 下各执行一次，失败不自动重试。
+`0.3.10` 的 source/static/install/runtime/live 必须分开报告。旧安装态、旧受管 TOML 或旧回执不是本版本证据；只有从最终提交安装并固定路径回读后才能声明 installed current。云 Live 只在现有授权与 SecretRef 下各执行一次，失败不自动重试。
 
 已有 OpenClaw DeepSeek 配置时，可先安全预览再导入；脚本可生成 Codex Flash 0731、Codex Pro 0813、Claude Flash、OI Flash 四个 Profile。Qwen3.7 配置不会由导入器读取、复制或迁移；06-08 必须显式配置新 exact Profile：
 
@@ -102,7 +102,7 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 
 4. [Codex harness / machine run](docs/user/MACHINE-RUN.md)：stdin/JSON 协议、全访问合同、运行时身份与能力限制。
 
-根目录同时保留两本可打印手册；PDF 只在由当前 `0.3.9` Markdown 重新生成并完成视觉验收后才算 current：
+根目录同时保留两本可打印手册；PDF 只在由当前 `0.3.10` Markdown 重新生成并完成视觉验收后才算 current：
 
 - 《[AI CLI Profile Manager 使用手册（PDF）](<AI CLI Profile Manager 使用手册.pdf>)》
 - 《[Codex、Claude Code 与 Open Interpreter CLI 中文手册（PDF）](<Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf>)》

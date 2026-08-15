@@ -1,10 +1,10 @@
 # 兼容性与最终验收状态
 
 文档日期：2026-08-14
-产品版本：`0.3.9`（source/install/runtime/live 分层验收）
+产品版本：`0.3.10`（source/install/runtime/live 分层验收）
 状态原则：代码路径存在不等于 Provider 已通过；最终状态必须来自当前版本、当前 Profile 指纹和真实目标 CLI 的验收记录。
 
-本页严格分开 source/static/install/runtime/live。任何旧版本安装或旧 Live 回执都不能证明 `0.3.9`；最终安装提交、payload、受管 TOML/catalog 和 Live 回执必须分别固定指纹。
+本页严格分开 source/static/install/runtime/live。任何旧版本安装或旧 Live 回执都不能证明 `0.3.10`；最终安装提交、payload、受管 TOML/catalog 和 Live 回执必须分别固定指纹。
 
 ## 1. 当前实现基线
 
@@ -19,18 +19,18 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | Profile / 路径 | 实现状态 | 本轮最终 Live 状态 | 发布说明 |
 |----------------|----------|--------------------|----------|
 | `codex-official` | 已实现 | 可用但有限制（本轮按用户要求未做 Live） | 使用上游官方登录；不得由桌面端登录状态推断 CLI 一定可用 |
-| `codex-qwen3-7-max-paygo` | `0.3.9` source/static 已实现 | 当前版本 Live 待验收 | 精确 `qwen3.7-max-2026-06-08`、北京 Workspace paygo Responses、983616/95%、compact 262144；用户 `max` → 原生 `xhigh`；旧 alias/Plus/Profile 与模型覆盖继续失败关闭。 |
-| `codex-qwen3-8-max-paygo` | `0.3.9` source/static 已实现 | 仅由同指纹发布验收回执判定 | 精确 `qwen3.8-max`、Workspace paygo Responses、983616/95%、compact 262144；用户 `max` → 原生 `xhigh`；拒绝 preview/Token Plan/模型覆盖。 |
-| `codex-deepseek` | `0.3.9` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，1048576 context，Responses，默认/配置/argv `max`。 |
-| `codex-deepseek-v4-pro` | `0.3.9` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`，1048576 context，Responses，默认/配置/argv `max`。 |
+| `codex-qwen3-7-max-paygo` | `0.3.10` source/static 已实现 | 当前版本 Live 待验收 | 精确 `qwen3.7-max-2026-06-08`、北京 Workspace paygo Responses、983616/95%、compact 262144；用户 `max` → 原生 `xhigh`；旧 alias/Plus/Profile 与模型覆盖继续失败关闭。 |
+| `codex-qwen3-8-max-paygo` | `0.3.10` source/static 已实现 | 仅由同指纹发布验收回执判定 | 精确 `qwen3.8-max`、Workspace paygo Responses、983616/95%、compact 262144；用户 `max` → 原生 `xhigh`；拒绝 preview/Token Plan/模型覆盖。 |
+| `codex-deepseek` | `0.3.10` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，1048576 context，Responses，默认/配置/argv `max`。 |
+| `codex-deepseek-v4-pro` | `0.3.10` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`，1048576 context，Responses，默认/配置/argv `max`。 |
 | `codex-ollama-main` | exact source/static 已实现 | 本轮不把旧运行证据晋升为新 Live | `qwen-main-v1`、Responses、max、无 fallback。 |
-| `codex-ollama-qwen3-8-27b` | `0.3.9` exact source/static 已实现 | 256K 镜像已创建；本版本不重跑推理 Live | 同权重运行标签 `aicli-qwen3.8-27b-256k:2026-08-14`、Responses、`num_ctx=262144`、max、单候选、无 fallback。 |
+| `codex-ollama-qwen3-8-27b` | `0.3.10` exact source/static 已实现 | 256K 镜像与命令工具 canary 已验证；正式 CACB 使用新工作区 | 同权重运行标签 `aicli-qwen3.8-27b-256k:2026-08-14`、Responses、`num_ctx=262144`、max、单候选、无 fallback；兼容同一未完成 item 的幂等 started 重发。 |
 | `codex-ollama-review` | exact source/static 已实现 | 本轮不把旧运行证据晋升为新 Live | `qwen-review-v1`、Responses、max、无 fallback。 |
 | `codex-spark-xhigh` | 已实现；workspace 修复仅在未发布源码 | 能力验收不通过 | 2026-07-24 的只读严格 JSON smoke 仍只证明文本链路。2026-07-29 使用仓库源代码入口和 `gpt-5.3-codex-spark` / `xhigh` 的真实 `workspace-write` 任务已证明命名权限与工作区写入生效；但 `code_repair` 在硬上限 `maxSteps=80` 下达到 `81/80` 后终止，确定性得分 `2/9`。本轮停止复测，不把权限修复等同于代码 Agent 能力通过。官方 Spark 使用临时 `CODEX_HOME` / `auth.json` 副本，不走付费 API Key。 |
 | `claude-official` | 已实现 | 不可用（本机未登录，401） | 完成 Claude CLI 官方登录后可重新验收；不等于产品安装失败 |
 | `claude-deepseek` | Flash-only 模板与上下文修复已在本机 installed | 可用但有限制（尚未做当前 Flash Live） | 2.1.193+ 按 `deepseek-v4-flash` 注入 MAX/AUTO=`1000000`；不设置提前压缩覆盖或禁压缩变量。安装态静态回读确认已知模型注入 1M，未知模型清除 MAX/AUTO、提前压缩与两个禁压缩变量。2026-07-14 的 Pro 记录属于旧指纹，不能证明当前 Flash。 |
 | `claude-ollama` | 已实现，公共默认 `127.0.0.1:11434` | 可用但有限制（公共默认未做 Live） | 本机 `claude-ollama-main` 在 2.1.193+ 为 `qwen-main-v1` 注入 MAX/AUTO=`262144`；本机服务和模型仍是前置条件 |
-| `opencode-ollama-qwen3-8-27b` | `0.3.9` exact source/static 已实现 | Desktop 目录与 256K 参数回读通过；本版本不重跑推理 Live | 与 Codex 共用同一运行标签/权重，262144 context/input、32768 output；Desktop 显示 `Qwen3.8 27B MAX (256K)`。 |
+| `opencode-ollama-qwen3-8-27b` | `0.3.10` exact source/static 已实现 | Desktop 目录、256K 参数与完整 OpenCode 样本已回读 | 与 Codex 共用同一运行标签/权重，262144 context/input、32768 output；Desktop 显示 `Qwen3.8 27B MAX (256K)`。 |
 | `claude-custom` | 已实现 | 可用但有限制（按用户端点分别验收） | 只接受 HTTPS 或 localhost HTTP 的 Anthropic Messages 兼容端点 |
 | `oi-deepseek` | Rust 0.0.21+ Flash-only 模板已实现 | 可用但有限制（尚未做当前 Flash Live） | 2026-07-14 的 `deepseek-v4-pro` 文本通过记录属于旧 Profile 指纹；不能作为当前 `deepseek-v4-flash` 证据。 |
 | `oi-ollama` | Rust 0.0.21+ 适配已实现 | 可用但有限制（公共默认未做 Live） | 公共默认 `127.0.0.1:11434/v1` |
@@ -69,7 +69,7 @@ aicli test <Profile ID> --live --level text --yes
 - Codex 回执记录实际 CLI 路径/版本、Provider、端点、actual 模型/Provider、`approval_policy=never`、`requested_policy=danger-full-access`、`native` 边界、`sandbox_type=dangerFullAccess`、permission profile、零工具使用、Profile 指纹和测试时间；不记录提示/回复正文或秘密。
 - Codex machine run 默认提供受管 `public_web_search`；回执记录 `enabled/provider/searches/eventEvidence`，事件仅记录 `web_search` 生命周期和计数，不含 query/result。2026-08-13 源码入口已由本地 `qwen-main-v1` 真实完成一次搜索并返回 `SEARCH_DONE`；该次未启用 event-file，不能冒充安装态或 durable GUI JSONL acceptance。
 
-`0.3.9` 安装前会只读预检 Qwen3.7 遗留入口；只有能用 marker/body/state/hash 和模块 Manifest 身份证明由 AICLI 管理的旧文件才会移入可恢复 quarantine。新 06-08 exact Profile、受管 TOML/state 与被引用目录会保留。未知/篡改/reparse 项会阻断安装且不会被删除；SecretRef 与密钥不参与迁移。
+`0.3.10` 安装前会只读预检 Qwen3.7 遗留入口；只有能用 marker/body/state/hash 和模块 Manifest 身份证明由 AICLI 管理的旧文件才会移入可恢复 quarantine。新 06-08 exact Profile、受管 TOML/state 与被引用目录会保留。未知/篡改/reparse 项会阻断安装且不会被删除；SecretRef 与密钥不参与迁移。
 
 `codex-spark-xhigh` 的 machine run 证据与桌面端“能够创建 Spark 任务”是两条不同事实。当前证据进一步拆成三层：旧只读 smoke 证明文本链路，2026-07-29 的写任务证明源码权限修复生效，而同一任务的 `81/80` 与 `2/9` 证明能力验收不通过。额度和限流仍是动态外部状态；aicli 不自动降级，调用方如改投本地模型必须显式重提并保留两份回执。
 
