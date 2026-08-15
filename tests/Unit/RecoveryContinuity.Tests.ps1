@@ -236,6 +236,11 @@ Describe 'Recoverable continuity after process loss or quota pause' {
                 $paused.resumeCount | Should -Be 0
                 Should -Invoke Invoke-AiCliProfileCapture -Times 1 -Exactly
 
+                $pauseState=Get-AiCliRecoverableRunState $created.runId
+                $pauseState.accounting.quotaPauseStartedUtc=(Get-Date).
+                    ToUniversalTime().AddSeconds(-2).ToString('o')
+                Write-AiCliRecoverableRunState $pauseState
+
                 $pausedAgain=Invoke-AiCliRecoverableRun -RunId $created.runId
                 $pausedAgain.status | Should -BeExactly 'quota_paused'
                 $pausedAgain.resumeCount | Should -Be 0
@@ -244,7 +249,7 @@ Describe 'Recoverable continuity after process loss or quota pause' {
                 $completed=Invoke-AiCliRecoverableRun -RunId $created.runId
                 $completed.status | Should -BeExactly 'completed'
                 $completed.resumeCount | Should -Be 1
-                $completed.accounting.quotaPauseMs | Should -BeGreaterOrEqual 0
+                $completed.accounting.quotaPauseMs | Should -BeGreaterThan 1000
                 Should -Invoke Invoke-AiCliProfileCapture -Times 3 -Exactly
             } finally {
                 $script:AiCliDataRootOverride=$null

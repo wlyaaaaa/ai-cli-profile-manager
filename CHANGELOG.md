@@ -16,6 +16,7 @@
 - 事件与 receipt 按 attempt 追加为不可变分段，使用单调 sequence、文件 SHA256、segmentHash、stateHash 与前向 journal hash 链；重启后只从已关闭的事件 writer 对账，孤儿/重复/迟到终态或重放覆盖都会失效。
 - 运行时身份事件先做 exact-secret 脱敏，再仅恢复已经由 harness 验证的封闭公开身份字段；本地兼容 Key 与 Provider 名子串碰撞时不会误伤 exact Provider，自由文本仍保持脱敏。拒绝的中断身份也会先闭合分段游标与不可变 receipt，保留准确失败原因而不制造证据链矛盾。
 - `thread/resume` 在请求前预绑定已经持久化并验证的旧 thread/session，因此 Codex 0.147 先于响应发送的 thread 状态通知仍能按 exact scope 验证；响应若返回新 thread/session 继续立即拒绝。父层身份门在子进程写出公开终态后失败时，也会闭合该事件段并保留结构化错误码，不再把原始失败降成笼统的证据链错误。
+- UTC 创建、额度暂停和 controller 启动时间在 JSON 往返后保持原始时区/精度，`status` 不再把活进程误判为中断，wall/quota 时间也不再错误归零。每个能返回 verified capture receipt 的 attempt 另保存无 lease/capability 的 broker 终态摘要；控制器被直接杀死的段仍诚实标为 cleanup 未确认，由后续成功 reacquire 与 broker 自身 owner-exit 合同分别举证。
 - 瞬态上游错误、进程退出和 app-server stream 断开最多自动 exact-resume 3 次；额度暂停来自公开 `codexErrorInfo` 的结构化分类，不消耗恢复次数，也不依赖或公开厂商错误文本。硬预算、取消、身份错误和结构性协议错误不重试。
 - 回执分开记录首次/恢复 active time、额度等待、重复 continuation 字节、各 attempt usage 与 wall time；重复输入不冒充模型有效工作或费用证据。控制器丢失时无法回读的 active duration 显式标为 partial，不用 0 或 wall time 伪造。无法证明旧版/旧 ephemeral thread 可恢复时明确返回 `resumeSupported=false`，不得把 partial 与新 workspace attempt 合并。
 

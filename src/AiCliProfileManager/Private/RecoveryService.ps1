@@ -8,6 +8,94 @@ function Get-AiCliRecoveryHash {
     ).ToLowerInvariant()
 }
 
+function ConvertTo-AiCliRecoveryUtcInstant {
+    param([Parameter(Mandatory)][object]$Value)
+
+    if ($Value -is [datetime]) {
+        return $Value.ToUniversalTime()
+    }
+    if ($Value -is [datetimeoffset]) {
+        return $Value.UtcDateTime
+    }
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        throw 'Recoverable UTC instant is empty.'
+    }
+    return [datetimeoffset]::Parse(
+        $text,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind
+    ).UtcDateTime
+}
+
+function ConvertTo-AiCliRecoverableBrokerReceiptSummary {
+    param([AllowNull()][object]$Receipt)
+
+    if ($null -eq $Receipt) { return $null }
+    $hashPattern = '\Asha256:[a-f0-9]{64}\z'
+    $bindingObservation = Get-AiCliProperty $Receipt 'binding_observation'
+    $brokerInstanceId = [string](Get-AiCliProperty $Receipt 'broker_instance_id')
+    $bindingSha256 = [string](Get-AiCliProperty $Receipt 'binding_sha256')
+    $observationSha256 = [string](Get-AiCliProperty `
+        $bindingObservation 'observation_sha256')
+    $requestChainSha256 = [string](Get-AiCliProperty `
+        $Receipt 'request_chain_sha256')
+    $releaseReason = [string](Get-AiCliProperty $Receipt 'release_reason')
+    $closeReason = [string](Get-AiCliProperty `
+        $Receipt 'close_reason_requested')
+    $countNames = @(
+        'active_requests','accepted_requests','completed_requests',
+        'accepted_model_requests','completed_model_requests'
+    )
+    $counts = [ordered]@{}
+    foreach ($name in $countNames) {
+        $value = Get-AiCliProperty $Receipt $name
+        if ($value -isnot [ValueType] -or [long]$value -lt 0) {
+            throw 'Recoverable broker receipt count is invalid.'
+        }
+        $counts[$name] = [long]$value
+    }
+    if ([string](Get-AiCliProperty $Receipt 'schema') -cne
+            'aicli.local-gpu-broker-session-receipt.v1' -or
+        [bool](Get-AiCliProperty $Receipt 'verified' $false) -ne $true -or
+        [string](Get-AiCliProperty $Receipt 'broker_schema') -cne
+            'pcconfig.local-gpu-broker.ollama-session.v1' -or
+        $brokerInstanceId -notmatch '\A[a-f0-9]{32}\z' -or
+        $bindingSha256 -notmatch $hashPattern -or
+        $observationSha256 -notmatch $hashPattern -or
+        $requestChainSha256 -notmatch $hashPattern -or
+        [string](Get-AiCliProperty $Receipt 'state') -cne 'released' -or
+        $counts.active_requests -ne 0 -or
+        $counts.completed_requests -ne $counts.accepted_requests -or
+        $counts.completed_model_requests -ne
+            $counts.accepted_model_requests -or
+        $closeReason -notin @(
+            'normal','cancelled','timeout','launch_failed','cleanup_failed'
+        ) -or
+        ($releaseReason -cne $closeReason -and
+            $releaseReason -cne 'expired')) {
+        throw 'Recoverable broker terminal receipt is invalid.'
+    }
+    return [ordered]@{
+        schema = 'aicli.recoverable-broker-summary.v1'
+        verified = $true
+        brokerSchema = 'pcconfig.local-gpu-broker.ollama-session.v1'
+        brokerInstanceId = $brokerInstanceId
+        bindingSha256 = $bindingSha256
+        bindingObservationSha256 = $observationSha256
+        state = 'released'
+        activeRequests = $counts.active_requests
+        acceptedRequests = $counts.accepted_requests
+        completedRequests = $counts.completed_requests
+        acceptedModelRequests = $counts.accepted_model_requests
+        completedModelRequests = $counts.completed_model_requests
+        requestChainSha256 = $requestChainSha256
+        releaseReason = $releaseReason
+        closeReasonRequested = $closeReason
+        renewed = [bool](Get-AiCliProperty $Receipt 'renewed' $false)
+    }
+}
+
 function Assert-AiCliRecoverableRunId {
     param([Parameter(Mandatory)][string]$RunId)
     if ($RunId -notmatch '\A[a-f0-9]{32}\z') {
@@ -610,7 +698,7 @@ function Test-AiCliRecoverableQuotaPause {
 
 function Get-AiCliRecoverableRunResult {
     param([Parameter(Mandatory)]$State, [object]$Receipt = $null)
-    $created = [datetime]::Parse([string]$State.createdUtc).ToUniversalTime()
+    $created = ConvertTo-AiCliRecoveryUtcInstant -Value $State.createdUtc
     $wallMs = [long][Math]::Max(0, ((Get-Date).ToUniversalTime() - $created).TotalMilliseconds)
     return [pscustomobject]@{
         runId = [string]$State.runId
@@ -666,13 +754,15 @@ function Get-AiCliRecoverableRunResult {
 function Test-AiCliRecoverableControllerAlive {
     param([Parameter(Mandatory)]$State)
     $processId = [int](Get-AiCliProperty $State.controller 'pid' 0)
-    $recordedStart = [string](
+    $recordedStartValue = (
         Get-AiCliProperty $State.controller 'processStartUtc'
     )
-    if ($processId -le 0 -or [string]::IsNullOrWhiteSpace($recordedStart)) {
+    if ($processId -le 0 -or $null -eq $recordedStartValue) {
         return $false
     }
     try {
+        $recordedStart = (ConvertTo-AiCliRecoveryUtcInstant `
+            -Value $recordedStartValue).ToString('o')
         $process = Get-Process -Id $processId -ErrorAction Stop
         return $process.StartTime.ToUniversalTime().ToString('o') -ceq
             $recordedStart
@@ -1075,9 +1165,8 @@ function Invoke-AiCliRecoverableRunCore {
     }
     if ($state.status -eq 'quota_paused' -and
         $state.accounting.quotaPauseStartedUtc) {
-        $pauseStarted = [datetime]::Parse(
-            [string]$state.accounting.quotaPauseStartedUtc
-        ).ToUniversalTime()
+        $pauseStarted = ConvertTo-AiCliRecoveryUtcInstant `
+            -Value $state.accounting.quotaPauseStartedUtc
         $state.accounting.quotaPauseMs += [long][Math]::Max(
             0,
             ((Get-Date).ToUniversalTime() - $pauseStarted).TotalMilliseconds
@@ -1322,6 +1411,26 @@ function Invoke-AiCliRecoverableRunCore {
             Get-AiCliProperty $receipt 'turnId'
         )
         if ($observedTurnId) { $state.turnContext.lastTurnId = $observedTurnId }
+        $limitUsage = Get-AiCliProperty $receipt 'limitUsage'
+        $cleanupConfirmed = [bool](Get-AiCliProperty `
+            $limitUsage 'cleanupConfirmed' $false)
+        $cleanupMethod = [string](Get-AiCliProperty `
+            $limitUsage 'cleanupMethod' 'unconfirmed')
+        if ($cleanupMethod -notmatch '\A[a-z0-9._-]{1,64}\z') {
+            $cleanupMethod = 'invalid'
+            $state.status = 'failed_closed'
+            $state.resume.supported = $false
+            $state.resume.reason = 'cleanup_receipt_invalid'
+        }
+        $brokerSummary = $null
+        try {
+            $brokerSummary = ConvertTo-AiCliRecoverableBrokerReceiptSummary `
+                -Receipt (Get-AiCliProperty $receipt 'localGpuBrokerSession')
+        } catch {
+            $state.status = 'failed_closed'
+            $state.resume.supported = $false
+            $state.resume.reason = 'broker_terminal_receipt_invalid'
+        }
         $eventHash = (Get-FileHash -LiteralPath $eventFile -Algorithm SHA256).Hash.ToLowerInvariant()
         $segmentReceipt = [ordered]@{
             schema = 'aicli.recoverable-segment.v1'
@@ -1344,6 +1453,9 @@ function Invoke-AiCliRecoverableRunCore {
             timedOut = [bool](Get-AiCliProperty $receipt 'timedOut' $false)
             errorCode = Get-AiCliProperty $receipt 'errorCode'
             durationMs = $durationMs
+            cleanupConfirmed = $cleanupConfirmed
+            cleanupMethod = $cleanupMethod
+            localGpuBrokerSession = $brokerSummary
             usage = ConvertTo-AiCliSafeUsage (Get-AiCliProperty $receipt 'usage')
             outputSha256 = Get-AiCliRecoveryHash -Text (
                 [string](Get-AiCliProperty $receipt 'stdout')

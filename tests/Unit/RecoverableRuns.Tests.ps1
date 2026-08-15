@@ -71,6 +71,39 @@ Describe 'Recoverable Codex runs' {
         }
     }
 
+    It 'keeps UTC wall time and live controller identity after JSON round trip' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $script:AiCliDataRootOverride = Join-Path $Work 'data-time'
+            try {
+                Mock Build-AiCliLaunchPlan {
+                    [pscustomobject]@{
+                        engine='codex';profileId='future'
+                        profileFingerprint=('d'*64);workingDirectory=$Work
+                        model='future-model';modelProvider='future_provider'
+                        wire='responses';effort='max';effectiveEffort='max'
+                    }
+                }
+                $created=New-AiCliRecoverableRun -ProfileId future `
+                    -ProjectPath $Work -TaskText TASK
+                $state=Get-AiCliRecoverableRunState $created.runId
+                $state.createdUtc=(Get-Date).ToUniversalTime().
+                    AddSeconds(-2).ToString('o')
+                $state.controller.pid=$PID
+                $state.controller.processStartUtc=(Get-Process -Id $PID).
+                    StartTime.ToUniversalTime().ToString('o')
+                Write-AiCliRecoverableRunState $state
+
+                $roundTrip=Get-AiCliRecoverableRunState $created.runId
+                $roundTrip.createdUtc.GetType().FullName |
+                    Should -BeExactly 'System.DateTime'
+                Test-AiCliRecoverableControllerAlive $roundTrip |
+                    Should -BeTrue
+                $result=Get-AiCliRecoverableRunResult $roundTrip
+                $result.accounting.wallTimeMs | Should -BeGreaterThan 1000
+            } finally {$script:AiCliDataRootOverride=$null}
+        }
+    }
+
     It 'automatically resumes only the exact same thread and session' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $script:AiCliDataRootOverride = Join-Path $Work 'data'
@@ -182,6 +215,90 @@ Describe 'Recoverable Codex runs' {
             } finally {
                 $script:AiCliDataRootOverride = $null
             }
+        }
+    }
+
+    It 'persists safe released broker summaries for start and resume attempts' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $script:AiCliDataRootOverride=Join-Path $Work 'data-broker-receipt'
+            $script:brokerCaptureCalls=0
+            $threadId='11111111-1111-4111-8111-111111111111'
+            $sessionId='22222222-2222-4222-8222-222222222222'
+            try {
+                Mock Build-AiCliLaunchPlan {
+                    [pscustomobject]@{
+                        engine='codex';profileId='future'
+                        profileFingerprint=('e'*64);workingDirectory=$Work
+                        model='future-model';modelProvider='future_provider'
+                        wire='responses';effort='max';effectiveEffort='max'
+                    }
+                }
+                Mock Invoke-AiCliProfileCapture {
+                    $script:brokerCaptureCalls++
+                    $base=[int]$RecoveryContext.eventSequenceBase
+                    $terminal=if($script:brokerCaptureCalls-eq1){'run.failed'}else{'run.completed'}
+                    [IO.File]::WriteAllText(
+                        $MachineEventFile,
+                        (([ordered]@{
+                            schema='aicli.machine-event.v1';sequence=$base+1
+                            kind=$terminal;status=$(if($terminal-eq'run.failed'){'failed'}else{'completed'})
+                        }|ConvertTo-Json -Compress)+"`n"),
+                        [Text.UTF8Encoding]::new($false)
+                    )
+                    $binding=$(if($script:brokerCaptureCalls-eq1){'a'*64}else{'b'*64})
+                    [pscustomobject]@{
+                        exitCode=$(if($script:brokerCaptureCalls-eq1){1}else{0})
+                        timedOut=$false
+                        errorCode=$(if($script:brokerCaptureCalls-eq1){'codex_appserver.upstream_transient'}else{$null})
+                        limitHit=$null;abortRequested=$false
+                        threadId=$threadId;sessionId=$sessionId
+                        turnId=('33333333-3333-4333-8333-33333333333'+$script:brokerCaptureCalls)
+                        durationMs=5;machineEventSequenceStart=$base
+                        machineEventSequenceEnd=$base+1;machineEventCount=1
+                        usage=[ordered]@{input_tokens=$script:brokerCaptureCalls}
+                        stdout='';stderr=''
+                        runtimeIdentity=[ordered]@{model='future-model';model_provider='future_provider'}
+                        limitUsage=[ordered]@{
+                            cleanupConfirmed=$true
+                            cleanupMethod='process-tree-kill-confirmed'
+                        }
+                        localGpuBrokerSession=[ordered]@{
+                            schema='aicli.local-gpu-broker-session-receipt.v1'
+                            verified=$true
+                            broker_schema='pcconfig.local-gpu-broker.ollama-session.v1'
+                            broker_instance_id=('c'*32)
+                            lease_id='PRIVATE_LEASE_MUST_NOT_PERSIST'
+                            binding_sha256=('sha256:'+$binding)
+                            binding_observation=[ordered]@{
+                                observation_sha256=('sha256:'+('d'*64))
+                            }
+                            state='released';active_requests=0
+                            accepted_requests=1;completed_requests=1
+                            accepted_model_requests=1;completed_model_requests=1
+                            request_chain_sha256=('sha256:'+('f'*64))
+                            release_reason='normal';close_reason_requested='normal'
+                            renewed=$false
+                        }
+                    }
+                }
+                $created=New-AiCliRecoverableRun -ProfileId future `
+                    -ProjectPath $Work -TaskText TASK
+                $result=Invoke-AiCliRecoverableRun $created.runId `
+                    -InitialTaskText TASK
+                $result.status|Should -BeExactly 'completed'
+                $state=Get-AiCliRecoverableRunState $created.runId
+                $one=Read-AiCliRecoverableSegmentReceipt $state '0001'
+                $two=Read-AiCliRecoverableSegmentReceipt $state '0002'
+                $one.cleanupConfirmed|Should -BeTrue
+                $two.cleanupConfirmed|Should -BeTrue
+                $one.localGpuBrokerSession.state|Should -BeExactly 'released'
+                $two.localGpuBrokerSession.state|Should -BeExactly 'released'
+                $one.localGpuBrokerSession.bindingSha256|
+                    Should -Not -BeExactly $two.localGpuBrokerSession.bindingSha256
+                (($one,$two)|ConvertTo-Json -Depth 20 -Compress)|
+                    Should -Not -Match 'PRIVATE_LEASE|lease_id|capability'
+                Assert-AiCliRecoverableEvidenceChain $state|Should -BeTrue
+            } finally {$script:AiCliDataRootOverride=$null}
         }
     }
 
