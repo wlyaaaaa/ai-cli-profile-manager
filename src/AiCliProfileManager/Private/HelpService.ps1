@@ -75,7 +75,7 @@ function Show-AiCliHelpCompact {
 
 注意：压缩不可完美还原细节。原生 ChatGPT + Codex 保持上游默认；DeepSeek、千问及本地模型的第三方 CLI 路由不要为了省上下文主动 compact。
 
-建议：一个会话只做一个内聚里程碑。确需压缩前先写下目标、约束、改动文件、测试和下一步；压缩后重读项目规则、当前 Skill、状态文档和 git diff/status。
+建议：一个会话只做一个内聚里程碑。确需压缩前先把目标与验收、约束/授权/owner、规则与关键文件、改动和脏改动归属、决定、测试/Live 缺口、阻塞与下一步写入项目已有状态文档；压缩后把摘要当线索，重读项目规则（AGENTS.md/CLAUDE.md）、状态文档和 git diff/status。不要建立第二事实源。
 
 对照：二者都有 compact，语义相近但实现不等价。
 '@

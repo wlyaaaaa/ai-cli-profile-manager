@@ -55,7 +55,7 @@ aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 - Codex harness 本来就是全访问，因此应传入隔离 worktree 或暂存目录；canonical raw 数据和无关秘密应保留在边界外。AICLI 不自动 fallback 到另一个 Profile。
 - Qwen Code/OpenCode 是 machine-only；交互式 `start` 会拒绝这两个 Profile。
 - OpenCode 的 inline 配置只启用 `aicli_ollama`，主/小/压缩模型都固定为当前 exact Profile 的模型；`opencode-ollama-main` 使用 `qwen-main-v1`，`opencode-ollama-qwen3-8-27b` 使用固定 256K 运行标签。两者显式 `auto=true`、`prune=false`、20000 reserve、最近 4 轮/16384 token 原样保留。`agent.build.steps=maxSteps` 只是上游软收尾，`maxToolCalls` 仍未获得硬映射，不能标成 AICLI `hard`。
-- OpenCode 的 XDG config/data/cache/state 位于一次性 `.aicli-runtime-*` 并在结束时清理，所以 session summary/checkpoint 不能跨 run 继承。一个 run 只做一个里程碑；先把目标、约束、改动、测试和下一步写入项目状态，再开新 run。自动压缩后重读 `AGENTS.md`、当前 `SKILL.md`、状态文件和 `git status` / `git diff`。
+- OpenCode 的 XDG config/data/cache/state 位于一次性 `.aicli-runtime-*` 并在结束时清理，所以 session summary/checkpoint 不能跨 run 继承。一个 run 只做一个里程碑；压缩前把目标与验收、约束/授权/owner、规则与关键文件、改动和脏改动归属、决定、测试/Live 缺口、阻塞与下一步写入项目已有状态，再开新 run。自动压缩后把摘要当线索，重读项目规则（`AGENTS.md`/`CLAUDE.md`）、状态文件和 `git status` / `git diff`；不得建立第二事实源。
 - Codex harness 以 npm `codex-cli 0.147.0` 为当前最低身份验证基线，由内部桥使用 app-server JSON-RPC v2 的 `thread/start`、`turn/start` 与通知流。CLI 更新后默认尝试运行，但每次仍严格验证初始化、actual identity、全访问权限、通知 allowlist、thread/turn 归属、item 生命周期、成功轮次 `status=completed` 和清理结果；必要协议缺失、结构漂移、歧义事件或清理不可靠就明确失败。
 - Codex 的 `max-steps` 采用 `distinct-non-output-thread-item-v2`：统计不同的推理、计划、工具、压缩等非输出 ThreadItem；公开 `agentMessage` 增量和最终消息不占用行动步骤，避免“一边汇报”挤掉实际执行预算。`max-tool-calls` 仍统计命令、文件、MCP、collab、web 等工具项；墙钟、输出上限和事件安全门也保持独立。machine run 逐行解析桥接后的安全事件并硬执行，越限会终止桥、app-server 和全部后代进程。
 - 有界 machine run 显式关闭 Codex `multi_agent` / `multi_agent_v2`，避免一次 collab 调用在事件边界后隐藏未计数的子智能体工具循环；若仍出现 collab 事件，会先计为一次工具调用，再按配置不变量失效而失败关闭。

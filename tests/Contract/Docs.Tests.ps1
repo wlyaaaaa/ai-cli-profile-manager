@@ -46,8 +46,17 @@ Describe 'Docs contract' {
             $text | Should -Match '原生 ChatGPT\s*\+\s*Codex'
             $text | Should -Match '不要.*主动.*compact'
             $text | Should -Match 'AGENTS\.md'
-            $text | Should -Match 'SKILL\.md'
+            $text | Should -Match 'CLAUDE\.md'
+            $text | Should -Match '状态(文档|文件)'
             $text | Should -Match 'git (status|diff)'
         }
+    }
+
+    It 'documents the project-owned continuity contract without a second state source' {
+        $projectRules = Get-Content (Join-Path $script:Root 'AGENTS.md') -Raw
+        $maintainer = Get-Content (Join-Path $script:Root 'docs\maintainer\项目设计与实施归档.md') -Raw
+        $projectRules | Should -Match 'aicli\.third-party-continuity\.v1'
+        $maintainer | Should -Match 'aicli\.third-party-continuity\.v1'
+        $maintainer | Should -Match '第二事实源'
     }
 }

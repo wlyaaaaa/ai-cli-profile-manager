@@ -168,4 +168,79 @@ Describe 'Third-party context management' {
                 Should -BeTrue
         }
     }
+
+    It 'publishes a project-owned loss-aware checkpoint contract for third-party clients only' {
+        InModuleScope AiCliProfileManager {
+            $policy = Get-AiCliThirdPartyContinuityPolicy -Engine 'codex' -Provider 'deepseek'
+
+            $policy.schema | Should -BeExactly 'aicli.third-party-continuity.v1'
+            $policy.mode | Should -BeExactly 'loss-aware'
+            $policy.nativeBaseline | Should -BeExactly 'unchanged'
+            $policy.oneMilestonePerSession | Should -BeTrue
+            $policy.manualCompaction | Should -BeExactly 'defer-until-window-pressure'
+            $policy.preCompactionCheckpoint.required | Should -BeTrue
+            $policy.preCompactionCheckpoint.durableTarget | Should -BeExactly 'existing-project-state'
+            @($policy.preCompactionCheckpoint.fields) | Should -Contain 'goal-and-acceptance'
+            @($policy.preCompactionCheckpoint.fields) | Should -Contain 'constraints-authorization-owner'
+            @($policy.preCompactionCheckpoint.fields) | Should -Contain 'changed-files-and-dirty-ownership'
+            @($policy.preCompactionCheckpoint.fields) | Should -Contain 'tests-and-live-gaps'
+            @($policy.preCompactionCheckpoint.fields) | Should -Contain 'next-step'
+            @($policy.postCompactionRead) | Should -Contain 'project-rules: AGENTS.md or CLAUDE.md'
+            @($policy.postCompactionRead) | Should -Contain 'existing-project-state'
+            @($policy.postCompactionRead) | Should -Contain 'git status'
+            @($policy.postCompactionRead) | Should -Contain 'git diff'
+            $policy.summaryIsHint | Should -BeTrue
+            $policy.restoreFromSource | Should -BeTrue
+            $policy.secondFactSource | Should -BeFalse
+
+            $native = Get-AiCliThirdPartyContinuityPolicy -Engine 'codex' -Provider 'openai'
+            $native | Should -BeNullOrEmpty
+            $officialClaude = Get-AiCliThirdPartyContinuityPolicy -Engine 'claude' -Provider 'anthropic'
+            $officialClaude | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'attaches the continuity contract to third-party plans without changing the native baseline' {
+        InModuleScope AiCliProfileManager {
+            $thirdPartyPlan = [pscustomobject]@{
+                engine = 'opencode'
+                versionArgumentList = @('opencode', '--version')
+                fileName = 'opencode'
+                launcherKind = 'native'
+                environmentDelta = @{}
+                removeEnvironment = @()
+                notes = @()
+                machineRuntime = [ordered]@{ kind = 'opencode'; model = 'qwen-main-v1' }
+            }
+            $thirdPartyProfile = [ordered]@{
+                provider = 'ollama'
+                modelMetadata = [ordered]@{
+                    'qwen-main-v1' = [ordered]@{
+                        contextWindowTokens = 262144
+                        inputWindowTokens = 262144
+                        outputWindowTokens = 8192
+                        compactionReserveTokens = 20000
+                        preserveRecentTokens = 16384
+                        tailTurns = 4
+                    }
+                }
+            }
+
+            $result = Apply-AiCliContextManagementPolicy -Plan $thirdPartyPlan -MergedProfile $thirdPartyProfile
+            $result.continuityPolicy.schema | Should -BeExactly 'aicli.third-party-continuity.v1'
+            $result.continuityPolicy.preCompactionCheckpoint.required | Should -BeTrue
+            $result.continuityPolicy.secondFactSource | Should -BeFalse
+
+            $nativePlan = [pscustomobject]@{
+                engine = 'codex'
+                environmentDelta = @{}
+                removeEnvironment = @()
+                notes = @('native')
+            }
+            $nativeProfile = [ordered]@{ provider = 'openai' }
+            $nativeResult = Apply-AiCliContextManagementPolicy -Plan $nativePlan -MergedProfile $nativeProfile
+            @($nativeResult.PSObject.Properties.Name) | Should -Not -Contain 'continuityPolicy'
+            @($nativeResult.notes) | Should -Be @('native')
+        }
+    }
 }

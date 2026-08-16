@@ -1,5 +1,80 @@
 ﻿# Third-party context metadata and loss-aware client compaction policy.
 
+function Get-AiCliThirdPartyContinuityPolicy {
+    param(
+        [Parameter(Mandatory)][string]$Engine,
+        [Parameter(Mandatory)][string]$Provider
+    )
+
+    # The native ChatGPT/Codex and official Claude paths are deliberately
+    # outside this contract. Their upstream session/compaction behavior is the
+    # product baseline and must not inherit third-party policy.
+    $isNativeBaseline = (
+        ($Engine -eq 'codex' -and $Provider -eq 'openai') -or
+        ($Engine -eq 'claude' -and $Provider -eq 'anthropic')
+    )
+    $isSupportedThirdParty = $Engine -in @('codex','claude','opencode')
+    if ($isNativeBaseline -or -not $isSupportedThirdParty) { return $null }
+
+    return [ordered]@{
+        schema = 'aicli.third-party-continuity.v1'
+        mode = 'loss-aware'
+        sourceOfTruth = @('project-rules','project-state','working-tree')
+        nativeBaseline = 'unchanged'
+        oneMilestonePerSession = $true
+        manualCompaction = 'defer-until-window-pressure'
+        preCompactionCheckpoint = [ordered]@{
+            required = $true
+            durableTarget = 'existing-project-state'
+            fields = @(
+                'goal-and-acceptance',
+                'constraints-authorization-owner',
+                'rules-and-key-files',
+                'changed-files-and-dirty-ownership',
+                'decisions-and-rationale',
+                'tests-and-live-gaps',
+                'blockers-and-risks',
+                'next-step'
+            )
+        }
+        postCompactionRead = @(
+            'project-rules: AGENTS.md or CLAUDE.md',
+            'existing-project-state',
+            'git status',
+            'git diff'
+        )
+        summaryIsHint = $true
+        restoreFromSource = $true
+        secondFactSource = $false
+    }
+}
+
+function Add-AiCliThirdPartyContinuityPolicy {
+    param(
+        [Parameter(Mandatory)]$Plan,
+        [Parameter(Mandatory)]$MergedProfile
+    )
+
+    $engine = [string](Get-AiCliProperty $Plan 'engine')
+    $provider = [string](Get-AiCliProperty $MergedProfile 'provider')
+    $policy = Get-AiCliThirdPartyContinuityPolicy -Engine $engine -Provider $provider
+    if ($null -eq $policy) { return $Plan }
+
+    if ($Plan -is [System.Collections.IDictionary]) {
+        $Plan['continuityPolicy'] = $policy
+    } elseif ($Plan.PSObject.Properties['continuityPolicy']) {
+        $Plan.continuityPolicy = $policy
+    } else {
+        $Plan | Add-Member -NotePropertyName 'continuityPolicy' `
+            -NotePropertyValue $policy
+    }
+    $Plan.notes = @((Get-AiCliProperty $Plan 'notes')) + @(
+        'AICLI 项目连续性契约：一个会话/run 只做一个内聚里程碑；压缩前把最小状态 checkpoint 写入项目已有状态文档。',
+        '压缩后把摘要当线索，重新读取项目规则、已有状态文档、git status 和 git diff；不得建立第二事实源。'
+    )
+    return $Plan
+}
+
 function Get-AiCliModelMetadataEntry {
     param(
         $MergedProfile,
@@ -84,6 +159,7 @@ function Apply-AiCliContextManagementPolicy {
     )
     $engine = [string](Get-AiCliProperty $Plan 'engine')
     $provider = [string](Get-AiCliProperty $MergedProfile 'provider')
+    $Plan = Add-AiCliThirdPartyContinuityPolicy -Plan $Plan -MergedProfile $MergedProfile
 
     if ($engine -eq 'claude' -and $provider -ne 'anthropic') {
         $model = Resolve-AiCliClaudePlanModel -Plan $Plan -MergedProfile $MergedProfile
@@ -122,7 +198,7 @@ function Apply-AiCliContextManagementPolicy {
         )
         $Plan.notes = @((Get-AiCliProperty $Plan 'notes')) + @(
             "第三方模型上下文窗口: $contextWindow tokens；自动压缩按真实窗口计算。",
-            '客户端压缩属于有损摘要：不要为省上下文主动 /compact；先落盘状态，压缩后重读项目规则、当前 Skill 与 diff。'
+            '客户端压缩属于有损摘要：不要为省上下文主动 /compact；先落盘最小 checkpoint，压缩后重读项目规则、状态文档与 diff。'
         )
         return $Plan
     }
@@ -137,7 +213,7 @@ function Apply-AiCliContextManagementPolicy {
         Assert-AiCliContextManagedPlanVersion -Plan $Plan -MergedProfile $MergedProfile
         $runtime['modelMetadata'] = $metadata
         $Plan.notes = @((Get-AiCliProperty $Plan 'notes')) + @(
-            'OpenCode 使用受管模型窗口和晚压缩保护；prune 关闭，压缩后必须重读项目规则、当前 Skill 与 diff。'
+            'OpenCode 使用受管模型窗口和晚压缩保护；prune 关闭，压缩后必须重读项目规则、状态文档与 diff。'
         )
     }
     return $Plan

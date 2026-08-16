@@ -423,7 +423,7 @@ Claude 官方登录与 `ANTHROPIC_API_KEY` 同时存在时，上游可能显示�
 
 ### 6.1 第三方模型的上下文连续性
 
-原生 ChatGPT + Codex 是基准，保持上游默认。DeepSeek/千问经 Codex 或 Claude Code 时，客户端压缩是可能丢文件细节、数字和未完成分支的摘要；不要为了“省上下文”主动 `/compact`。一个会话只做一个内聚里程碑，在自然边界把目标、约束、已改文件、决定、测试、阻塞和下一步写入项目已有 plan/progress；接近窗口时优先 fresh session 或拆任务。压缩后重新读取适用的 `AGENTS.md` / `CLAUDE.md`、当前 `SKILL.md`、状态文档以及 `git status` / `git diff`。
+原生 ChatGPT + Codex 是基准，保持上游默认。DeepSeek/千问经 Codex 或 Claude Code 时，客户端压缩是可能丢文件细节、数字和未完成分支的摘要；不要为了“省上下文”主动 `/compact`。AICLI 的第三方连续性契约要求一个会话只做一个内聚里程碑，在自然边界把目标与验收、约束/授权/owner、规则与关键文件、改动、决定、测试/Live 缺口、阻塞和下一步写入项目已有 plan/progress/decision 状态；接近窗口时优先 fresh session 或拆任务。压缩后把摘要当线索，重新读取适用的 `AGENTS.md` / `CLAUDE.md`、状态文档以及 `git status` / `git diff`，不建立第二事实源。
 
 本机 `qwen-main-v1` 在 Codex、Claude Code 与 OpenCode 中统一声明 262144 context。`opencode-ollama-main` 的一次性配置固定 8192 output；`opencode-ollama-qwen3-8-27b` 固定同权重 256K 运行标签、262144 context/input 和 32768 output。两者使用 20000 reserved，关闭 tool-output pruning并保留最近 4 轮/16384 token；`agent.build.steps` 只算上游软收尾，不冒充 AICLI 硬工具调用门。OpenCode checkpoint 随 run 清理，跨 run 连续性必须靠项目状态文件。远程 DeepSeek/千问 OpenCode 仍因 key-isolated egress relay 缺口不开放。
 
