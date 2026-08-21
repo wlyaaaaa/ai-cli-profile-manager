@@ -25,7 +25,9 @@ function Get-AiCliRetiredModelIds {
         'qwen3.7-max-2026-06-08',
         'qwen3.7-max-preview',
         'qwen3.7-plus',
-        'qwen3.7-plus-2026-05-26'
+        'qwen3.7-plus-2026-05-26',
+        'qwen3.6:27b',
+        'qwen-review-v1'
     )
 }
 
@@ -39,6 +41,10 @@ function Test-AiCliRetiredModelId {
     }
     if ($lower -match '^deepseek-v4(?:$|[-._:/+@])') {
         return $normalized -cnotin @('deepseek-v4-flash', 'deepseek-v4-pro')
+    }
+    if ($lower -match '^qwen3\.6(?::|[-_])27b(?:$|[-._:/+@])' -or
+        $lower -match '^qwen-review-v1(?:$|[-._:/+@])') {
+        return $true
     }
     return $false
 }
@@ -77,6 +83,12 @@ function Assert-AiCliModelIsActive {
     if ($ModelId -and $ModelId.Trim().Trim('"', "'") -match '^deepseek-v4(?:$|[-._:/+@])' -and
         (Test-AiCliRetiredModelId -ModelId $ModelId)) {
         throw "$Context 引用了已退役或未登记的 DeepSeek V4 模型 $ModelId；AICLI 只保留 API alias deepseek-v4-flash（DeepSeek-V4-Flash-0731）与 deepseek-v4-pro（DeepSeek-V4-Pro-0813）。"
+    }
+    $normalized = if ($ModelId) { $ModelId.Trim().Trim('"', "'") } else { '' }
+    if ($normalized -and (Test-AiCliRetiredModelId -ModelId $normalized) -and
+        ($normalized.ToLowerInvariant() -match '^qwen3\.6(?::|[-_])27b(?:$|[-._:/+@])' -or
+         $normalized.ToLowerInvariant() -match '^qwen-review-v1(?:$|[-._:/+@])')) {
+        throw "$Context 引用了已退役的 Qwen3.6 27B 模型 $ModelId；备用交叉模型已切换为 qwen-main-v1（Qwen3.6 35B）。"
     }
     if (Test-AiCliRetiredModelId -ModelId $ModelId) {
         throw "$Context 引用了已退役或脱离 exact Profile 的 Qwen3.7 云模型 $ModelId；仅 qwen3.7-max-2026-06-08 可通过 codex-qwen3-7-max-paygo 使用，且不会自动改投其他模型。"

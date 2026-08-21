@@ -45,7 +45,7 @@ Qwen 云端使用两个互相隔离的 exact Profile：`codex-qwen3-7-max-paygo`
 
 DeepSeek API Key 仍由 Windows CurrentUser DPAPI 保存，Codex 受管配置只写 `env_key` 引用；不复制官方示例中的明文 `experimental_bearer_token`，也不写入 `preferred_auth_method`。Qwen Code `0.21` 与 OpenCode `1.18.8` 虽有上游 DeepSeek 原生接入方式，但 AICLI 当前 machine-only 外层沙箱断网，且尚无把真实 Key 与远程 egress 隔离开的 relay；因此不开放这两条远程模板，也不生成看似可用的假 Profile。
 
-Qwen3.7 只恢复上述单一 exact Codex 快照。旧 `codex-qwen-paygo` 等 Profile、Qwen3.7 Plus、其他 Max alias/snapshot、Claude/OI 路线和导入入口继续退役；旧用户 Profile 或原生 `--model` / `--fallback-model` 会失败关闭，不会自动改投新入口或 Qwen3.8。本地 `qwen-main-v1` / `qwen-review-v1` 不受影响。
+Qwen3.7 只恢复上述单一 exact Codex 快照。旧 `codex-qwen-paygo` 等 Profile、Qwen3.7 Plus、其他 Max alias/snapshot、Claude/OI 路线和导入入口继续退役；旧用户 Profile 或原生 `--model` / `--fallback-model` 会失败关闭，不会自动改投新入口或 Qwen3.8。本地备用交叉入口 `codex-ollama-review` 现使用 `qwen-main-v1`（Qwen3.6 35B）；旧 `qwen-review-v1`/Qwen3.6 27B 身份已退役并失败关闭。
 
 2026-07-14（UTC+8）曾完成 Claude Code / Rust Open Interpreter → `deepseek-v4-pro` 的文本验收；当前 Claude Code / Open Interpreter 模板已切换为 Flash-only，旧 Profile 指纹已经失效，也不能作为本轮任何 Codex exact Profile 的当前证据。逐项状态见兼容性页。
 
@@ -84,7 +84,7 @@ machine child 的父环境按运行时 allowlist 重建，不继承无关凭据�
 
 除 `codex-qwen3-7-max-paygo` → exact 06-08 外，Qwen3.7 Cloud Agent route、兼容 ID 和历史 Flash/Plus 入口均已退役；历史记录只保留在变更史，不能启动、导入或作为当前证据。
 
-本机 Codex 预置三个精确 Profile：`codex-ollama-main` → `qwen-main-v1`、`codex-ollama-review` → `qwen-review-v1`、`codex-ollama-qwen3-8-27b` → `aicli-qwen3.8-27b-256k:2026-08-14`，均固定 `127.0.0.1:32100`、Responses、最高 `max` 且无 fallback。旧泛型 `codex-ollama` 已从公开目录隐藏。另有显式 opt-in 的 `codex-spark-xhigh`，精确选择 `gpt-5.3-codex-spark` 与默认 `xhigh`。所有 Profile 都不自动 fallback，上层调用者仍负责选择、额度失败后的显式重提、隔离工作区和最终验收。
+本机 Codex 预置三个精确 Profile：`codex-ollama-main` → `qwen-main-v1`、`codex-ollama-review` → `qwen-main-v1`（Qwen3.6 35B 交叉模型）、`codex-ollama-qwen3-8-27b` → `aicli-qwen3.8-27b-256k:2026-08-14`，均固定 `127.0.0.1:32100`、Responses、最高 `max` 且无 fallback。旧泛型 `codex-ollama` 已从公开目录隐藏。另有显式 opt-in 的 `codex-spark-xhigh`，精确选择 `gpt-5.3-codex-spark` 与默认 `xhigh`。所有 Profile 都不自动 fallback，上层调用者仍负责选择、额度失败后的显式重提、隔离工作区和最终验收。
 
 上层若考虑免费本地模型或订阅内 Spark，唯一收益口径是减少边际付费 token/API 成本；简单、低风险、可验证且净节省为正时才值得委派。疑难任务、授权、高风险动作和最终判断保留给顶级模型，亲自完成不是故障。
 

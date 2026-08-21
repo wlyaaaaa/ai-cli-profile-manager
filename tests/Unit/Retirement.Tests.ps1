@@ -51,7 +51,7 @@ Describe 'Retired provider identities' {
         }
     }
 
-    It 'keeps the exact Qwen cloud routes and adds Qwen3.8-27B without removing local slots' {
+    It 'keeps the exact Qwen cloud routes and retains the 35B cross-check slot' {
         $manifests = InModuleScope AiCliProfileManager { Import-AiCliProviderManifests }
         @($manifests.Keys | Where-Object { $_ -like '*qwen*' -or $_ -like '*ollama-main' -or $_ -eq 'codex-ollama-review' } | Sort-Object) | Should -Be @(
             'claude-ollama-main',
@@ -171,8 +171,11 @@ Describe 'Retired provider identities' {
             )) {
                 Test-AiCliRetiredModelId -ModelId $modelId | Should -BeTrue -Because $modelId
             }
-            foreach ($modelId in @('qwen3:8b', 'qwen-main-v1', 'qwen-review-v1', 'qwen3.8-max')) {
+            foreach ($modelId in @('qwen3:8b', 'qwen-main-v1', 'qwen3.8-max')) {
                 Test-AiCliRetiredModelId -ModelId $modelId | Should -BeFalse -Because $modelId
+            }
+            foreach ($modelId in @('qwen-review-v1', 'qwen3.6:27b', 'qwen3.6-27b-256k')) {
+                Test-AiCliRetiredModelId -ModelId $modelId | Should -BeTrue -Because $modelId
             }
         }
     }

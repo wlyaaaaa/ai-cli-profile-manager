@@ -177,7 +177,7 @@ Describe 'Exact third-party Codex Profiles' {
         $expected = [ordered]@{
             'codex-ollama-main' = 'qwen-main-v1'
             'codex-ollama-qwen3-8-27b' = 'aicli-qwen3.8-27b-256k:2026-08-14'
-            'codex-ollama-review' = 'qwen-review-v1'
+            'codex-ollama-review' = 'qwen-main-v1'
         }
         foreach ($profileId in $expected.Keys) {
             $manifest = InModuleScope AiCliProfileManager -Parameters @{ ProfileId = $profileId } {

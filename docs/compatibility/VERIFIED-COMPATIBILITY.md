@@ -25,7 +25,7 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | `codex-deepseek-v4-pro` | `0.3.12` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`，1048576 context，Responses，默认/配置/argv `max`。 |
 | `codex-ollama-main` | exact source/static 已实现 | 本轮不把旧运行证据晋升为新 Live | `qwen-main-v1`、Responses、max、无 fallback。 |
 | `codex-ollama-qwen3-8-27b` | `0.3.12` source/install/runtime/live 已验收 | Agent Live 通过；旧 CACB max-3 未完成且不复用 | 2026-08-15 安装版以 `aicli-qwen3.8-27b-256k:2026-08-14` / `aicli_ollama_qwen38_27b`、Responses、max、Codex `0.147.0`、完全访问运行；14 steps / 7 tool calls 后独立 verifier 通过并确认进程树清理。本次一次完成（resume_count=0），中断恢复能力由同一 root-owned run 合同和既有故障注入 Live 证明。 |
-| `codex-ollama-review` | exact source/static 已实现 | 本轮不把旧运行证据晋升为新 Live | `qwen-review-v1`、Responses、max、无 fallback。 |
+| `codex-ollama-review` | exact source/static 已切换 | 35B 模型切换后需新的 Live 回执 | `qwen-main-v1`（Qwen3.6 35B）、Responses、max、无 fallback；旧 27B 回执不继承。 |
 | `codex-spark-xhigh` | 已实现；workspace 修复仅在未发布源码 | 能力验收不通过 | 2026-07-24 的只读严格 JSON smoke 仍只证明文本链路。2026-07-29 使用仓库源代码入口和 `gpt-5.3-codex-spark` / `xhigh` 的真实 `workspace-write` 任务已证明命名权限与工作区写入生效；但 `code_repair` 在硬上限 `maxSteps=80` 下达到 `81/80` 后终止，确定性得分 `2/9`。本轮停止复测，不把权限修复等同于代码 Agent 能力通过。官方 Spark 使用临时 `CODEX_HOME` / `auth.json` 副本，不走付费 API Key。 |
 | `claude-official` | 已实现 | 不可用（本机未登录，401） | 完成 Claude CLI 官方登录后可重新验收；不等于产品安装失败 |
 | `claude-deepseek` | Flash-only 模板与上下文修复已在本机 installed | 可用但有限制（尚未做当前 Flash Live） | 2.1.193+ 按 `deepseek-v4-flash` 注入 MAX/AUTO=`1000000`；不设置提前压缩覆盖或禁压缩变量。安装态静态回读确认已知模型注入 1M，未知模型清除 MAX/AUTO、提前压缩与两个禁压缩变量。2026-07-14 的 Pro 记录属于旧指纹，不能证明当前 Flash。 |

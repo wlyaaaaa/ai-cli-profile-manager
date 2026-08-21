@@ -17,13 +17,13 @@ Describe 'LocalGpuBroker clean-base module and profile contracts' {
         }
     }
 
-    It 'defines exact 35B and 27B local routes without agent-acceptance fields' {
+    It 'defines exact local main and cross-check routes without agent-acceptance fields' {
         $expected = [ordered]@{
             'codex-ollama-main.json' = [ordered]@{
                 model = 'qwen-main-v1'; context = 262144; output = 8192
             }
             'codex-ollama-review.json' = [ordered]@{
-                model = 'qwen-review-v1'; context = 131072; output = 8192
+                model = 'qwen-main-v1'; context = 262144; output = 8192
             }
         }
         foreach ($name in $expected.Keys) {

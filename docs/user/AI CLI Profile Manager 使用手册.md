@@ -214,7 +214,7 @@ aicli profile remove qwen-work
 | Codex | Qwen3.7 Max 06-08 Workspace 按量 Responses | `codex-qwen3-7-max-paygo` |
 | Codex | Qwen3.8 Max Workspace 按量 Responses | `codex-qwen3-8-max-paygo` |
 | Codex | DeepSeek V4 Flash 0731 / Pro 0813 Responses | `codex-deepseek`、`codex-deepseek-v4-pro` |
-| Codex | 本机精确 main / review / Qwen3.8-27B | `codex-ollama-main`、`codex-ollama-review`、`codex-ollama-qwen3-8-27b` |
+| Codex | 本机精确 main / 35B 交叉 / Qwen3.8-27B | `codex-ollama-main`、`codex-ollama-review`、`codex-ollama-qwen3-8-27b` |
 | OpenCode | 本机精确 main / Qwen3.8-27B | `opencode-ollama-main`、`opencode-ollama-qwen3-8-27b` |
 | Claude Code | Claude 官方登录 | `claude-official` |
 | Claude Code | DeepSeek V4 Flash | `claude-deepseek` |

@@ -63,7 +63,7 @@ $requiredExactProfiles = @(
     [pscustomobject]@{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-ollama-main'; model = 'qwen-main-v1'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-ollama-qwen3-8-27b'; model = 'aicli-qwen3.8-27b-256k:2026-08-14'; effectiveEffort = 'max' },
-    [pscustomobject]@{ id = 'codex-ollama-review'; model = 'qwen-review-v1'; effectiveEffort = 'max' }
+    [pscustomobject]@{ id = 'codex-ollama-review'; model = 'qwen-main-v1'; effectiveEffort = 'max' }
 )
 foreach ($expected in $requiredExactProfiles) {
     $actual = @($exactProfiles | Where-Object id -eq $expected.id)

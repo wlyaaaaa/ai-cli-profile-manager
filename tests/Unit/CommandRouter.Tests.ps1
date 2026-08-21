@@ -62,7 +62,7 @@ Describe 'CommandRouter' {
             @{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-ollama-main'; model = 'qwen-main-v1'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-ollama-qwen3-8-27b'; model = 'aicli-qwen3.8-27b-256k:2026-08-14'; requested = 'max'; effective = 'max' },
-            @{ id = 'codex-ollama-review'; model = 'qwen-review-v1'; requested = 'max'; effective = 'max' }
+            @{ id = 'codex-ollama-review'; model = 'qwen-main-v1'; requested = 'max'; effective = 'max' }
         )) {
             $row = @($profiles | Where-Object id -eq $expected.id)
             $row.Count | Should -Be 1 -Because $expected.id

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "codex-ollama-review",
-  "displayName": "Codex CLI + local Qwen review",
+  "displayName": "Codex CLI + local Qwen cross-check (35B)",
   "engine": "codex",
   "provider": "ollama",
   "plan": "local",
@@ -11,10 +11,10 @@
   "effortLevels": ["low", "medium", "high", "max"],
   "endpoint": "http://127.0.0.1:32100/v1",
   "codexProviderId": "aicli_ollama_review",
-  "codexModelCatalog": "qwen-review-v1-codex.json",
-  "models": { "primary": "qwen-review-v1", "small": "qwen-review-v1", "candidates": ["qwen-review-v1"] },
+  "codexModelCatalog": "qwen-main-v1-codex.json",
+  "models": { "primary": "qwen-main-v1", "small": "qwen-main-v1", "candidates": ["qwen-main-v1"] },
   "modelMetadata": {
-    "qwen-review-v1": { "contextWindowTokens": 131072, "outputWindowTokens": 8192 }
+    "qwen-main-v1": { "contextWindowTokens": 262144, "outputWindowTokens": 8192 }
   },
   "compatibility": {
     "minCliVersion": "0.147.0",
@@ -30,6 +30,6 @@
   "requiresSecret": false,
   "virtualReady": true,
   "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
-  "notes": "Independent local 27B review route. Machine runs require an owner-bound LocalGpuBroker session and never fall back to another model.",
+  "notes": "Independent local Qwen3.6 35B cross-check route. Machine runs require an owner-bound LocalGpuBroker session and never fall back to another model.",
   "flexible": false
 }
