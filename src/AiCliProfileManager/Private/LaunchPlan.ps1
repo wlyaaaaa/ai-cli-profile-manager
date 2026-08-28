@@ -865,8 +865,46 @@ function Invoke-AiCliProfileCapture {
             throw
         } finally {
             if ($runtime) {
-                Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath `
-                    -Workspace (Get-AiCliProperty $plan 'workingDirectory')
+                $runtimeCleanup = $null
+                try {
+                    # A Windows sandbox target can release its inherited handle
+                    # shortly after the npm/native wrapper exits. Wait only for
+                    # this known disposable directory; never discover or stop
+                    # unrelated processes.
+                    $runtimeCleanup = Remove-AiCliMachineRuntime `
+                        -RuntimePath $runtime.RuntimePath `
+                        -Workspace (Get-AiCliProperty $plan 'workingDirectory') `
+                        -WaitForReleaseMs 10000 -PassThru
+                } catch {
+                    $runtimeCleanup = [pscustomobject]@{
+                        Removed = $false
+                        Reason = 'runtime-directory-cleanup-exception'
+                        Attempts = 0
+                        WaitedMs = 0
+                        RuntimeId = Split-Path -Leaf ([IO.Path]::GetFullPath($runtime.RuntimePath))
+                        RuntimePath = [IO.Path]::GetFullPath($runtime.RuntimePath)
+                    }
+                }
+                if ($receipt -and $runtimeCleanup) {
+                    $receipt | Add-Member -NotePropertyName runtimeCleanup `
+                        -NotePropertyValue $runtimeCleanup -Force
+                    if (-not [bool]$runtimeCleanup.Removed) {
+                        $limitUsage = Get-AiCliProperty $receipt 'limitUsage'
+                        if ($limitUsage) {
+                            $previousMethod = [string](Get-AiCliProperty $limitUsage 'cleanupMethod')
+                            $limitUsage.cleanupConfirmed = $false
+                            $limitUsage.cleanupMethod = if ($previousMethod -and $previousMethod -ne 'none') {
+                                "$previousMethod+$($runtimeCleanup.Reason)"
+                            } else {
+                                [string]$runtimeCleanup.Reason
+                            }
+                        }
+                        $limitEnforcement = Get-AiCliProperty $receipt 'limitEnforcement'
+                        if ($limitEnforcement) {
+                            $limitEnforcement.timeout = 'failed-closed'
+                        }
+                    }
+                }
             }
         }
     }

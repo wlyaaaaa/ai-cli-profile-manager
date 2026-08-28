@@ -1,4 +1,4 @@
-# Ephemeral runtime for machine-facing agent calls. The parent creates only
+﻿# Ephemeral runtime for machine-facing agent calls. The parent creates only
 # deterministic configuration. Public Codex harness calls deliberately use
 # native danger-full-access; other engines retain their explicit sandbox policy.
 
@@ -45,6 +45,25 @@ function Resolve-AiCliCodexNativeRuntimeFromEntry {
     }
 }
 
+function Set-AiCliIsolatedInterpreterHome {
+    param(
+        [Parameter(Mandatory)][hashtable]$Environment,
+        [Parameter(Mandatory)][string]$Root
+    )
+    $base = [IO.Path]::GetFullPath($Root)
+    if (-not (Test-Path -LiteralPath $base -PathType Container)) {
+        throw "Interpreter home root does not exist: $base"
+    }
+    $isolatedInterpreterHome = Join-Path $base 'interpreter-home'
+    New-Item -ItemType Directory -Path $isolatedInterpreterHome -Force | Out-Null
+    # Rust OI 0.0.21 and 0.0.40 use INTERPRETER_HOME. Bind CODEX_HOME to the
+    # same disposable directory too, so shared legacy Codex code cannot reach
+    # an inherited user home during a bounded Live or machine run.
+    $Environment['INTERPRETER_HOME'] = $isolatedInterpreterHome
+    $Environment['CODEX_HOME'] = $isolatedInterpreterHome
+    return $isolatedInterpreterHome
+}
+
 function Initialize-AiCliMachineRuntime {
     [CmdletBinding()]
     param(
@@ -74,6 +93,9 @@ function Initialize-AiCliMachineRuntime {
     }
     $environment['TEMP'] = $tmpPath
     $environment['TMP'] = $tmpPath
+    if ([string](Get-AiCliProperty $Plan 'engine') -eq 'interpreter') {
+        $null = Set-AiCliIsolatedInterpreterHome -Environment $environment -Root $runtimePath
+    }
     $arguments = @((Get-AiCliProperty $Plan 'argumentList') | ForEach-Object { [string]$_ })
     $effectiveStdIn = if ($null -eq $StdInText) { '' } else { [string]$StdInText }
     $useOuterSandbox = $true
@@ -471,9 +493,17 @@ function Remove-AiCliMachineRuntime {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$RuntimePath,
-        [Parameter(Mandatory)][string]$Workspace
+        [Parameter(Mandatory)][string]$Workspace,
+        [ValidateRange(0,30000)][int]$WaitForReleaseMs = 0,
+        [switch]$PassThru
     )
-    if ([string]::IsNullOrWhiteSpace($RuntimePath) -or -not (Test-Path -LiteralPath $RuntimePath)) { return }
+    if ([string]::IsNullOrWhiteSpace($RuntimePath) -or -not (Test-Path -LiteralPath $RuntimePath)) {
+        $result = [pscustomobject]@{
+            Removed = $true; Reason = 'already-absent'; Attempts = 0; WaitedMs = 0
+        }
+        if ($PassThru) { return $result }
+        return
+    }
     $resolvedRuntime = [IO.Path]::GetFullPath($RuntimePath).TrimEnd('\')
     $leaf = Split-Path -Leaf $resolvedRuntime
     if (-not $leaf.StartsWith('.aicli-runtime-', [StringComparison]::Ordinal)) {
@@ -484,5 +514,44 @@ function Remove-AiCliMachineRuntime {
     $allowed = $resolvedRuntime.StartsWith($workspaceRoot, [StringComparison]::OrdinalIgnoreCase) -or
         $resolvedRuntime.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)
     if (-not $allowed) { throw "Refusing to remove runtime outside the workspace or temp root: $resolvedRuntime" }
-    Remove-Item -LiteralPath $resolvedRuntime -Recurse -Force
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $attempts = 0
+    $lastException = $null
+    do {
+        $attempts++
+        try {
+            Remove-Item -LiteralPath $resolvedRuntime -Recurse -Force -ErrorAction Stop
+        } catch {
+            $lastException = $_.Exception
+        }
+        if (-not (Test-Path -LiteralPath $resolvedRuntime)) {
+            $stopwatch.Stop()
+            $result = [pscustomobject]@{
+                Removed = $true; Reason = 'removed'; Attempts = $attempts
+                WaitedMs = [int]$stopwatch.ElapsedMilliseconds
+            }
+            if ($PassThru) { return $result }
+            return
+        }
+        $remainingMs = $WaitForReleaseMs - [int]$stopwatch.ElapsedMilliseconds
+        if ($remainingMs -gt 0) {
+            Start-Sleep -Milliseconds ([Math]::Min(100, $remainingMs))
+        }
+    } while ($remainingMs -gt 0)
+    $stopwatch.Stop()
+    $reason = if ($lastException -is [IO.IOException]) {
+        'runtime-directory-busy'
+    } elseif ($lastException -is [UnauthorizedAccessException]) {
+        'runtime-directory-access-denied'
+    } else {
+        'runtime-directory-remove-failed'
+    }
+    $result = [pscustomobject]@{
+        Removed = $false; Reason = $reason; Attempts = $attempts
+        WaitedMs = [int]$stopwatch.ElapsedMilliseconds
+        RuntimeId = $leaf; RuntimePath = $resolvedRuntime
+    }
+    if ($PassThru) { return $result }
+    if ($lastException) { throw $lastException }
+    throw "Failed to remove runtime directory: $resolvedRuntime"
 }

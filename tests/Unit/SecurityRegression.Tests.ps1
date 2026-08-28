@@ -285,8 +285,15 @@ Describe 'Live text evidence' {
     It 'passes non-sk provider secrets to bounded live capture for exact redaction' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $script:capturedSecretValues = @()
+            $script:capturedEnvironmentDelta = @{}
+            $script:capturedRemoveEnvironment = @()
             Mock Invoke-AiCliChildCapture {
                 $script:capturedSecretValues = @($SecretValues)
+                $script:capturedEnvironmentDelta = @{}
+                foreach ($key in $EnvironmentDelta.Keys) {
+                    $script:capturedEnvironmentDelta[$key] = $EnvironmentDelta[$key]
+                }
+                $script:capturedRemoveEnvironment = @($RemoveEnvironment)
                 $lastMessageIndex = [Array]::IndexOf($ArgumentList, '--output-last-message')
                 Set-Content -LiteralPath $ArgumentList[$lastMessageIndex + 1] -Value 'PONG' -Encoding utf8
                 [pscustomobject]@{
@@ -310,6 +317,41 @@ Describe 'Live text evidence' {
             $result.Pass | Should -BeTrue
             $script:capturedSecretValues | Should -Contain 'CANARY_PROVIDER_VALUE_42'
             $script:capturedSecretValues | Should -Not -Contain 'public-setting'
+            $script:capturedEnvironmentDelta.INTERPRETER_HOME | Should -Be (Join-Path $Work 'interpreter-home')
+            $script:capturedEnvironmentDelta.CODEX_HOME | Should -Be (Join-Path $Work 'interpreter-home')
+            $script:capturedRemoveEnvironment | Should -Contain 'INTERPRETER_HOME'
+            $script:capturedRemoveEnvironment | Should -Contain 'CODEX_HOME'
+        }
+    }
+
+    It 'overrides polluted parent OI and Codex homes after ChildCapture removals' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $oldInterpreterHome = [Environment]::GetEnvironmentVariable('INTERPRETER_HOME', 'Process')
+            $oldCodexHome = [Environment]::GetEnvironmentVariable('CODEX_HOME', 'Process')
+            try {
+                [Environment]::SetEnvironmentVariable('INTERPRETER_HOME', (Join-Path $Work 'parent-interpreter'), 'Process')
+                [Environment]::SetEnvironmentVariable('CODEX_HOME', (Join-Path $Work 'parent-codex'), 'Process')
+                $delta = @{}
+                $isolatedInterpreterHome = Set-AiCliIsolatedInterpreterHome -Environment $delta -Root $Work
+                $remove = @('INTERPRETER_HOME','CODEX_HOME')
+
+                $interpreter = Invoke-AiCliChildCapture -FileName $env:ComSpec `
+                    -ArgumentList @('/d','/c','set INTERPRETER_HOME') `
+                    -EnvironmentDelta $delta -RemoveEnvironment $remove `
+                    -WorkingDirectory $Work -TimeoutMs 10000 -CloseStdIn
+                $codex = Invoke-AiCliChildCapture -FileName $env:ComSpec `
+                    -ArgumentList @('/d','/c','set CODEX_HOME') `
+                    -EnvironmentDelta $delta -RemoveEnvironment $remove `
+                    -WorkingDirectory $Work -TimeoutMs 10000 -CloseStdIn
+
+                $interpreter.ExitCode | Should -Be 0
+                $codex.ExitCode | Should -Be 0
+                $interpreter.StdOut.Trim() | Should -Be "INTERPRETER_HOME=$isolatedInterpreterHome"
+                $codex.StdOut.Trim() | Should -Be "CODEX_HOME=$isolatedInterpreterHome"
+            } finally {
+                [Environment]::SetEnvironmentVariable('INTERPRETER_HOME', $oldInterpreterHome, 'Process')
+                [Environment]::SetEnvironmentVariable('CODEX_HOME', $oldCodexHome, 'Process')
+            }
         }
     }
 
@@ -684,6 +726,79 @@ Describe 'Installer safety' {
                 Should -Throw '*默认拒绝覆盖*'
             (Get-FileHash -LiteralPath $installedManifest -Algorithm SHA256).Hash | Should -Be $before
         } finally {
+            $env:PSModulePath = $oldModulePath
+        }
+    }
+
+    It 'keeps the old module whole when an atomic same-parent backup move is locked' {
+        $moduleRoot = Join-Path $TestDrive 'locked-install\Documents\PowerShell\Modules'
+        $retirementRoot = Join-Path $TestDrive 'locked-install\retirement-root'
+        New-Item -ItemType Directory -Force -Path $moduleRoot | Out-Null
+        $installScript = Join-Path $script:SecurityRepoRoot 'scripts\Install.ps1'
+        $version = [string](Import-PowerShellDataFile -LiteralPath (
+            Join-Path $script:SecurityRepoRoot 'src\AiCliProfileManager\AiCliProfileManager.psd1'
+        )).ModuleVersion
+        $installed = Join-Path $moduleRoot "AiCliProfileManager\$version"
+        $lockPath = Join-Path $installed 'AiCliProfileManager.psd1'
+        $readyPath = Join-Path $TestDrive 'locked-install-ready.txt'
+        $holderScript = Join-Path $TestDrive 'hold-install-file.ps1'
+        @'
+param([string]$LockPath, [string]$ReadyPath)
+$stream = [IO.File]::Open($LockPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+[IO.File]::WriteAllText($ReadyPath, 'ready')
+Start-Sleep -Milliseconds 3500
+$stream.Dispose()
+'@ | Set-Content -LiteralPath $holderScript -Encoding utf8
+        function Get-TestInstallInventory {
+            param([Parameter(Mandatory)][string]$Root)
+            return @(
+                Get-ChildItem -LiteralPath $Root -File -Recurse -Force |
+                    Sort-Object FullName |
+                    ForEach-Object {
+                        $relative = $_.FullName.Substring($Root.Length).TrimStart('\')
+                        "${relative}:$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)"
+                    }
+            )
+        }
+
+        $oldModulePath = $env:PSModulePath
+        $holder = $null
+        try {
+            $env:PSModulePath = $moduleRoot
+            & $installScript -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration `
+                -RetirementRootOverride $retirementRoot
+            $before = Get-TestInstallInventory -Root $installed
+
+            $psi = [Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = Join-Path $PSHOME 'pwsh.exe'
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            foreach ($argument in @('-NoProfile','-File',$holderScript,'-LockPath',$lockPath,'-ReadyPath',$readyPath)) {
+                [void]$psi.ArgumentList.Add($argument)
+            }
+            $holder = [Diagnostics.Process]::Start($psi)
+            $deadline = [Diagnostics.Stopwatch]::StartNew()
+            while (-not (Test-Path -LiteralPath $readyPath -PathType Leaf) -and $deadline.ElapsedMilliseconds -lt 3000) {
+                Start-Sleep -Milliseconds 25
+            }
+            Test-Path -LiteralPath $readyPath -PathType Leaf | Should -BeTrue
+
+            { & $installScript -SourceRoot $script:SecurityRepoRoot -Force -SkipShellIntegration `
+                    -RetirementRootOverride $retirementRoot } | Should -Throw
+            Test-Path -LiteralPath $installed -PathType Container | Should -BeTrue
+            @(Get-ChildItem -LiteralPath (Split-Path -Parent $installed) -Directory -Force |
+                Where-Object Name -Like ".$version.backup-*").Count | Should -Be 0
+
+            $holder.WaitForExit()
+            Get-TestInstallInventory -Root $installed | Should -Be $before
+
+            & $installScript -SourceRoot $script:SecurityRepoRoot -Force -SkipShellIntegration `
+                -RetirementRootOverride $retirementRoot
+            Test-Path -LiteralPath (Join-Path $installed 'AiCliProfileManager.psd1') -PathType Leaf | Should -BeTrue
+            @(Get-ChildItem -LiteralPath (Split-Path -Parent $installed) -Directory -Force |
+                Where-Object Name -Like ".$version.backup-*").Count | Should -Be 0
+        } finally {
+            if ($holder) { $holder.Dispose() }
             $env:PSModulePath = $oldModulePath
         }
     }

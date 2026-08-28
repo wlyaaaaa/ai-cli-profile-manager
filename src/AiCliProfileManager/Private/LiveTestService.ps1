@@ -400,12 +400,29 @@ function Invoke-AiCliTextLiveTest {
         return [pscustomobject]@{ Pass = $false; ExitCode = $null }
     }
     $argList = @((Get-AiCliProperty $Plan 'argumentList') | ForEach-Object { [string]$_ })
-    $envDelta = Get-AiCliProperty $Plan 'environmentDelta'
-    if ($null -eq $envDelta) { $envDelta = @{} }
+    $planEnvironment = Get-AiCliProperty $Plan 'environmentDelta'
+    $envDelta = @{}
+    if ($planEnvironment) {
+        foreach ($key in $planEnvironment.Keys) { $envDelta[$key] = $planEnvironment[$key] }
+    }
+    $removeEnvList = [System.Collections.Generic.List[string]]::new()
+    foreach ($name in @((Get-AiCliProperty $Plan 'removeEnvironment') | ForEach-Object { [string]$_ })) {
+        if (-not [string]::IsNullOrWhiteSpace($name) -and $removeEnvList -notcontains $name) {
+            $removeEnvList.Add($name) | Out-Null
+        }
+    }
+    if ($engine -eq 'interpreter') {
+        $null = Set-AiCliIsolatedInterpreterHome -Environment $envDelta -Root $WorkDir
+        # ChildCapture applies removals before EnvironmentDelta. Include both
+        # names to remove parent pollution; the disposable values above remain.
+        foreach ($name in @('INTERPRETER_HOME','CODEX_HOME')) {
+            if ($removeEnvList -notcontains $name) { $removeEnvList.Add($name) | Out-Null }
+        }
+    }
     $secretValues = @(
         Get-AiCliEnvironmentSecretValues -EnvironmentDelta $envDelta
     )
-    $removeEnv = @((Get-AiCliProperty $Plan 'removeEnvironment') | ForEach-Object { [string]$_ })
+    $removeEnv = @($removeEnvList.ToArray())
     $timeoutMs = if ($engine -eq 'interpreter') { 90000 } else { 45000 }
     $modelProvider = [string](Get-AiCliProperty $Plan 'modelProvider')
     $useCodexHarness = $engine -eq 'codex'

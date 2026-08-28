@@ -101,6 +101,75 @@ function Remove-InstallDirectorySafely {
     Remove-Item -LiteralPath $resolvedPath -Recurse -Force
 }
 
+function Test-InstallDirectoryMoveRetryableLock {
+    param([Parameter(Mandatory)][Exception]$Exception)
+    $current = $Exception
+    while ($current) {
+        if ($current -is [IO.IOException]) {
+            $win32Code = [int]($current.HResult -band 0xFFFF)
+            if ($win32Code -in @(32, 33)) { return $true }
+        }
+        $current = $current.InnerException
+    }
+    return $false
+}
+
+function Move-InstallDirectoryAtomically {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$Destination,
+        [Parameter(Mandatory)][string]$ExpectedParent,
+        [ValidateRange(0,2000)][int]$WaitForLockMs = 2000
+    )
+    $sourcePath = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Source))
+    $destinationPath = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Destination))
+    $parentPath = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($ExpectedParent))
+    if (-not (Test-Path -LiteralPath $parentPath -PathType Container)) {
+        throw "安装事务模块父目录不存在: $parentPath"
+    }
+    $parentItem = Get-Item -LiteralPath $parentPath -Force -ErrorAction Stop
+    if (($parentItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "安装事务拒绝使用重解析点模块父目录: $parentPath"
+    }
+    foreach ($path in @($sourcePath, $destinationPath)) {
+        $actualParent = [IO.Path]::TrimEndingDirectorySeparator(
+            [IO.Path]::GetFullPath((Split-Path -Parent $path))
+        )
+        if ($actualParent -cne $parentPath) {
+            throw "安装事务目录必须位于同一模块父目录: $path"
+        }
+    }
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
+        throw "安装事务源目录不存在: $sourcePath"
+    }
+    if (Test-Path -LiteralPath $destinationPath) {
+        throw "安装事务目标目录已存在: $destinationPath"
+    }
+    $sourceItem = Get-Item -LiteralPath $sourcePath -Force -ErrorAction Stop
+    if (($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "安装事务拒绝移动重解析点: $sourcePath"
+    }
+
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $lastException = $null
+    do {
+        try {
+            [IO.Directory]::Move($sourcePath, $destinationPath)
+            return
+        } catch {
+            $lastException = $_.Exception
+            if (-not (Test-InstallDirectoryMoveRetryableLock -Exception $lastException)) {
+                throw $lastException
+            }
+        }
+        $remainingMs = $WaitForLockMs - [int]$stopwatch.ElapsedMilliseconds
+        if ($remainingMs -gt 0) {
+            Start-Sleep -Milliseconds ([Math]::Min(100, $remainingMs))
+        }
+    } while ($remainingMs -gt 0)
+    throw $lastException
+}
+
 Write-Host "安装 $moduleName $version → $destVer"
 if ((Test-Path -LiteralPath $destVer) -and -not $Force) {
     throw '目标版本已存在；默认拒绝覆盖。确认要替换时请重新运行并加 -Force。'
@@ -148,10 +217,12 @@ try {
 
     try {
         if (Test-Path -LiteralPath $destVer) {
-            Move-Item -LiteralPath $destVer -Destination $backupVer
+            Move-InstallDirectoryAtomically -Source $destVer -Destination $backupVer `
+                -ExpectedParent $dest
             $backupCreated = $true
         }
-        Move-Item -LiteralPath $tempVer -Destination $destVer
+        Move-InstallDirectoryAtomically -Source $tempVer -Destination $destVer `
+            -ExpectedParent $dest
         $candidatePromoted = $true
 
         # Keep the previous same-version payload until both the promoted bytes
@@ -170,7 +241,8 @@ try {
             }
             if ($backupCreated -and (Test-Path -LiteralPath $backupVer) -and
                 -not (Test-Path -LiteralPath $destVer)) {
-                Move-Item -LiteralPath $backupVer -Destination $destVer
+                Move-InstallDirectoryAtomically -Source $backupVer -Destination $destVer `
+                    -ExpectedParent $dest
                 $backupCreated = $false
             }
         } catch {

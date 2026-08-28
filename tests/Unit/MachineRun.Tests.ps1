@@ -2617,6 +2617,163 @@ Start-Sleep -Seconds 2
         }
     }
 
+    It 'creates and removes an isolated OI home inside the disposable machine runtime' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $plan = [pscustomobject]@{
+                engine = 'interpreter'
+                fileName = (Get-Command pwsh).Source
+                argumentList = @('exec')
+                workingDirectory = $Work
+                environmentDelta = @{
+                    INTERPRETER_HOME = 'C:\parent\interpreter-home'
+                    CODEX_HOME = 'C:\parent\codex-home'
+                }
+            }
+            $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' `
+                -Policy 'workspace-write' -MaxSteps 30 -MaxToolCalls 120
+            $isolatedInterpreterHome = Join-Path $runtime.RuntimePath 'interpreter-home'
+            try {
+                $runtime.EnvironmentDelta.INTERPRETER_HOME | Should -Be $isolatedInterpreterHome
+                $runtime.EnvironmentDelta.CODEX_HOME | Should -Be $isolatedInterpreterHome
+                Test-Path -LiteralPath $isolatedInterpreterHome -PathType Container | Should -BeTrue
+                $runtime.RuntimePath | Should -BeLike "$([IO.Path]::GetFullPath($Work))*"
+            } finally {
+                Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath -Workspace $Work
+            }
+            Test-Path -LiteralPath $isolatedInterpreterHome | Should -BeFalse
+        }
+    }
+
+    It 'waits for a child that outlives its parent before removing a known runtime directory' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $runtimePath = Join-Path $Work '.aicli-runtime-delayed-release'
+            $lockPath = Join-Path $runtimePath 'held.lock'
+            $readyPath = Join-Path $Work 'runtime-lock-ready.txt'
+            $childScript = Join-Path $Work 'hold-runtime-lock.ps1'
+            $parentScript = Join-Path $Work 'start-runtime-lock-holder.ps1'
+            New-Item -ItemType Directory -Path $runtimePath -Force | Out-Null
+            @'
+param([string]$LockPath, [string]$ReadyPath)
+$stream = [IO.File]::Open($LockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+[IO.File]::WriteAllText($ReadyPath, 'ready')
+Start-Sleep -Milliseconds 1500
+$stream.Dispose()
+'@ | Set-Content -LiteralPath $childScript -Encoding utf8
+            @'
+param([string]$ChildScript, [string]$LockPath, [string]$ReadyPath)
+$psi = [Diagnostics.ProcessStartInfo]::new()
+$psi.FileName = Join-Path $PSHOME 'pwsh.exe'
+$psi.UseShellExecute = $false
+$psi.CreateNoWindow = $true
+foreach ($argument in @('-NoProfile','-File',$ChildScript,'-LockPath',$LockPath,'-ReadyPath',$ReadyPath)) {
+    [void]$psi.ArgumentList.Add($argument)
+}
+[void][Diagnostics.Process]::Start($psi)
+'@ | Set-Content -LiteralPath $parentScript -Encoding utf8
+            $parent = [Diagnostics.ProcessStartInfo]::new()
+            $parent.FileName = Join-Path $PSHOME 'pwsh.exe'
+            $parent.UseShellExecute = $false
+            $parent.CreateNoWindow = $true
+            foreach ($argument in @('-NoProfile','-File',$parentScript,'-ChildScript',$childScript,'-LockPath',$lockPath,'-ReadyPath',$readyPath)) {
+                [void]$parent.ArgumentList.Add($argument)
+            }
+            $parentProcess = [Diagnostics.Process]::Start($parent)
+            try {
+                $parentProcess.WaitForExit()
+                $deadline = [Diagnostics.Stopwatch]::StartNew()
+                while (-not (Test-Path -LiteralPath $readyPath -PathType Leaf) -and $deadline.ElapsedMilliseconds -lt 3000) {
+                    Start-Sleep -Milliseconds 25
+                }
+                Test-Path -LiteralPath $readyPath -PathType Leaf | Should -BeTrue
+
+                { Remove-AiCliMachineRuntime -RuntimePath $runtimePath -Workspace $Work `
+                    -WaitForReleaseMs 0 } | Should -Throw
+
+                $initialCleanup = Remove-AiCliMachineRuntime -RuntimePath $runtimePath -Workspace $Work `
+                    -WaitForReleaseMs 0 -PassThru
+                $initialCleanup.Removed | Should -BeFalse
+                $initialCleanup.Reason | Should -Be 'runtime-directory-busy'
+                $initialCleanup.RuntimeId | Should -Be '.aicli-runtime-delayed-release'
+                $initialCleanup.RuntimePath | Should -Be $runtimePath
+
+                $cleanup = Remove-AiCliMachineRuntime -RuntimePath $runtimePath -Workspace $Work `
+                    -WaitForReleaseMs 5000 -PassThru
+
+                $cleanup.Removed | Should -BeTrue
+                $cleanup.Attempts | Should -BeGreaterThan 1
+                Test-Path -LiteralPath $runtimePath | Should -BeFalse
+            } finally {
+                $parentProcess.Dispose()
+                if (Test-Path -LiteralPath $runtimePath) {
+                    Start-Sleep -Milliseconds 1000
+                    Remove-AiCliMachineRuntime -RuntimePath $runtimePath -Workspace $Work `
+                        -WaitForReleaseMs 5000 | Out-Null
+                }
+            }
+        }
+    }
+
+    It 'preserves the timeout receipt when runtime cleanup remains unconfirmed' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $runtimePath = Join-Path $Work '.aicli-runtime-cleanup-mismatch'
+            Mock Build-AiCliLaunchPlan {
+                [pscustomobject]@{
+                    engine = 'qwen-code'; profileFingerprint = ('a' * 64)
+                    workingDirectory = $Work; environmentDelta = @{}; removeEnvironment = @()
+                    model = 'qwen-main-v1'; modelProvider = 'aicli_ollama_main'; wire = 'responses'
+                    effort = $null; effectiveEffort = $null
+                }
+            }
+            Mock Initialize-AiCliMachineRuntime {
+                [pscustomobject]@{
+                    FileName = 'C:\fake\qwen.exe'; TargetFileName = 'C:\fake\qwen.exe'
+                    ArgumentList = @('exec'); WorkingDirectory = $Work; EnvironmentDelta = @{}
+                    StdInText = 'TASK'; UseOuterSandbox = $false; EventProtocol = 'none'
+                    RuntimePath = $runtimePath; AdditionalReadRoots = @(); PrivateTaskPipeName = $null
+                    WebSearchEnabled = $false
+                }
+            }
+            Mock Invoke-AiCliChildCapture {
+                [pscustomobject]@{
+                    ExitCode = (Get-AiCliExitCode Unavailable); StdOut = ''; StdErr = 'timeout'
+                    TimedOut = $true; DurationMs = 120000; OutputTruncated = $false
+                    StepCount = 0; ToolCallCount = 0; WebSearchCount = 0; EventsSeen = 0
+                    EventProtocol = 'none'; LimitHit = 'timeout'; LimitsHard = $false
+                    CleanupConfirmed = $true; CleanupMethod = 'dotnet-kill-tree'
+                    MachineEventProjection = 'disabled'; MachineEventStatus = 'disabled'
+                    MachineEventCount = 0; MachineEventSequenceStart = 0; MachineEventSequenceEnd = 0
+                    ThreadId = $null; SessionId = $null; TurnId = $null; AbortRequested = $false
+                    Usage = @{}; RuntimeIdentity = $null
+                }
+            }
+            Mock Remove-AiCliMachineRuntime {
+                [pscustomobject]@{
+                    Removed = $false; Reason = 'runtime-directory-busy'; Attempts = 3; WaitedMs = 10000
+                    RuntimeId = '.aicli-runtime-cleanup-mismatch'; RuntimePath = $runtimePath
+                }
+            }
+
+            $receipt = Invoke-AiCliProfileCapture -ProfileId 'qwen-test' -ProjectPath $Work `
+                -StdInText 'TASK' -TimeoutMs 120000 -MaxCaptureChars 4096 `
+                -SandboxPolicy 'read-only' -MaxSteps 20 -MaxToolCalls 0
+
+            $receipt.exitCode | Should -Be (Get-AiCliExitCode Unavailable)
+            $receipt.timedOut | Should -BeTrue
+            $receipt.limitHit | Should -Be 'timeout'
+            $receipt.limitEnforcement.timeout | Should -Be 'failed-closed'
+            $receipt.limitUsage.cleanupConfirmed | Should -BeFalse
+            $receipt.limitUsage.cleanupMethod | Should -Be 'dotnet-kill-tree+runtime-directory-busy'
+            $receipt.runtimeCleanup.Removed | Should -BeFalse
+            $receipt.runtimeCleanup.Reason | Should -Be 'runtime-directory-busy'
+            $receipt.runtimeCleanup.RuntimeId | Should -Be '.aicli-runtime-cleanup-mismatch'
+            $receipt.runtimeCleanup.RuntimePath | Should -Be $runtimePath
+            Should -Invoke Remove-AiCliMachineRuntime -Times 1 -Exactly -ParameterFilter {
+                $RuntimePath -eq $runtimePath -and $Workspace -eq $Work -and
+                $WaitForReleaseMs -eq 10000 -and $PassThru
+            }
+        }
+    }
+
     It 'turns OpenCode stdin into a private attachment instead of argv text' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $plan = [pscustomobject]@{

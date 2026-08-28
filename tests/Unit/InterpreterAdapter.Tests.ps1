@@ -125,6 +125,10 @@ Describe 'Rust Open Interpreter adapter' {
             $argv | Should -Match 'model="qwen3-coder:30b"'
             $argv | Should -Not -Match 'env_key='
             $plan.environmentDelta.ContainsKey('AICLI_OI_PROVIDER_KEY') | Should -BeFalse
+            # Disposable OI homes belong only to Live/machine execution; an
+            # interactive `aicli start` keeps the user's normal OI home.
+            $plan.environmentDelta.ContainsKey('INTERPRETER_HOME') | Should -BeFalse
+            $plan.environmentDelta.ContainsKey('CODEX_HOME') | Should -BeFalse
         }
 
         It 'blocks legacy auto-run and provider override flags' {

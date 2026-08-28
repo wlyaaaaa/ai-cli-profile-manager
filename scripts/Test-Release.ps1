@@ -103,9 +103,53 @@ Assert-True ($code -eq 2) 'unknown command exit 2'
 $code = Invoke-AiCli -Tokens @('test','codex-official') -DataRoot $DataRoot
 Assert-True ($code -eq 2 -or $code -eq 4) 'test without --live fails'
 
-# redaction canary
-$code = Invoke-AiCli -Tokens @('update','check','--json') -DataRoot $DataRoot
-Assert-True ($code -eq 0) 'update check'
+# update-check is deliberately offline in this source/CI smoke.  Keep the
+# real CommandRouter path, but replace only this process' REST command with a
+# fail-closed seam: unavailable official metadata must remain Limited/exit 3,
+# never be turned into a fabricated current/latest result.
+$offlineRestCalls = [System.Collections.Generic.List[string]]::new()
+$offlineRestMethod = {
+    [CmdletBinding()]
+    param(
+        [string]$Method,
+        [Parameter(Mandatory)][string]$Uri,
+        [int]$TimeoutSec,
+        [int]$MaximumRedirection,
+        [hashtable]$Headers
+    )
+    $offlineRestCalls.Add($Uri)
+    throw 'Test-Release offline seam: official metadata unavailable'
+}.GetNewClosure()
+$previousRestFunction = Get-Command Invoke-RestMethod -CommandType Function -ErrorAction SilentlyContinue
+$previousRestScript = if ($previousRestFunction) { $previousRestFunction.ScriptBlock } else { $null }
+Set-Item Function:\Invoke-RestMethod -Value $offlineRestMethod -Force
+try {
+    $previousConsoleOut = [Console]::Out
+    $updateCheckOutput = $null
+    $updateCheckWriter = [IO.StringWriter]::new([Globalization.CultureInfo]::InvariantCulture)
+    try {
+        [Console]::SetOut($updateCheckWriter)
+        $code = Invoke-AiCli -Tokens @('update','check','--json') -DataRoot $DataRoot
+        $updateCheckOutput = $updateCheckWriter.ToString()
+    } finally {
+        [Console]::SetOut($previousConsoleOut)
+        $updateCheckWriter.Dispose()
+    }
+} finally {
+    if ($previousRestFunction) {
+        Set-Item Function:\Invoke-RestMethod -Value $previousRestScript -Force
+    } else {
+        Remove-Item Function:\Invoke-RestMethod -Force -ErrorAction SilentlyContinue
+    }
+}
+$updateCheckResult = $null
+try { $updateCheckResult = $updateCheckOutput.Trim() | ConvertFrom-Json } catch {}
+Assert-True (
+    $code -eq 3 -and
+    $updateCheckResult -and
+    $updateCheckResult.overallStatus -eq '可用但有限制'
+) 'offline update check remains Limited / exit 3'
+Write-Host ("offline update check metadata calls intercepted={0}" -f $offlineRestCalls.Count)
 
 # eject
 $ejectOut = Join-Path $DataRoot 'eject-codex-official'

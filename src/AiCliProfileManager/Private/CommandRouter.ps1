@@ -470,7 +470,20 @@ function Invoke-AiCliRunCommand {
             throw '参数 --max-resume-attempts 必须是 0 到 3。'
         }
         $native = ConvertTo-AiCliTokenList $split.After
-        if ($native.Count -gt 0) {
+        if (-not $isCodexHarness) {
+            if (Test-AiCliHasFlag $split.Before '--background') {
+                throw '非 Codex machine run 不支持后台恢复控制器。'
+            }
+            if (Test-AiCliHasFlag $split.Before '--max-resume-attempts') {
+                throw '非 Codex machine run 不支持 exact thread/resume。'
+            }
+            if (Get-AiCliFlagValue -Tokens $split.Before -Name '--event-file') {
+                throw '非 Codex machine run 不支持可恢复 event-file。'
+            }
+            if ($native.Count -gt 0) {
+                throw '非 Codex machine run 不支持可恢复 Codex 原生参数。'
+            }
+        } elseif ($native.Count -gt 0) {
             $allowedNative = @(
                 'exec','e','--json','--ephemeral',
                 '--dangerously-bypass-approvals-and-sandbox',
@@ -501,6 +514,30 @@ function Invoke-AiCliRunCommand {
         $projectPath = Resolve-AiCliProjectPath (
             Get-AiCliFlagValue -Tokens $split.Before -Name '--project'
         )
+        $resultCommand = if ($legacyStartSyntax) { 'run' } else { 'run.start' }
+        if (-not $isCodexHarness) {
+            $run = Invoke-AiCliProfileCapture -ProfileId $profileId `
+                -ProjectPath $projectPath -NativeArgs @() -StdInText $taskText `
+                -TimeoutMs ($timeoutSeconds * 1000) `
+                -MaxCaptureChars $maxOutputChars -SandboxPolicy $sandboxPolicy `
+                -MaxSteps $maxSteps -MaxToolCalls $maxToolCalls `
+                -WatchdogOnly:$watchdogOnly `
+                -AuthorityPreludeStdout:(Test-AiCliHasFlag $split.Before '--authority-prelude-stdout')
+            $run | Add-Member -NotePropertyName resumeSupported `
+                -NotePropertyValue $false -Force
+            $run | Add-Member -NotePropertyName resumeReason `
+                -NotePropertyValue 'exact_resume_codex_only' -Force
+            $cleanupConfirmed = [bool](Get-AiCliProperty `
+                (Get-AiCliProperty $run 'limitUsage') 'cleanupConfirmed' $false)
+            $status = if ([int](Get-AiCliProperty $run 'exitCode' -1) -eq 0 -and
+                -not [bool](Get-AiCliProperty $run 'timedOut' $false) -and
+                $cleanupConfirmed) {
+                '通过'
+            } else { '不可用' }
+            Write-AiCliJson (New-AiCliResult -Command $resultCommand `
+                -OverallStatus $status -Extra @{ run = $run })
+            return (Get-AiCliExitCodeFromStatus $status)
+        }
         $created = New-AiCliRecoverableRun -ProfileId $profileId `
             -ProjectPath $projectPath -TaskText $taskText `
             -TimeoutMs ($timeoutSeconds * 1000) `
@@ -513,9 +550,6 @@ function Invoke-AiCliRunCommand {
         if (Test-AiCliHasFlag $split.Before '--background') {
             $spawned = Start-AiCliRecoverableControllerProcess `
                 -RunId $created.runId -InitialTaskText $taskText
-            $resultCommand = if ($legacyStartSyntax) {
-                'run'
-            } else { 'run.start' }
             Write-AiCliJson (New-AiCliResult -Command $resultCommand `
                 -OverallStatus '通过' -Extra @{
                     run = [ordered]@{
@@ -551,7 +585,6 @@ function Invoke-AiCliRunCommand {
             '通过'
         } else { '不可用' }
         $publicRecovery = $recovery | Select-Object * -ExcludeProperty receipt
-        $resultCommand = if ($legacyStartSyntax) { 'run' } else { 'run.start' }
         Write-AiCliJson (New-AiCliResult -Command $resultCommand `
             -OverallStatus $status -Extra @{
                 run = $run
