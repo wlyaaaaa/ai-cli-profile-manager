@@ -13,6 +13,9 @@ jobs:
       - name: Setup PowerShell modules
         shell: pwsh
         run: |
+          if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+            Register-PSRepository -Default
+          }
           Set-PSRepository PSGallery -InstallationPolicy Trusted
           Install-Module Pester -Force -SkipPublisherCheck -MinimumVersion 5.5.0
       - name: Smoke tests
