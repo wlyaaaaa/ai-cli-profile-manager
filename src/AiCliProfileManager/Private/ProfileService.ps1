@@ -32,7 +32,11 @@ function Get-AiCliUserProfile {
     param([string]$Id)
     $path = Get-AiCliUserProfilePath -Id $Id
     if (-not (Test-Path -LiteralPath $path)) { return $null }
-    return (Read-AiCliJsonFile -Path $path)
+    $profile = Read-AiCliJsonFile -Path $path
+    if ($profile -isnot [System.Collections.IDictionary]) {
+        throw [IO.InvalidDataException]::new("用户 Profile JSON 损坏或不是对象: $Id")
+    }
+    return $profile
 }
 
 function Save-AiCliUserProfile {
@@ -370,6 +374,8 @@ function Get-AiCliProfileList {
             $r = Get-AiCliResolvedProfile -Id $uid
             $result += $r
             $seen[$uid] = $true
+        } catch [IO.InvalidDataException] {
+            throw
         } catch {}
     }
     foreach ($tid in $templates.Keys) {

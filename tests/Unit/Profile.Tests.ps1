@@ -23,6 +23,31 @@ Describe 'Profile' {
         $p | Should -Be 0
     }
 
+    It 'fails closed when a builtin-named user Profile contains <Case> JSON' -ForEach @(
+        @{ Case = 'malformed'; Body = '{ synthetic malformed fixture' },
+        @{ Case = 'non-map'; Body = '[]' }
+    ) {
+        $caseRoot = Join-Path $TestDrive "invalid-builtin-profile-$Case"
+        $profilesDir = Join-Path $caseRoot 'AppData\profiles'
+        New-Item -ItemType Directory -Force -Path $profilesDir | Out-Null
+        [IO.File]::WriteAllText(
+            (Join-Path $profilesDir 'codex-official.json'),
+            $Body,
+            [Text.UTF8Encoding]::new($false))
+
+        $code = Invoke-AiCli `
+            -Tokens @('profile','show','codex-official','--json') `
+            -DataRoot $caseRoot
+
+        $code | Should -Be 4
+
+        $listCode = Invoke-AiCli `
+            -Tokens @('profile','list','--available','--json') `
+            -DataRoot $caseRoot
+
+        $listCode | Should -Be 4
+    }
+
     It 'eject refuses existing directory' {
         $out = Join-Path $script:DataRoot 'exists'
         New-Item -ItemType Directory -Force -Path $out | Out-Null
