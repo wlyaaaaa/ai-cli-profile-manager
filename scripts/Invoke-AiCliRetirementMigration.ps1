@@ -1,9 +1,16 @@
-#Requires -Version 7.0
+﻿#Requires -Version 7.0
 [CmdletBinding()]
 param(
     [string]$RoamingRoot = (Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'AiCliProfileManager'),
     [string]$LocalRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'AiCliProfileManager'),
-    [string]$CodexHome = (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.codex'),
+    # Keep retirement discovery aligned with the runtime resolver: when Codex
+    # has an existing explicit home, inspect that real home rather than a
+    # compatibility alias under the user profile.
+    [string]$CodexHome = $(if ($env:CODEX_HOME -and (Test-Path -LiteralPath $env:CODEX_HOME)) {
+        [IO.Path]::GetFullPath($env:CODEX_HOME)
+    } else {
+        Join-Path ([Environment]::GetFolderPath('UserProfile')) '.codex'
+    }),
     [string]$ModuleRoot,
     [version]$CurrentVersion = '0.3.12',
     [switch]$PreflightOnly,
@@ -34,7 +41,9 @@ $resolvedModuleRoot = if ([string]::IsNullOrWhiteSpace($ModuleRoot)) {
 } else {
     [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($ModuleRoot))
 }
-$quarantineRoot = Join-Path $resolvedLocalRoot 'retirement\qwen37-v1'
+$quarantineRoot = [IO.Path]::TrimEndingDirectorySeparator(
+    [IO.Path]::GetFullPath((Join-Path $resolvedLocalRoot 'retirement\qwen37-v1'))
+)
 $blocked = [Collections.Generic.List[string]]::new()
 $actions = [Collections.Generic.List[object]]::new()
 $stateKeysToRemove = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -138,12 +147,90 @@ function Test-SafeRetirementRoot {
     return $true
 }
 
+function Test-RetirementDirectChild {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$ExpectedRoot,
+        [Parameter(Mandatory)][bool]$Directory,
+        [switch]$AllowMissing
+    )
+    try {
+        $resolvedPath = [IO.Path]::GetFullPath($Path)
+        $root = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($ExpectedRoot))
+        $parent = [IO.Path]::TrimEndingDirectorySeparator(
+            [IO.Path]::GetFullPath((Split-Path -Parent $resolvedPath))
+        )
+        if (-not [string]::Equals($parent, $root, [StringComparison]::OrdinalIgnoreCase) -or
+            -not (Test-SafeRetirementRoot -Path $root)) {
+            return $false
+        }
+        if (-not (Test-Path -LiteralPath $resolvedPath)) { return [bool]$AllowMissing }
+        return Test-NormalItem -Path $resolvedPath -Directory $Directory
+    } catch { return $false }
+}
+
+function Test-CompatibleCodexManagedPath {
+    param(
+        [Parameter(Mandatory)][string]$RecordedPath,
+        [Parameter(Mandatory)][string]$ActualPath,
+        [Parameter(Mandatory)][string]$CodexHome,
+        [switch]$AllowMissingActual
+    )
+
+    # Managed state created before CODEX_HOME moved can name a compatibility
+    # junction, while discovery now correctly visits the real CODEX_HOME. Treat
+    # only a direct Junction in an otherwise ordinary ancestor chain to that
+    # already-safe home as equivalent. The state path is never used as a
+    # mutation target.
+    try {
+        $recorded = [IO.Path]::GetFullPath($RecordedPath)
+        $actual = [IO.Path]::GetFullPath($ActualPath)
+        $expectedHome = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($CodexHome))
+        if (-not (Test-RetirementDirectChild `
+                -Path $actual -ExpectedRoot $expectedHome -Directory $false -AllowMissing:$AllowMissingActual)) {
+            return $false
+        }
+        if ([string]::Equals($recorded, $actual, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ([IO.Path]::GetFileName($recorded) -cne [IO.Path]::GetFileName($actual)) {
+            return $false
+        }
+
+        $recordedParent = [IO.Path]::TrimEndingDirectorySeparator(
+            [IO.Path]::GetFullPath((Split-Path -Parent $recorded))
+        )
+        $recordedGrandparent = Split-Path -Parent $recordedParent
+        if ([string]::IsNullOrWhiteSpace($recordedGrandparent) -or
+            -not (Test-SafeRetirementRoot -Path $recordedGrandparent)) {
+            return $false
+        }
+        $link = Get-Item -LiteralPath $recordedParent -Force -ErrorAction Stop
+        if (-not $link.PSIsContainer -or
+            ($link.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 -or
+            -not [string]::Equals([string]$link.LinkType, 'Junction', [StringComparison]::OrdinalIgnoreCase)) {
+            return $false
+        }
+        $targets = @($link.Target)
+        if ($targets.Count -ne 1) { return $false }
+        $rawTarget = $targets[0]
+        if ($rawTarget -isnot [string] -or
+            [string]::IsNullOrWhiteSpace($rawTarget) -or
+            -not [IO.Path]::IsPathFullyQualified($rawTarget)) {
+            return $false
+        }
+        $target = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($rawTarget))
+        return [string]::Equals($target, $expectedHome, [StringComparison]::OrdinalIgnoreCase)
+    } catch {
+        return $false
+    }
+}
+
 function Add-RetirementAction {
-    param([string]$Kind, [string]$Path, [string]$Category)
+    param([string]$Kind, [string]$Path, [string]$Category, [string]$ExpectedRoot)
     $actions.Add([pscustomobject]@{
         Kind = $Kind
         Path = [IO.Path]::GetFullPath($Path)
         Category = $Category
+        ExpectedRoot = [IO.Path]::GetFullPath($ExpectedRoot)
     }) | Out-Null
 }
 
@@ -200,7 +287,7 @@ if ((Assert-RetirementRootIfPresent -Path $profilesRoot -Label 'Profile 目录')
             continue
         }
         if (Test-ActiveQwen37Profile -Profile $profile) { continue }
-        Add-RetirementAction -Kind File -Path $file.FullName -Category 'profiles'
+        Add-RetirementAction -Kind File -Path $file.FullName -Category 'profiles' -ExpectedRoot $profilesRoot
         $profileIdsToClear.Add($profileId) | Out-Null
     }
 }
@@ -208,7 +295,8 @@ if ((Assert-RetirementRootIfPresent -Path $profilesRoot -Label 'Profile 目录')
 # Preflight managed Codex state and TOML files. A state-backed file must agree
 # with fullPath/fileName/contentHash. A state-less file is accepted only when
 # its AICLI marker and body hash close independently.
-$statePath = Join-Path $resolvedLocalRoot 'state\codex-managed-profiles.json'
+$stateRoot = Join-Path $resolvedLocalRoot 'state'
+$statePath = Join-Path $stateRoot 'codex-managed-profiles.json'
 $state = [ordered]@{}
 $stateReadable = $true
 if (Test-Path -LiteralPath $statePath) {
@@ -263,7 +351,8 @@ foreach ($file in $codexTomlFiles) {
     }
     if ($record) {
         $recordedPath = [IO.Path]::GetFullPath([string]$record.fullPath)
-        if ($recordedPath -cne [IO.Path]::GetFullPath($file.FullName) -or
+        if (-not (Test-CompatibleCodexManagedPath `
+                -RecordedPath $recordedPath -ActualPath $file.FullName -CodexHome $resolvedCodexHome) -or
             [string]$record.fileName -cne $file.Name -or
             [string]$record.contentHash -cne $actualBodyHash) {
             Add-RetirementBlocker -Reason '退役 Codex Profile 与 managed state 不一致' -Path $file.FullName
@@ -271,9 +360,9 @@ foreach ($file in $codexTomlFiles) {
         }
     }
     if ($activeManagedToml) { continue }
-    Add-RetirementAction -Kind File -Path $file.FullName -Category 'codex-profiles'
+    Add-RetirementAction -Kind File -Path $file.FullName -Category 'codex-profiles' -ExpectedRoot $resolvedCodexHome
     $tomlActions.Add([IO.Path]::GetFullPath($file.FullName)) | Out-Null
-    $stateKeysToRemove.Add($safeId) | Out-Null
+    if ($record) { $stateKeysToRemove.Add($safeId) | Out-Null }
 }
 
 if ($stateReadable) {
@@ -287,14 +376,24 @@ if ($stateReadable) {
             Add-RetirementBlocker -Reason '退役 managed state 缺少 fullPath' -Path $statePath
             continue
         }
+        $fileName = [string]$record.fileName
+        if ($fileName -notmatch '^aicli-[A-Za-z0-9][A-Za-z0-9_-]{0,63}\.config\.toml$') {
+            Add-RetirementBlocker -Reason '退役 managed state 缺少安全 fileName' -Path $statePath
+            continue
+        }
+        if ($fileName -cne (([string]$key) + '.config.toml')) {
+            Add-RetirementBlocker -Reason '退役 managed state fileName 与键不一致' -Path $statePath
+            continue
+        }
         $resolvedFullPath = [IO.Path]::GetFullPath($fullPath)
-        $expectedPrefix = $resolvedCodexHome + [IO.Path]::DirectorySeparatorChar
-        if (-not $resolvedFullPath.StartsWith($expectedPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        $expectedPath = Join-Path $resolvedCodexHome $fileName
+        if (-not (Test-CompatibleCodexManagedPath `
+                -RecordedPath $resolvedFullPath -ActualPath $expectedPath -CodexHome $resolvedCodexHome -AllowMissingActual)) {
             Add-RetirementBlocker -Reason '退役 managed state 指向 CODEX_HOME 之外' -Path $statePath
             continue
         }
-        if (Test-Path -LiteralPath $resolvedFullPath) {
-            Add-RetirementBlocker -Reason '退役 managed state 对应文件未通过扫描' -Path $resolvedFullPath
+        if (Test-Path -LiteralPath $expectedPath) {
+            Add-RetirementBlocker -Reason '退役 managed state 对应文件未通过扫描' -Path $expectedPath
             continue
         }
         $stateKeysToRemove.Add([string]$key) | Out-Null
@@ -338,7 +437,7 @@ if ((Assert-RetirementRootIfPresent -Path $catalogRoot -Label 'Codex catalog 目
             Add-RetirementBlocker -Reason '退役 Codex catalog 仍被保留配置引用' -Path $file.FullName
             continue
         }
-        Add-RetirementAction -Kind File -Path $file.FullName -Category 'codex-catalogs'
+        Add-RetirementAction -Kind File -Path $file.FullName -Category 'codex-catalogs' -ExpectedRoot $catalogRoot
     }
 }
 
@@ -370,7 +469,7 @@ if ($resolvedModuleRoot -and (Test-Path -LiteralPath $resolvedModuleRoot)) {
                 Add-RetirementBlocker -Reason '旧模块目录无法证明 AICLI 身份' -Path $directory.FullName
                 continue
             }
-            Add-RetirementAction -Kind Directory -Path $directory.FullName -Category 'modules'
+            Add-RetirementAction -Kind Directory -Path $directory.FullName -Category 'modules' -ExpectedRoot $resolvedModuleRoot
         }
     }
 }
@@ -421,6 +520,7 @@ if ($stateReadable -and $stateKeysToRemove.Count -gt 0 -and
     } else {
         $metadataPlans.Add([pscustomobject]@{
             Source = $statePath
+            ExpectedRoot = $stateRoot
             Name = 'codex-managed-profiles.before.json'
         }) | Out-Null
     }
@@ -447,10 +547,11 @@ if ($profileIdsToClear.Count -gt 0 -and (Test-Path -LiteralPath $settingsPath)) 
                 Where-Object {
                     $value = [string]$settingsPreflight[$_]
                     $value -and $profileIdsToClear.Contains($value)
-                }
+            }
             if (@($needsSettingsRewrite).Count -gt 0) {
                 $metadataPlans.Add([pscustomobject]@{
                     Source = $settingsPath
+                    ExpectedRoot = $resolvedRoamingRoot
                     Name = 'settings.before.json'
                 }) | Out-Null
             }
@@ -463,7 +564,11 @@ foreach ($metadataPlan in $metadataPlans) {
     $destination = [IO.Path]::GetFullPath(
         (Join-Path $metadataRoot $metadataPlan.Name)
     )
-    if ((Split-Path -Parent $destination) -cne [IO.Path]::GetFullPath($metadataRoot)) {
+    if (-not [string]::Equals(
+            [IO.Path]::GetFullPath((Split-Path -Parent $destination)),
+            [IO.Path]::GetFullPath($metadataRoot),
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
         Add-RetirementBlocker -Reason '退役 metadata 目标父目录无效' -Path $destination
         continue
     }
@@ -497,30 +602,36 @@ $moved = [Collections.Generic.List[string]]::new()
 $completedMoves = [Collections.Generic.List[object]]::new()
 $metadataBackups = [Collections.Generic.List[object]]::new()
 function Backup-RetirementMetadata {
-    param([string]$Source, [string]$Name)
-    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) { return $null }
-    $backupDir = Join-Path $quarantineRoot 'metadata'
-    New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
-    if (-not (Test-NormalItem -Path $backupDir -Directory $true) -or
-        -not (Test-NormalItem -Path $Source -Directory $false)) {
-        throw '退役 metadata 备份身份无效。'
+    param($Plan)
+    if (-not (Test-RetirementDirectChild -Path $Plan.Source -ExpectedRoot $Plan.ExpectedRoot -Directory $false)) {
+        throw "退役 metadata 源在执行前无效: $($Plan.Source)"
     }
-    $destination = [IO.Path]::GetFullPath((Join-Path $backupDir $Name))
-    if ((Split-Path -Parent $destination) -cne [IO.Path]::GetFullPath($backupDir) -or
-        (Test-Path -LiteralPath $destination)) {
-        throw "退役 metadata 备份冲突: $destination"
+    if ((Test-Path -LiteralPath $metadataRoot) -and
+        -not (Test-RetirementDirectChild -Path $metadataRoot -ExpectedRoot $quarantineRoot -Directory $true)) {
+        throw "退役 metadata 目录在执行前无效: $metadataRoot"
     }
-    Copy-Item -LiteralPath $Source -Destination $destination
+    New-Item -ItemType Directory -Force -Path $metadataRoot | Out-Null
+    if (-not (Test-RetirementDirectChild -Path $metadataRoot -ExpectedRoot $quarantineRoot -Directory $true)) {
+        throw "退役 metadata 目录在执行前无效: $metadataRoot"
+    }
+    $destination = Join-Path $metadataRoot $Plan.Name
+    if (Test-Path -LiteralPath $destination) { throw "退役 metadata 备份冲突: $destination" }
+    Copy-Item -LiteralPath $Plan.Source -Destination $destination
     if (-not (Test-NormalItem -Path $destination -Directory $false)) {
         throw "退役 metadata 备份不是普通文件: $destination"
     }
-    $metadataBackups.Add([pscustomobject]@{ Source = $Source; Backup = $destination }) | Out-Null
-    return $destination
+    $metadataBackups.Add([pscustomobject]@{
+        Source = $Plan.Source; ExpectedRoot = $Plan.ExpectedRoot
+        Backup = $destination; BackupRoot = $metadataRoot
+    }) | Out-Null
 }
 
 function Write-RetirementJsonAtomic {
-    param([string]$Path, $Value)
-    $temp = Join-Path (Split-Path -Parent $Path) ('.retirement-' + [guid]::NewGuid().ToString('N') + '.tmp')
+    param([string]$Path, [string]$ExpectedRoot, $Value)
+    if (-not (Test-RetirementDirectChild -Path $Path -ExpectedRoot $ExpectedRoot -Directory $false)) {
+        throw "退役 metadata 写入目标在执行前无效: $Path"
+    }
+    $temp = Join-Path $ExpectedRoot ('.retirement-' + [guid]::NewGuid().ToString('N') + '.tmp')
     try {
         [IO.File]::WriteAllText(
             $temp,
@@ -528,45 +639,79 @@ function Write-RetirementJsonAtomic {
             [Text.UTF8Encoding]::new($false)
         )
         $null = [IO.File]::ReadAllText($temp) | ConvertFrom-Json -AsHashtable -Depth 100
+        if (-not (Test-SafeRetirementRoot -Path $ExpectedRoot) -or
+            -not (Test-NormalItem -Path $temp -Directory $false) -or
+            -not (Test-RetirementDirectChild -Path $Path -ExpectedRoot $ExpectedRoot -Directory $false)) {
+            throw "退役 metadata 写入目标在重命名前已变化: $Path"
+        }
         Move-Item -LiteralPath $temp -Destination $Path -Force
     } finally {
-        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+        if ((Test-Path -LiteralPath $temp) -and
+            (Test-SafeRetirementRoot -Path $ExpectedRoot) -and
+            (Test-NormalItem -Path $temp -Directory $false)) {
+            Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
 try {
+    $quarantineParent = Join-Path $resolvedLocalRoot 'retirement'
+    if (-not (Test-SafeRetirementRoot -Path $quarantineParent)) {
+        throw "退役 quarantine 父目录在执行前无效: $quarantineRoot"
+    }
     New-Item -ItemType Directory -Force -Path $quarantineRoot | Out-Null
-    if (-not (Test-NormalItem -Path $quarantineRoot -Directory $true)) {
+    if (-not (Test-RetirementDirectChild -Path $quarantineRoot -ExpectedRoot $quarantineParent -Directory $true)) {
         throw "退役 quarantine 不是普通目录: $quarantineRoot"
     }
     foreach ($action in $actions) {
+        $sourceIsDirectory = [string]$action.Kind -ceq 'Directory'
+        if ([string]$action.Kind -cnotin @('File', 'Directory') -or
+            -not (Test-RetirementDirectChild -Path $action.Path -ExpectedRoot $action.ExpectedRoot -Directory $sourceIsDirectory)) {
+            throw "退役入口在执行前已变化或不在预检根内: $($action.Path)"
+        }
         $destinationRoot = Join-Path $quarantineRoot $action.Category
+        if ((Test-Path -LiteralPath $destinationRoot) -and
+            -not (Test-RetirementDirectChild -Path $destinationRoot -ExpectedRoot $quarantineRoot -Directory $true)) {
+            throw "退役 quarantine 子目录在执行前不是普通目录: $destinationRoot"
+        }
         New-Item -ItemType Directory -Force -Path $destinationRoot | Out-Null
-        if (-not (Test-NormalItem -Path $destinationRoot -Directory $true)) {
+        if (-not (Test-RetirementDirectChild -Path $quarantineRoot -ExpectedRoot $quarantineParent -Directory $true) -or
+            -not (Test-RetirementDirectChild -Path $destinationRoot -ExpectedRoot $quarantineRoot -Directory $true)) {
             throw "退役 quarantine 子目录不是普通目录: $destinationRoot"
         }
-        $destination = Join-Path $destinationRoot ([IO.Path]::GetFileName($action.Path))
+        $sourcePath = [IO.Path]::GetFullPath($action.Path)
+        $destination = Join-Path $destinationRoot ([IO.Path]::GetFileName($sourcePath))
         if (Test-Path -LiteralPath $destination) { throw "退役 quarantine 目标已存在: $destination" }
-        Move-Item -LiteralPath $action.Path -Destination $destination
-        $completedMoves.Add([pscustomobject]@{ Source = $action.Path; Destination = $destination }) | Out-Null
-        $moved.Add("$($action.Category)/$([IO.Path]::GetFileName($action.Path))") | Out-Null
+        if (-not (Test-RetirementDirectChild -Path $sourcePath -ExpectedRoot $action.ExpectedRoot -Directory $sourceIsDirectory)) {
+            throw "退役入口在移动前已变化: $sourcePath"
+        }
+        Move-Item -LiteralPath $sourcePath -Destination $destination
+        $completedMoves.Add([pscustomobject]@{
+            Source = $sourcePath; ExpectedRoot = $action.ExpectedRoot
+            Destination = $destination; DestinationRoot = $destinationRoot; Directory = $sourceIsDirectory
+        }) | Out-Null
+        $moved.Add("$($action.Category)/$([IO.Path]::GetFileName($sourcePath))") | Out-Null
     }
 
     $stateRemoved = 0
-    if ($stateReadable -and $stateKeysToRemove.Count -gt 0 -and (Test-Path -LiteralPath $statePath)) {
-        $null = Backup-RetirementMetadata -Source $statePath -Name 'codex-managed-profiles.before.json'
+    $statePlan = $metadataPlans | Where-Object { $_.Name -ceq 'codex-managed-profiles.before.json' } |
+        Select-Object -First 1
+    if ($statePlan) {
+        Backup-RetirementMetadata -Plan $statePlan | Out-Null
         foreach ($key in @($stateKeysToRemove)) {
             if ($state.Contains($key)) { $state.Remove($key); $stateRemoved++ }
         }
-        Write-RetirementJsonAtomic -Path $statePath -Value $state
+        Write-RetirementJsonAtomic -Path $statePlan.Source -ExpectedRoot $statePlan.ExpectedRoot -Value $state
     }
 
     $settingsCleared = [Collections.Generic.List[string]]::new()
-    if ($profileIdsToClear.Count -gt 0 -and (Test-Path -LiteralPath $settingsPath)) {
-        if (-not (Test-NormalItem -Path $settingsPath -Directory $false)) {
-            throw "AICLI settings 不是普通文件: $settingsPath"
+    $settingsPlan = $metadataPlans | Where-Object { $_.Name -ceq 'settings.before.json' } |
+        Select-Object -First 1
+    if ($settingsPlan) {
+        if (-not (Test-RetirementDirectChild -Path $settingsPlan.Source -ExpectedRoot $settingsPlan.ExpectedRoot -Directory $false)) {
+            throw "AICLI settings 在执行前无效: $($settingsPlan.Source)"
         }
-        $settings = [IO.File]::ReadAllText($settingsPath) | ConvertFrom-Json -AsHashtable -Depth 100
+        $settings = [IO.File]::ReadAllText($settingsPlan.Source) | ConvertFrom-Json -AsHashtable -Depth 100
         foreach ($field in @('defaultProfileId', 'lastProfileId')) {
             $value = [string]$settings[$field]
             if ($value -and $profileIdsToClear.Contains($value)) {
@@ -575,8 +720,8 @@ try {
             }
         }
         if ($settingsCleared.Count -gt 0) {
-            $null = Backup-RetirementMetadata -Source $settingsPath -Name 'settings.before.json'
-            Write-RetirementJsonAtomic -Path $settingsPath -Value $settings
+            Backup-RetirementMetadata -Plan $settingsPlan | Out-Null
+            Write-RetirementJsonAtomic -Path $settingsPlan.Source -ExpectedRoot $settingsPlan.ExpectedRoot -Value $settings
         }
     }
 
@@ -592,12 +737,19 @@ try {
 } catch {
     for ($index = $metadataBackups.Count - 1; $index -ge 0; $index--) {
         $backup = $metadataBackups[$index]
-        try { Copy-Item -LiteralPath $backup.Backup -Destination $backup.Source -Force } catch {}
+        try {
+            if ((Test-RetirementDirectChild -Path $backup.Source -ExpectedRoot $backup.ExpectedRoot -Directory $false) -and
+                (Test-RetirementDirectChild -Path $backup.Backup -ExpectedRoot $backup.BackupRoot -Directory $false)) {
+                Copy-Item -LiteralPath $backup.Backup -Destination $backup.Source -Force
+            }
+        } catch {}
     }
     for ($index = $completedMoves.Count - 1; $index -ge 0; $index--) {
         $move = $completedMoves[$index]
         try {
-            if ((Test-Path -LiteralPath $move.Destination) -and -not (Test-Path -LiteralPath $move.Source)) {
+            if ((Test-RetirementDirectChild -Path $move.Destination -ExpectedRoot $move.DestinationRoot -Directory ([bool]$move.Directory)) -and
+                (Test-RetirementDirectChild -Path $move.Source -ExpectedRoot $move.ExpectedRoot -Directory ([bool]$move.Directory) -AllowMissing) -and
+                -not (Test-Path -LiteralPath $move.Source)) {
                 Move-Item -LiteralPath $move.Destination -Destination $move.Source
             }
         } catch {}

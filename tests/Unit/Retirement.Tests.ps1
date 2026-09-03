@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 
 BeforeAll {
     $script:RetirementRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -551,6 +551,142 @@ Describe 'Qwen3.7 upgrade retirement migration' {
             Should -Be 0
     }
 
+    It 'uses real CODEX_HOME despite case and trailing separator when historic state names its direct compatibility junction' {
+        $fixture = New-TestRetirementFixture -Root (Join-Path $TestDrive 'codex-home-compatibility')
+        $compatibilityHome = Join-Path $TestDrive 'codex-home-compatibility\codex-compatibility'
+        New-Item -ItemType Junction -Path $compatibilityHome -Target $fixture.CodexHome | Out-Null
+        $statePath = Join-Path $fixture.Local 'state\codex-managed-profiles.json'
+        $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json -AsHashtable
+        $state['aicli-codex-qwen-paygo']['fullPath'] = Join-Path $compatibilityHome (
+            Split-Path -Leaf $fixture.Toml
+        )
+        $state | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding utf8
+        $scriptPath = Join-Path $script:RetirementRepoRoot 'scripts\Invoke-AiCliRetirementMigration.ps1'
+        $previousCodexHome = $env:CODEX_HOME
+        try {
+            $env:CODEX_HOME = $fixture.CodexHome.ToUpperInvariant() + [IO.Path]::DirectorySeparatorChar
+            $result = & $scriptPath -RoamingRoot $fixture.Roaming -LocalRoot $fixture.Local `
+                -ModuleRoot $fixture.ModuleRoot -CurrentVersion '0.3.5' -FailOnBlocked
+        } finally {
+            if ($null -eq $previousCodexHome) {
+                Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue
+            } else {
+                $env:CODEX_HOME = $previousCodexHome
+            }
+        }
+
+        $result.status | Should -Be 'complete'
+        Test-Path -LiteralPath $fixture.Toml | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $fixture.Local (
+            'retirement\qwen37-v1\codex-profiles\' + (Split-Path -Leaf $fixture.Toml)
+        )) | Should -BeTrue
+        (Get-Item -LiteralPath $compatibilityHome -Force).Attributes.HasFlag(
+            [IO.FileAttributes]::ReparsePoint
+        ) | Should -BeTrue
+        $compatibilityTargets = @((Get-Item -LiteralPath $compatibilityHome -Force).Target)
+        $compatibilityTargets.Count | Should -Be 1
+        [IO.Path]::IsPathFullyQualified([string]$compatibilityTargets[0]) | Should -BeTrue
+        (Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json).PSObject.Properties.Name |
+            Should -Not -Contain 'aicli-codex-qwen-paygo'
+    }
+
+    It 'removes a missing legacy state entry through its direct compatibility junction' {
+        $fixture = New-TestRetirementFixture -Root (Join-Path $TestDrive 'missing-codex-state-compatibility')
+        $compatibilityHome = Join-Path $TestDrive 'missing-codex-state-compatibility\codex-compatibility'
+        New-Item -ItemType Junction -Path $compatibilityHome -Target $fixture.CodexHome | Out-Null
+        Remove-Item -LiteralPath $fixture.Toml -Force
+        $statePath = Join-Path $fixture.Local 'state\codex-managed-profiles.json'
+        $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json -AsHashtable
+        $state['aicli-codex-qwen-paygo']['fullPath'] = Join-Path $compatibilityHome (
+            Split-Path -Leaf $fixture.Toml
+        )
+        $state | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding utf8
+        $scriptPath = Join-Path $script:RetirementRepoRoot 'scripts\Invoke-AiCliRetirementMigration.ps1'
+
+        $result = & $scriptPath -RoamingRoot $fixture.Roaming -LocalRoot $fixture.Local `
+            -CodexHome $fixture.CodexHome -ModuleRoot $fixture.ModuleRoot `
+            -CurrentVersion '0.3.5' -FailOnBlocked
+
+        $result.status | Should -Be 'complete'
+        $result.stateEntriesRemoved | Should -Be 1
+        (Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json).PSObject.Properties.Name |
+            Should -Not -Contain 'aicli-codex-qwen-paygo'
+    }
+
+    It 'rejects a state-only filename that does not close over its key' {
+        $fixture = New-TestRetirementFixture -Root (Join-Path $TestDrive 'mismatched-state-file')
+        Remove-Item -LiteralPath $fixture.Toml -Force
+        $statePath = Join-Path $fixture.Local 'state\codex-managed-profiles.json'
+        $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json -AsHashtable
+        $state['aicli-codex-qwen-paygo']['fileName'] = 'aicli-other.config.toml'
+        $state['aicli-codex-qwen-paygo']['fullPath'] = Join-Path $fixture.CodexHome 'aicli-other.config.toml'
+        $state | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding utf8
+        $scriptPath = Join-Path $script:RetirementRepoRoot 'scripts\Invoke-AiCliRetirementMigration.ps1'
+
+        {
+            & $scriptPath -RoamingRoot $fixture.Roaming -LocalRoot $fixture.Local `
+                -CodexHome $fixture.CodexHome -ModuleRoot $fixture.ModuleRoot `
+                -CurrentVersion '0.3.5' -PreflightOnly -FailOnBlocked
+        } | Should -Throw '*fileName 与键不一致*'
+    }
+
+    It 'distinguishes complete Junction target paths from relative forms' {
+        [IO.Path]::IsPathFullyQualified('.\target') | Should -BeFalse
+        [IO.Path]::IsPathFullyQualified('\target') | Should -BeFalse
+        [IO.Path]::IsPathFullyQualified('C:target') | Should -BeFalse
+    }
+
+    It 'rejects an explicit CodexHome junction even when there are no retirement candidates' {
+        $root = Join-Path $TestDrive 'codex-home-junction-reject'
+        $external = Join-Path $root 'external-target'
+        $codexLink = Join-Path $root 'codex-link'
+        $roaming = Join-Path $root 'roaming'
+        $local = Join-Path $root 'local'
+        New-Item -ItemType Directory -Force -Path $external, $roaming, $local | Out-Null
+        $canary = Join-Path $external 'preserve.txt'
+        Set-Content -LiteralPath $canary -Value 'preserve' -Encoding utf8
+        New-Item -ItemType Junction -Path $codexLink -Target $external | Out-Null
+        $scriptPath = Join-Path $script:RetirementRepoRoot 'scripts\Invoke-AiCliRetirementMigration.ps1'
+
+        {
+            & $scriptPath -RoamingRoot $roaming -LocalRoot $local -CodexHome $codexLink `
+                -CurrentVersion '0.3.12' -PreflightOnly -FailOnBlocked
+        } | Should -Throw '*CodexHome*普通目录*'
+
+        (Get-Content -LiteralPath $canary -Raw).Trim() | Should -BeExactly 'preserve'
+        @(Get-ChildItem -LiteralPath $external -Force).Count | Should -Be 1
+    }
+
+    It 'rejects a managed-state junction that points outside the resolved CODEX_HOME' {
+        $fixture = New-TestRetirementFixture -Root (Join-Path $TestDrive 'codex-state-junction-escape')
+        $external = Join-Path $TestDrive 'codex-state-junction-escape\external-target'
+        $stateAlias = Join-Path $TestDrive 'codex-state-junction-escape\state-alias'
+        New-Item -ItemType Directory -Force -Path $external | Out-Null
+        $canary = Join-Path $external 'preserve.txt'
+        Set-Content -LiteralPath $canary -Value 'preserve' -Encoding utf8
+        New-Item -ItemType Junction -Path $stateAlias -Target $external | Out-Null
+        Remove-Item -LiteralPath $fixture.Toml -Force
+        $statePath = Join-Path $fixture.Local 'state\codex-managed-profiles.json'
+        $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json -AsHashtable
+        $state['aicli-codex-qwen-paygo']['fullPath'] = Join-Path $stateAlias (
+            Split-Path -Leaf $fixture.Toml
+        )
+        $state | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $statePath -Encoding utf8
+        $scriptPath = Join-Path $script:RetirementRepoRoot 'scripts\Invoke-AiCliRetirementMigration.ps1'
+
+        {
+            & $scriptPath -RoamingRoot $fixture.Roaming -LocalRoot $fixture.Local `
+                -CodexHome $fixture.CodexHome -ModuleRoot $fixture.ModuleRoot `
+                -CurrentVersion '0.3.5' -PreflightOnly -FailOnBlocked
+        } | Should -Throw '*retirement migration blocked*'
+
+        Test-Path -LiteralPath $fixture.Toml | Should -BeFalse
+        (Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json).PSObject.Properties.Name |
+            Should -Contain 'aicli-codex-qwen-paygo'
+        (Get-Content -LiteralPath $canary -Raw).Trim() | Should -BeExactly 'preserve'
+        @(Get-ChildItem -LiteralPath $external -Force).Count | Should -Be 1
+    }
+
     It 'quarantines verified legacy entrances while preserving SecretRef data and is idempotent' {
         $fixture = New-TestRetirementFixture -Root (Join-Path $TestDrive 'migration-pass')
         $scriptPath = Join-Path $script:RetirementRepoRoot 'scripts\Invoke-AiCliRetirementMigration.ps1'
@@ -582,6 +718,24 @@ Describe 'Qwen3.7 upgrade retirement migration' {
             -CurrentVersion '0.3.5' -FailOnBlocked
         @($again.Blocked).Count | Should -Be 0
         @($again.Moved).Count | Should -Be 0
+    }
+
+    It 'quarantines a self-authenticating legacy TOML without creating managed state' {
+        $fixture = New-TestRetirementFixture -Root (Join-Path $TestDrive 'migration-state-less')
+        $statePath = Join-Path $fixture.Local 'state\codex-managed-profiles.json'
+        Remove-Item -LiteralPath $statePath -Force
+        $scriptPath = Join-Path $script:RetirementRepoRoot 'scripts\Invoke-AiCliRetirementMigration.ps1'
+
+        $result = & $scriptPath -RoamingRoot $fixture.Roaming -LocalRoot $fixture.Local `
+            -CodexHome $fixture.CodexHome -ModuleRoot $fixture.ModuleRoot `
+            -CurrentVersion '0.3.5' -FailOnBlocked
+
+        $result.status | Should -Be 'complete'
+        Test-Path -LiteralPath $fixture.Toml | Should -BeFalse
+        Test-Path -LiteralPath $statePath | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $fixture.Local (
+            'retirement\qwen37-v1\codex-profiles\' + (Split-Path -Leaf $fixture.Toml)
+        )) | Should -BeTrue
     }
 
     It 'fails before mutation when a managed legacy TOML was modified' {
