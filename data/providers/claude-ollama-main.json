@@ -27,13 +27,14 @@
       "baseTag": "qwen3.8:27b",
       "numCtx": 262144,
       "quantization": "Q4_K_M",
-      "manifestDigest": "sha256:885ca6e9d68fbda050eee055145891e7c45fa8a0bec8c62dc8cd90708f6bedcd",
+      "manifestDigest": "sha256:8040835723046ec2631b64b960d44414636ea5147942a7d68eaaa7ccdb492e20",
       "baseManifestDigest": "sha256:22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643",
       "configDigest": "sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f",
       "modelBlobDigest": "sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d",
       "projectorBlobDigest": "sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e",
-      "parametersDigest": "sha256:14bb2c63f1a0e61969a5bceba301ea9d60740ce64b72813cc018acfc63c940c2",
-      "draftNumPredict": 0
+      "parametersDigest": "sha256:f31338adbd0f8703936e46b65304ae9369378184f88dd20b9760b0d8ed8b50f0",
+      "draftNumPredict": 0,
+      "numBatch": 128
     }
   },
   "auth": {

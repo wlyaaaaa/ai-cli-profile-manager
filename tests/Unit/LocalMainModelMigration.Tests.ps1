@@ -33,7 +33,7 @@ Describe 'Local model profile consistency' {
             $profile.models.primary | Should -BeExactly $model -Because $id
             $profile.models.small | Should -BeExactly $model -Because $id
             $artifact = $profile.compatibility.ollamaArtifact
-            foreach ($field in @('tag', 'baseTag', 'numCtx', 'quantization', 'manifestDigest', 'baseManifestDigest', 'configDigest', 'modelBlobDigest', 'projectorBlobDigest', 'parametersDigest', 'draftNumPredict')) {
+            foreach ($field in @('tag', 'baseTag', 'numCtx', 'quantization', 'manifestDigest', 'baseManifestDigest', 'configDigest', 'modelBlobDigest', 'projectorBlobDigest', 'parametersDigest', 'draftNumPredict', 'numBatch')) {
                 $artifact[$field] | Should -Be $mainArtifact[$field] -Because "$id $field"
             }
             if ($profile.Contains('modelMetadata')) {
@@ -86,6 +86,14 @@ Describe 'Local model profile consistency' {
         $reviewMetadata.contextWindowTokens | Should -Be 262144
         $reviewMetadata.outputWindowTokens | Should -BeGreaterThan 0
         $reviewMetadata.outputWindowTokens | Should -BeLessOrEqual 262144
+        $reviewArtifact = $review.compatibility.ollamaArtifact
+        $reviewArtifact.tag | Should -BeExactly $reviewModel
+        $reviewArtifact.numCtx | Should -Be 262144
+        $reviewArtifact.manifestDigest | Should -BeExactly 'sha256:7dd8a375ab919bd63cc558161d4209b4d9f66ea858acb4f10641a8d80028626a'
+        $reviewArtifact.configDigest | Should -BeExactly 'sha256:85b5358cae239e22459ef81434b8cc4adf10572ab0a6f6657f6abb45fd9f81be'
+        $reviewArtifact.modelBlobDigest | Should -BeExactly 'sha256:f5ee307a2982106a6eb82b62b2c00b575c9072145a759ae4660378acda8dcf2d'
+        $reviewArtifact.parametersDigest | Should -BeExactly 'sha256:10fb813580204dcab3ac584e6322e7c998158760e98fef7a73c945879e553b2f'
+        $review.capabilities.images | Should -BeTrue
         $review.displayName | Should -Not -BeNullOrEmpty
         $review.displayName | Should -Not -BeExactly $reviewModel
         $review.displayName | Should -Match '\+\s+[A-Za-z0-9]'

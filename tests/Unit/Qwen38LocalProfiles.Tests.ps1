@@ -43,8 +43,9 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
         $manifest.compatibility.ollamaArtifact.numCtx | Should -Be 262144
         $manifest.compatibility.ollamaArtifact.quantization | Should -BeExactly 'Q4_K_M'
         $manifest.compatibility.ollamaArtifact.draftNumPredict | Should -Be 0
+        $manifest.compatibility.ollamaArtifact.numBatch | Should -Be 128
         $manifest.compatibility.ollamaArtifact.manifestDigest |
-            Should -BeExactly 'sha256:885ca6e9d68fbda050eee055145891e7c45fa8a0bec8c62dc8cd90708f6bedcd'
+            Should -BeExactly 'sha256:8040835723046ec2631b64b960d44414636ea5147942a7d68eaaa7ccdb492e20'
         $manifest.compatibility.ollamaArtifact.baseManifestDigest |
             Should -BeExactly 'sha256:22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643'
         $manifest.compatibility.ollamaArtifact.configDigest |
@@ -52,7 +53,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
         $manifest.compatibility.ollamaArtifact.modelBlobDigest |
             Should -BeExactly 'sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d'
         $manifest.compatibility.ollamaArtifact.parametersDigest |
-            Should -BeExactly 'sha256:14bb2c63f1a0e61969a5bceba301ea9d60740ce64b72813cc018acfc63c940c2'
+            Should -BeExactly 'sha256:f31338adbd0f8703936e46b65304ae9369378184f88dd20b9760b0d8ed8b50f0'
         $manifest.compatibility.localGpuBrokerSession.requiredForMachineRun | Should -BeTrue
 
         InModuleScope AiCliProfileManager -Parameters @{ Profile = $manifest } {
@@ -113,7 +114,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
             Should -BeExactly 'sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f'
         $manifest.compatibility.ollamaArtifact.quantization | Should -BeExactly 'Q4_K_M'
         $manifest.compatibility.ollamaArtifact.manifestDigest |
-            Should -BeExactly 'sha256:885ca6e9d68fbda050eee055145891e7c45fa8a0bec8c62dc8cd90708f6bedcd'
+            Should -BeExactly 'sha256:8040835723046ec2631b64b960d44414636ea5147942a7d68eaaa7ccdb492e20'
         $manifest.requiresSecret | Should -BeFalse
         $manifest.virtualReady | Should -BeTrue
         $manifest.capabilities.machineRun | Should -BeTrue
@@ -144,7 +145,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
                     'modelBlobDigest',
                     'projectorBlobDigest',
                     'parametersDigest',
-                    'draftNumPredict'
+                    'draftNumPredict', 'numBatch'
                 )) {
                     $profile.artifact.$field | Should -BeExactly $reference.$field
                 }
@@ -220,7 +221,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
     It 'ships the deterministic Ollama Modelfile that makes 262144 the actual runtime context' {
         $modelfile = Join-Path $script:Qwen38LocalRepoRoot 'data\ollama\qwen3.8-27b-256k.Modelfile'
         $content = (Get-Content -LiteralPath $modelfile -Raw -Encoding utf8).Replace("`r`n", "`n").Trim()
-        $content | Should -BeExactly "FROM qwen3.8:27b`nPARAMETER num_ctx 262144`nPARAMETER draft_num_predict 0"
+        $content | Should -BeExactly "FROM qwen3.8:27b`nPARAMETER num_ctx 262144`nPARAMETER draft_num_predict 0`nPARAMETER num_batch 128"
     }
 
     It 'ships a public-broker-only setup that pins the runtime digest and registers the Desktop label' {
@@ -232,7 +233,8 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
         $setup | Should -Not -Match '127\.0\.0\.1:32101'
         $setup | Should -Match '/api/create'
         $setup | Should -Match 'parameters\s*=\s*\[ordered\]@\{\s*num_ctx\s*=\s*\$ContextLength\s*;\s*draft_num_predict\s*=\s*0'
-        $setup | Should -Match '885ca6e9d68fbda050eee055145891e7c45fa8a0bec8c62dc8cd90708f6bedcd'
+        $setup | Should -Match '8040835723046ec2631b64b960d44414636ea5147942a7d68eaaa7ccdb492e20'
+        $setup | Should -Match 'num_batch 128'
         $setup | Should -Match 'Qwen3\.8 27B MAX \(256K\)'
     }
 

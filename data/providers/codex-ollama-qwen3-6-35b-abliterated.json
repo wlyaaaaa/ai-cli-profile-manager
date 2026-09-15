@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-ollama-qwen3-6-35b-abliterated",
+  "displayName": "Codex CLI + Qwen3.6 35B Abliterated",
+  "engine": "codex",
+  "provider": "ollama",
+  "plan": "local",
+  "region": "local",
+  "transport": "responses",
+  "defaultEffort": "max",
+  "effortLevels": ["low", "medium", "high", "max"],
+  "endpoint": "http://127.0.0.1:32100/v1",
+  "codexProviderId": "aicli_ollama_qwen36_35b_abliterated",
+  "codexModelCatalog": "qwen3.6-35b-abliterated-codex.json",
+  "models": {
+    "primary": "aicli-qwen3.6-35b-abliterated-256k:2026-09-15",
+    "small": "aicli-qwen3.6-35b-abliterated-256k:2026-09-15",
+    "candidates": ["aicli-qwen3.6-35b-abliterated-256k:2026-09-15"]
+  },
+  "modelMetadata": {
+    "aicli-qwen3.6-35b-abliterated-256k:2026-09-15": {
+      "contextWindowTokens": 262144,
+      "outputWindowTokens": 32768
+    }
+  },
+  "compatibility": {
+    "minCliVersion": "0.147.0",
+    "ollamaArtifact": {
+      "tag": "aicli-qwen3.6-35b-abliterated-256k:2026-09-15",
+      "baseTag": "wangzhang/Qwen3.6-35B-A3B-abliterated-GGUF",
+      "numCtx": 262144,
+      "quantization": "Q4_K_M",
+      "manifestDigest": "sha256:fac24b27fb75f7b365db6061ca2f43ec780ef6dbea30473593a6b7251af9fd53",
+      "configDigest": "sha256:7cfc980a108c3bd6ef5569895ce9bc6774e7d97990e400e1abf160c6760a1cb2",
+      "modelBlobDigest": "sha256:b1995222870f94e18364a3034dbc8f410460dffbe1bfaa3f7143a171cce44abb",
+      "parametersDigest": "sha256:10fb813580204dcab3ac584e6322e7c998158760e98fef7a73c945879e553b2f"
+    },
+    "localGpuBrokerSession": {
+      "contractVersion": 1,
+      "requiredForMachineRun": true,
+      "managementOrigin": "http://127.0.0.1:32100"
+    }
+  },
+  "auth": {"type": "none"},
+  "capabilities": {"tools": true, "streaming": true, "images": false, "machineRun": true},
+  "sources": [
+    "https://huggingface.co/wangzhang/Qwen3.6-35B-A3B-abliterated-GGUF",
+    "https://docs.ollama.com/integrations/codex"
+  ],
+  "requiresSecret": false,
+  "virtualReady": true,
+  "flexible": false,
+  "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
+  "notes": "Exact local 256K Qwen3.6 35B abliterated GGUF runtime. Its verified model layer is independent of the official 35B tag; no fallback."
+}

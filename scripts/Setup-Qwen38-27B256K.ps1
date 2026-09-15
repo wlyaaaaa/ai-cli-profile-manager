@@ -19,7 +19,7 @@ $utf8NoBom = [Text.UTF8Encoding]::new($false)
 $OutputEncoding = $utf8NoBom
 
 $expectedBaseDigest = '22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643'
-$expectedRuntimeDigest = '885ca6e9d68fbda050eee055145891e7c45fa8a0bec8c62dc8cd90708f6bedcd'
+$expectedRuntimeDigest = '8040835723046ec2631b64b960d44414636ea5147942a7d68eaaa7ccdb492e20'
 $expectedOrigin = 'http://127.0.0.1:32100'
 if ($BrokerOrigin.TrimEnd('/') -cne $expectedOrigin) {
     throw 'qwen38_setup_broker_origin_invalid'
@@ -33,7 +33,7 @@ if ($RuntimeTag -cne 'aicli-qwen3.8-27b-256k:2026-09-15') {
 
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $modelfile = Join-Path $repoRoot 'data\ollama\qwen3.8-27b-256k.Modelfile'
-$expectedModelfile = "FROM qwen3.8:27b`nPARAMETER num_ctx 262144`nPARAMETER draft_num_predict 0"
+$expectedModelfile = "FROM qwen3.8:27b`nPARAMETER num_ctx 262144`nPARAMETER draft_num_predict 0`nPARAMETER num_batch 128"
 $actualModelfile = (Get-Content -LiteralPath $modelfile -Raw -Encoding utf8).
     Replace("`r`n", "`n").Trim()
 if ($actualModelfile -cne $expectedModelfile) {
@@ -49,7 +49,7 @@ if ($base.Count -ne 1 -or [string]$base[0].digest -cne $expectedBaseDigest) {
 $createBody = [ordered]@{
     model = $RuntimeTag
     from = $BaseTag
-    parameters = [ordered]@{ num_ctx = $ContextLength; draft_num_predict = 0 }
+    parameters = [ordered]@{ num_ctx = $ContextLength; draft_num_predict = 0; num_batch = 128 }
     stream = $false
 } | ConvertTo-Json -Depth 10 -Compress
 $created = Invoke-RestMethod `
@@ -76,6 +76,9 @@ if (@($parameterLines | Where-Object { $_ -match '^num_ctx\s+262144$' }).Count -
 
 if (@($parameterLines | Where-Object { $_ -match '^draft_num_predict\s+0$' }).Count -ne 1) {
     throw 'qwen38_setup_runtime_draft_not_disabled'
+}
+if (@($parameterLines | Where-Object { $_ -match '^num_batch\s+128$' }).Count -ne 1) {
+    throw 'qwen38_setup_runtime_batch_not_pinned'
 }
 
 $tagsAfter = Invoke-RestMethod -Uri "$expectedOrigin/api/tags" -Method Get -TimeoutSec 15

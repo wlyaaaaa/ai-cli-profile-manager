@@ -115,7 +115,7 @@ BeforeAll {
         $source.compatibility.ollamaArtifact.numCtx = 262144
         $source.compatibility.ollamaArtifact.baseTag = 'candidate-base:32b'
         $source.compatibility.ollamaArtifact.manifestDigest = 'sha256:' + ('1' * 64)
-        $source.compatibility.ollamaArtifact.baseManifestDigest = 'sha256:' + ('2' * 64)
+        $source.compatibility.ollamaArtifact.configDigest = 'sha256:' + ('2' * 64)
         $source.compatibility.ollamaArtifact.modelBlobDigest = 'sha256:' + ('3' * 64)
         $source.compatibility.ollamaArtifact.parametersDigest = 'sha256:' + ('4' * 64)
         $source.compatibility.ollamaArtifact.draftNumPredict = 0

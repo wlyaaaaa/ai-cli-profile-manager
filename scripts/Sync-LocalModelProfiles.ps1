@@ -10,49 +10,51 @@
 [CmdletBinding()]
 param(
     [string] $RepoRoot = (Split-Path -Parent $PSScriptRoot),
+    [ValidatePattern('^[a-z0-9-]+$')]
+    [string] $SourceProfileId = 'codex-ollama-main',
     [switch] $Apply,
     [switch] $Json
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $providerRoot = Join-Path $RepoRoot 'data/providers'
-$sourcePath = Join-Path $providerRoot 'codex-ollama-main.json'
+$sourcePath = Join-Path $providerRoot "$SourceProfileId.json"
 $sourceText = [IO.File]::ReadAllText($sourcePath)
 $source = $sourceText | ConvertFrom-Json -AsHashtable -Depth 50
 $model = [string]$source.models.primary
 $metadata = $source.modelMetadata[$model]
 $artifact = $source.compatibility.ollamaArtifact
-if ($source.id -cne 'codex-ollama-main' -or $source.engine -cne 'codex' -or
+if ($source.id -cne $SourceProfileId -or $source.engine -cne 'codex' -or
     $source.provider -cne 'ollama' -or $source.transport -cne 'responses' -or
     $source.auth.type -cne 'none' -or $source.flexible -ne $false -or
     $source.defaultEffort -cne 'max' -or 'max' -cnotin $source.effortLevels -or
     -not $model -or $source.models.small -cne $model -or
     @($source.models.candidates).Count -ne 1 -or $source.models.candidates[0] -cne $model) {
-    throw 'codex-ollama-main: expected one exact local Responses model with max effort.'
+    throw "${SourceProfileId}: expected one exact local Responses model with max effort."
 }
 if ($metadata.contextWindowTokens -ne 262144 -or $metadata.outputWindowTokens -le 0 -or
     $metadata.outputWindowTokens -gt 262144 -or $artifact.numCtx -ne 262144 -or $artifact.tag -cne $model) {
-    throw 'codex-ollama-main: model metadata and runtime artifact must agree at 262144 context.'
+    throw "${SourceProfileId}: model metadata and runtime artifact must agree at 262144 context."
 }
-foreach ($field in @('manifestDigest', 'baseManifestDigest', 'modelBlobDigest', 'parametersDigest')) {
+foreach ($field in @('manifestDigest', 'configDigest', 'modelBlobDigest', 'parametersDigest')) {
     if ([string]$artifact[$field] -cnotmatch '^sha256:[0-9a-f]{64}$') {
-        throw "codex-ollama-main: missing or invalid ollamaArtifact.$field"
+        throw "${SourceProfileId}: missing or invalid ollamaArtifact.$field"
     }
 }
 if (-not $source.capabilities.tools -or -not $source.capabilities.streaming) {
-    throw 'codex-ollama-main: tools and streaming must be supported.'
+    throw "${SourceProfileId}: tools and streaming must be supported."
 }
 $endpoint = [uri]$source.endpoint
 if ($endpoint.Scheme -cne 'http' -or -not $endpoint.IsLoopback -or
     $endpoint.AbsolutePath -cne '/v1' -or $endpoint.Query -or $endpoint.Fragment -or $endpoint.UserInfo) {
-    throw 'codex-ollama-main: expected a loopback broker endpoint ending in /v1.'
+    throw "${SourceProfileId}: expected a loopback broker endpoint ending in /v1."
 }
 if ($source.compatibility.localGpuBrokerSession.managementOrigin.TrimEnd('/') -cne $endpoint.GetLeftPart([UriPartial]::Authority)) {
-    throw 'codex-ollama-main: endpoint differs from its managed broker origin.'
+    throw "${SourceProfileId}: endpoint differs from its managed broker origin."
 }
 $catalogName = [string]$source.codexModelCatalog
 if ([IO.Path]::GetFileName($catalogName) -cne $catalogName -or -not $catalogName) {
-    throw 'codex-ollama-main: expected a catalog filename.'
+    throw "${SourceProfileId}: expected a catalog filename."
 }
 $catalogPath = Join-Path $RepoRoot "data/model-catalogs/$catalogName"
 $catalogText = [IO.File]::ReadAllText($catalogPath)
@@ -61,10 +63,10 @@ if (@($catalog.models).Count -ne 1 -or $catalog.models[0].slug -cne $model -or
     $catalog.models[0].context_window -ne 262144 -or $catalog.models[0].max_context_window -ne 262144 -or
     $catalog.models[0].default_reasoning_level -cne 'max' -or
     'max' -cnotin @($catalog.models[0].supported_reasoning_levels.effort)) {
-    throw 'codex-ollama-main: catalog model, 262144 context, or max effort differs from manifest.'
+    throw "${SourceProfileId}: catalog model, 262144 context, or max effort differs from manifest."
 }
 if ([bool]$source.capabilities.images -ne ('image' -cin @($catalog.models[0].input_modalities))) {
-    throw 'codex-ollama-main: catalog image capability differs from manifest.'
+    throw "${SourceProfileId}: catalog image capability differs from manifest."
 }
 # Exact-model profiles may share today's catalog. A new model needs a new catalog
 # file so preparing it cannot silently rewrite those retained entry points.
@@ -80,7 +82,7 @@ foreach ($id in @('codex-ollama-qwen3-8-27b', 'codex-ollama-review')) {
 $modelName = ([string]$source.displayName -replace '^Codex(?: CLI)? \+ ', '').Trim()
 if (-not $modelName -or $modelName -ceq $source.displayName -or
     $modelName -match '(?i)(^|\W)(main|local-default|review)(\W|$)|主用|辅助|复核') {
-    throw 'codex-ollama-main: displayName must use Codex CLI + the actual model name.'
+    throw "${SourceProfileId}: displayName must use Codex CLI + the actual model name."
 }
 
 $targets = [ordered]@{

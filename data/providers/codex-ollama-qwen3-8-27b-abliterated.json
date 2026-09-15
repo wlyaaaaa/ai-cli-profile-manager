@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-ollama-qwen3-8-27b-abliterated",
+  "displayName": "Codex CLI + Qwen3.8 27B 去限制版（256K）",
+  "engine": "codex",
+  "provider": "ollama",
+  "plan": "local",
+  "region": "local",
+  "transport": "responses",
+  "defaultEffort": "max",
+  "effortLevels": [
+    "low",
+    "medium",
+    "high",
+    "max"
+  ],
+  "endpoint": "http://127.0.0.1:32100/v1",
+  "codexProviderId": "aicli_ollama_qwen38_abliterated",
+  "codexModelCatalog": "qwen3.8-27b-abliterated-codex.json",
+  "models": {
+    "primary": "aicli-qwen3.8-27b-abliterated-256k:2026-09-15",
+    "small": "aicli-qwen3.8-27b-abliterated-256k:2026-09-15",
+    "candidates": [
+      "aicli-qwen3.8-27b-abliterated-256k:2026-09-15"
+    ]
+  },
+  "modelMetadata": {
+    "aicli-qwen3.8-27b-abliterated-256k:2026-09-15": {
+      "contextWindowTokens": 262144,
+      "outputWindowTokens": 32768
+    }
+  },
+  "compatibility": {
+    "minCliVersion": "0.147.0",
+    "ollamaArtifact": {
+      "minimumVersion": "0.33.1",
+      "tag": "aicli-qwen3.8-27b-abliterated-256k:2026-09-15",
+      "baseTag": "hf.co/huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF:Q4_K",
+      "numCtx": 262144,
+      "numBatch": 128,
+      "quantization": "Q4_K_M",
+      "manifestDigest": "sha256:8ee8e56391b2b404a050562b931d53888ca6fa747fd5201a65c291600d44988d",
+      "configDigest": "sha256:f2ce70b3de2f8e5e1e3f31a88d678f6787f4e154f9f45ae9a9543974d99ba8f7",
+      "modelBlobDigest": "sha256:6c2c13cef89238c3604d756b07b3ef5fafebbd61095feb8553ff449c95e4c1c6",
+      "projectorBlobDigest": "sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e",
+      "parametersDigest": "sha256:f31338adbd0f8703936e46b65304ae9369378184f88dd20b9760b0d8ed8b50f0",
+      "draftNumPredict": 0,
+      "parameters": {
+        "draft_num_predict": 0,
+        "min_p": 0,
+        "num_batch": 128,
+        "num_ctx": 262144,
+        "presence_penalty": 0,
+        "repeat_penalty": 1,
+        "temperature": 1,
+        "top_k": 20,
+        "top_p": 0.95
+      }
+    },
+    "localGpuBrokerSession": {
+      "contractVersion": 1,
+      "requiredForMachineRun": true,
+      "managementOrigin": "http://127.0.0.1:32100"
+    }
+  },
+  "auth": {
+    "type": "none"
+  },
+  "capabilities": {
+    "tools": true,
+    "streaming": true,
+    "images": true,
+    "machineRun": true
+  },
+  "sources": [
+    "https://huggingface.co/huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+    "https://ollama.com/library/qwen3.8:27b"
+  ],
+  "requiresSecret": false,
+  "virtualReady": true,
+  "flexible": false,
+  "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
+  "notes": "Publisher-verified Huihui Qwen3.8 27B Q4_K_M text weights paired with the compatible official Qwen3.8 base BF16 projector. Native 256K, batch128, MTP disabled. LocalGpuBroker session required; no cloud or fallback."
+}
