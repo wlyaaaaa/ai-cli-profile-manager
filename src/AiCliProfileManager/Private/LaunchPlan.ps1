@@ -303,7 +303,7 @@ function Start-AiCliProfile {
     if ([bool](Get-AiCliProperty $plan 'machineOnly' $false)) {
         throw "Profile $ProfileId 仅用于 aicli run 机器调用，不提供无沙箱交互启动。"
     }
-    Write-AiCliInfo ("启动 {0}（{1}）…" -f $ProfileId, $engine)
+    Write-AiCliInfo ("启动 {0}（{1}）…" -f (Get-AiCliProperty $merged 'displayName'), $engine)
     foreach ($n in @((Get-AiCliProperty $plan 'notes') | ForEach-Object { $_ })) {
         Write-AiCliInfo ("  · {0}" -f $n)
     }

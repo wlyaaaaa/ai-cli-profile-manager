@@ -89,7 +89,7 @@ Describe 'Codex Ollama reasoning effort' {
             $expectedProviderOverrides = @(
                 'model="aicli-qwen3.8-27b-256k:2026-09-15"'
                 'model_provider="aicli_ollama_main"'
-                'model_providers.aicli_ollama_main.name="Codex CLI + Qwen3.8 27B（本地主用）"'
+                'model_providers.aicli_ollama_main.name="Codex CLI + Qwen3.8 27B"'
                 'model_providers.aicli_ollama_main.base_url="http://127.0.0.1:32100/v1"'
                 'model_providers.aicli_ollama_main.env_key="AICLI_CODEX_PROVIDER_KEY"'
                 'model_providers.aicli_ollama_main.wire_api="responses"'

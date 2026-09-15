@@ -253,8 +253,10 @@ function Invoke-AiCliProfileCommand {
                 })
                 Write-AiCliJson (New-AiCliResult -Command 'profile list' -OverallStatus '通过' -Extra @{ profiles = $rows })
             } else {
-                Write-Host ("{0,-32} {1,-8} {2,-24} {3,-12} {4,-16} {5}" -f 'ID','引擎','模型','effort','状态','名称')
+                Write-Host '模型 / 引擎 | 思考档位 | 状态'
+                $visibleIdentities = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
                 foreach ($p in $list) {
+                    if (-not $visibleIdentities.Add((Get-AiCliInteractiveProfileIdentity -Profile $p))) { continue }
                     $models = Get-AiCliProperty $p 'models'
                     $requestedEffort = [string](Get-AiCliProperty $p 'defaultEffort')
                     $effortMap = Get-AiCliProperty $p 'effortMap'
@@ -265,13 +267,10 @@ function Invoke-AiCliProfileCommand {
                     } else {
                         $requestedEffort
                     }
-                    Write-Host ("{0,-32} {1,-8} {2,-24} {3,-12} {4,-16} {5}" -f `
-                        (Get-AiCliProperty $p 'id'),
-                        (Get-AiCliProperty $p 'engine'),
-                        (Get-AiCliProperty $models 'primary'),
+                    Write-Host ("{0} | {1} | {2}" -f `
+                        (Get-AiCliProperty $p 'displayName'),
                         $effortDisplay,
-                        (Get-AiCliProperty $p 'status'),
-                        (Get-AiCliProperty $p 'displayName'))
+                        (Get-AiCliProperty $p 'status'))
                 }
                 if (-not $available) {
                     Write-Host ''
@@ -811,10 +810,28 @@ function Invoke-AiCliSetup {
     return (Get-AiCliExitCode Success)
 }
 
+function Get-AiCliInteractiveProfileIdentity {
+    param([Parameter(Mandatory)]$Profile)
+    $id = [string](Get-AiCliProperty $Profile 'id')
+    if (-not ([bool](Get-AiCliProperty $Profile 'isVirtual' $false)) -or
+        [string](Get-AiCliProperty $Profile 'provider') -cne 'ollama') {
+        return "id:$id"
+    }
+    $models = Get-AiCliProperty $Profile 'models'
+    return (@(
+        'local',
+        [string](Get-AiCliProperty $Profile 'engine'),
+        [string](Get-AiCliProperty $Profile 'transport'),
+        [string](Get-AiCliProperty $Profile 'endpoint'),
+        [string](Get-AiCliProperty $models 'primary')
+    ) -join "`0")
+}
+
 function Invoke-AiCliInteractiveSelector {
     $settings = Get-AiCliSettings
     $choices = [System.Collections.Generic.List[string]]::new()
     $ids = [System.Collections.Generic.List[string]]::new()
+    $identities = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($entry in @(
         [pscustomobject]@{ Label = '最近'; Id = [string]$settings.lastProfileId },
         [pscustomobject]@{ Label = '默认'; Id = [string]$settings.defaultProfileId }
@@ -823,7 +840,9 @@ function Invoke-AiCliInteractiveSelector {
         try {
             $resolvedRecent = Get-AiCliResolvedProfile -Id $entry.Id
             if (-not [bool](Get-AiCliProperty $resolvedRecent 'configured' $false)) { continue }
-            $choices.Add("$($entry.Label): $($entry.Id)")
+            $identity = Get-AiCliInteractiveProfileIdentity -Profile $resolvedRecent
+            if (-not $identities.Add($identity)) { continue }
+            $choices.Add("$($entry.Label): $(Get-AiCliProperty $resolvedRecent 'displayName')")
             $ids.Add($entry.Id)
         } catch {
             # A removed/retired/conflicting ID must not survive as a launchable
@@ -834,7 +853,8 @@ function Invoke-AiCliInteractiveSelector {
     foreach ($p in $list) {
         $pidStr = [string](Get-AiCliProperty $p 'id')
         if ($ids -contains $pidStr) { continue }
-        $choices.Add(("{0} ({1})" -f (Get-AiCliProperty $p 'displayName'), $pidStr))
+        if (-not $identities.Add((Get-AiCliInteractiveProfileIdentity -Profile $p))) { continue }
+        $choices.Add([string](Get-AiCliProperty $p 'displayName'))
         $ids.Add($pidStr)
     }
     if ($choices.Count -eq 0) {

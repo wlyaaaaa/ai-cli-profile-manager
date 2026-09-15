@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "codex-ollama-qwen3-8-27b",
-  "displayName": "Codex CLI + local Qwen3.8-27B",
+  "displayName": "Codex CLI + Qwen3.8 27B",
   "engine": "codex",
   "provider": "ollama",
   "plan": "local",

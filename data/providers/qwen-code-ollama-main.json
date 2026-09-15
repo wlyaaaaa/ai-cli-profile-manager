@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "qwen-code-ollama-main",
-  "displayName": "Qwen Code + Qwen3.8 27B（本地主用）",
+  "displayName": "Qwen Code + Qwen3.8 27B",
   "engine": "qwen-code",
   "provider": "ollama",
   "plan": "local",

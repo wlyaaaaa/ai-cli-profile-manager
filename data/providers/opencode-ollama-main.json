@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "opencode-ollama-main",
-  "displayName": "OpenCode + Qwen3.8 27B（本地主用）",
+  "displayName": "OpenCode + Qwen3.8 27B",
   "engine": "opencode",
   "provider": "ollama",
   "plan": "local",

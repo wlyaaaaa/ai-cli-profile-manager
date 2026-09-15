@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "codex-ollama-review",
-  "displayName": "Codex CLI + Qwen3.6 35B（独立复核）",
+  "displayName": "Codex CLI + Qwen3.6 35B",
   "engine": "codex",
   "provider": "ollama",
   "plan": "local",

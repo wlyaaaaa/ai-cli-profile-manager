@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "claude-ollama-main",
-  "displayName": "Claude Code + Qwen3.8 27B（本地主用）",
+  "displayName": "Claude Code + Qwen3.8 27B",
   "engine": "claude",
   "provider": "ollama",
   "plan": "local",

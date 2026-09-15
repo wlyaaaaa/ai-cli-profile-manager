@@ -23,6 +23,7 @@ function Test-AiCliSelectedLocalProviderReadiness {
 
     $endpoint = [string](Get-AiCliProperty $MergedProfile 'endpoint')
     $model = [string](Get-AiCliProperty (Get-AiCliProperty $MergedProfile 'models') 'primary')
+    $modelDisplay = [string](Get-AiCliProperty $MergedProfile 'displayName' $model)
     try {
         Assert-AiCliEndpointSafe -Url $endpoint
         $endpointUri = [Uri]$endpoint
@@ -78,7 +79,7 @@ function Test-AiCliSelectedLocalProviderReadiness {
                             } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
                         )
                         if (@($modelIds | Where-Object { Test-AiCliLocalProviderModelId -Expected $model -Actual $_ }).Count -ne 1) {
-                            return [pscustomobject]@{ Applicable = $true; Ready = $false; Reason = 'models_exact_identity_missing'; Summary = "models 未列出选定模型 $model" }
+                            return [pscustomobject]@{ Applicable = $true; Ready = $false; Reason = 'models_exact_identity_missing'; Summary = "服务未列出所选模型：$modelDisplay" }
                         }
                     }
                 } finally {
@@ -94,5 +95,5 @@ function Test-AiCliSelectedLocalProviderReadiness {
     } catch {
         return [pscustomobject]@{ Applicable = $true; Ready = $false; Reason = 'response_unavailable'; Summary = "本地 Provider 就绪检查失败: $($_.Exception.Message)" }
     }
-    return [pscustomobject]@{ Applicable = $true; Ready = $true; Reason = 'ready'; Summary = "本地 Provider 已返回选定模型 $model 的完整 JSON" }
+    return [pscustomobject]@{ Applicable = $true; Ready = $true; Reason = 'ready'; Summary = "本地服务已确认模型可用：$modelDisplay" }
 }

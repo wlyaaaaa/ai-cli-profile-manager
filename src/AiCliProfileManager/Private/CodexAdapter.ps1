@@ -658,7 +658,7 @@ function Build-AiCliCodexLaunchPlan {
             -ModelCatalogPath $modelCatalogPath
         if ($modelCatalogPath) { $configFiles += $modelCatalogPath }
         $notes += "本机 Ollama 兼容网关: $endpoint"
-        $notes += "模型: $model；wire_api=responses；思考等级 $requestedEffort（有效档位 $effort）"
+        $notes += "引擎与模型: $(Get-AiCliProperty $MergedProfile 'displayName')；思考等级 $requestedEffort（有效档位 $effort）"
         $notes += '本次使用上述 Profile 端点；本地模型请求保持直连。'
     }
     else {

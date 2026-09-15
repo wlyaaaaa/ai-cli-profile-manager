@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 Describe 'CommandRouter' {
     BeforeAll {
         $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -79,9 +79,9 @@ Describe 'CommandRouter' {
         } 6>&1 | Out-String)
 
         $text | Should -Match '状态'
-        $text | Should -Match 'codex-qwen3-7-max-paygo.*max→xhigh.*不可用'
-        $text | Should -Match 'codex-qwen3-8-max-paygo.*max→xhigh.*不可用'
-        $text | Should -Match 'codex-deepseek-v4-pro.*max.*不可用'
+        $text | Should -Match 'Qwen3\.7.*max→xhigh.*不可用'
+        $text | Should -Match 'Qwen3\.8.*max→xhigh.*不可用'
+        $text | Should -Match 'DeepSeek.*Pro.*max.*不可用'
     }
 
     It 'advertises one-command exact Profile starts in help' {
