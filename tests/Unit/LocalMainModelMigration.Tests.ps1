@@ -3,119 +3,95 @@
 BeforeAll {
     $script:LocalMainMigrationRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
     $profileIds = @(
-        'codex-ollama-main',
-        'claude-ollama-main',
-        'opencode-ollama-main',
-        'qwen-code-ollama-main',
-        'codex-ollama-qwen3-8-27b',
-        'opencode-ollama-qwen3-8-27b',
-        'codex-ollama-review'
+        'codex-ollama-main', 'claude-ollama-main', 'opencode-ollama-main',
+        'qwen-code-ollama-main', 'codex-ollama-qwen3-8-27b',
+        'opencode-ollama-qwen3-8-27b', 'codex-ollama-review'
     )
-    $script:LocalMainMigrationProfiles = [ordered]@{}
+    $script:LocalMainMigrationProfiles = @{}
     foreach ($id in $profileIds) {
-        $path = Join-Path $script:LocalMainMigrationRepoRoot ("data\providers\$id.json")
+        $path = Join-Path $script:LocalMainMigrationRepoRoot "data\providers\$id.json"
         $script:LocalMainMigrationProfiles[$id] = Get-Content -LiteralPath $path -Raw -Encoding utf8 |
-            ConvertFrom-Json -Depth 30
+            ConvertFrom-Json -AsHashtable -Depth 50
     }
-    $script:LocalMainMigrationRuntimeTag = 'aicli-qwen3.8-27b-256k:2026-09-15'
-    $script:LocalMainMigrationManifestDigest = 'sha256:885ca6e9d68fbda050eee055145891e7c45fa8a0bec8c62dc8cd90708f6bedcd'
-    $script:LocalMainMigrationParametersDigest = 'sha256:14bb2c63f1a0e61969a5bceba301ea9d60740ce64b72813cc018acfc63c940c2'
 }
 
-Describe 'Local Qwen main migration consistency' {
-    It 'uses the same exact 256K runtime artifact across all four main providers' {
-        $mainIds = @(
-            'codex-ollama-main',
-            'claude-ollama-main',
-            'opencode-ollama-main',
-            'qwen-code-ollama-main'
-        )
-        foreach ($id in $mainIds) {
-            $manifest = $script:LocalMainMigrationProfiles[$id]
-            $artifact = $manifest.compatibility.ollamaArtifact
-            $manifest.models.primary | Should -BeExactly $script:LocalMainMigrationRuntimeTag -Because $id
-            $manifest.models.small | Should -BeExactly $script:LocalMainMigrationRuntimeTag -Because $id
-            $artifact.tag | Should -BeExactly $script:LocalMainMigrationRuntimeTag -Because $id
-            $artifact.manifestDigest | Should -BeExactly $script:LocalMainMigrationManifestDigest -Because $id
-            $artifact.parametersDigest | Should -BeExactly $script:LocalMainMigrationParametersDigest -Because $id
-            $artifact.draftNumPredict | Should -Be 0 -Because $id
-            $artifact.baseTag | Should -BeExactly 'qwen3.8:27b' -Because $id
-            $artifact.numCtx | Should -Be 262144 -Because $id
-            $artifact.quantization | Should -BeExactly 'Q4_K_M' -Because $id
-            $manifest.capabilities.tools | Should -BeTrue -Because $id
-            $manifest.capabilities.streaming | Should -BeTrue -Because $id
-            $manifest.capabilities.images | Should -BeTrue -Because $id
-            $manifest.capabilities.machineRun | Should -BeTrue -Because $id
+Describe 'Local model profile consistency' {
+    It 'uses the actual Codex main identity across the four mains with 262144 context' {
+        $main = $script:LocalMainMigrationProfiles['codex-ollama-main']
+        $model = [string]$main.models.primary
+        $model | Should -Not -BeNullOrEmpty
+        $main.models.small | Should -BeExactly $model
+        @($main.models.candidates) | Should -Be @($model)
+        @($main.models.reserved) | Should -BeNullOrEmpty
+        $mainArtifact = $main.compatibility.ollamaArtifact
+        $mainArtifact.tag | Should -BeExactly $model
+        $mainArtifact.numCtx | Should -Be 262144
+        $main.modelMetadata[$model].contextWindowTokens | Should -Be 262144
 
-            if ($manifest.modelMetadata) {
-                $metadata = $manifest.modelMetadata.$($script:LocalMainMigrationRuntimeTag)
+        foreach ($id in @('claude-ollama-main', 'opencode-ollama-main', 'qwen-code-ollama-main')) {
+            $profile = $script:LocalMainMigrationProfiles[$id]
+            $profile.models.primary | Should -BeExactly $model -Because $id
+            $profile.models.small | Should -BeExactly $model -Because $id
+            $artifact = $profile.compatibility.ollamaArtifact
+            foreach ($field in @('tag', 'baseTag', 'numCtx', 'quantization', 'manifestDigest', 'baseManifestDigest', 'configDigest', 'modelBlobDigest', 'projectorBlobDigest', 'parametersDigest', 'draftNumPredict')) {
+                $artifact[$field] | Should -Be $mainArtifact[$field] -Because "$id $field"
+            }
+            if ($profile.Contains('modelMetadata')) {
+                $metadata = $profile.modelMetadata[$model]
+                $metadata | Should -Not -BeNullOrEmpty -Because $id
                 $metadata.contextWindowTokens | Should -Be 262144 -Because $id
-                $metadata.outputWindowTokens | Should -Be 32768 -Because $id
+                $metadata.outputWindowTokens | Should -BeGreaterThan 0 -Because $id
+                $metadata.outputWindowTokens | Should -BeLessOrEqual 262144 -Because $id
             }
+        }
+
+        $mainCatalogPath = Join-Path $script:LocalMainMigrationRepoRoot "data\model-catalogs\$($main.codexModelCatalog)"
+        $mainCatalog = Get-Content -LiteralPath $mainCatalogPath -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable -Depth 50
+        $mainCatalog.models[0].slug | Should -BeExactly $model
+        $mainCatalog.models[0].context_window | Should -Be 262144
+        $mainCatalog.models[0].max_context_window | Should -Be 262144
+    }
+
+    It 'keeps the fixed exact Codex profile independent when main changes model' {
+        $main = $script:LocalMainMigrationProfiles['codex-ollama-main']
+        $exact = $script:LocalMainMigrationProfiles['codex-ollama-qwen3-8-27b']
+        $exactModel = [string]$exact.models.primary
+        $exactModel | Should -Not -BeNullOrEmpty
+        $exact.models.small | Should -BeExactly $exactModel
+        @($exact.models.candidates) | Should -Be @($exactModel)
+        $exact.codexModelCatalog | Should -Not -BeNullOrEmpty
+        $exactCatalogPath = Join-Path $script:LocalMainMigrationRepoRoot "data\model-catalogs\$($exact.codexModelCatalog)"
+        $exactCatalog = Get-Content -LiteralPath $exactCatalogPath -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable -Depth 50
+        $exactCatalog.models[0].slug | Should -BeExactly $exactModel
+        $exactCatalog.models[0].context_window | Should -Be 262144
+        if ($exactModel -ceq $main.models.primary) {
+            $exact.codexModelCatalog | Should -BeExactly $main.codexModelCatalog
+            $exact.modelMetadata[$exactModel].contextWindowTokens |
+                Should -Be $main.modelMetadata[$exactModel].contextWindowTokens
+        } else {
+            $exact.codexModelCatalog | Should -Not -BeExactly $main.codexModelCatalog
         }
     }
 
-    It 'keeps the explicit Codex and OpenCode 27B profiles capability-equivalent to main' {
-        $pairs = @(
-            @{ Main = 'codex-ollama-main'; Exact = 'codex-ollama-qwen3-8-27b'; Metadata = @('contextWindowTokens', 'outputWindowTokens') },
-            @{ Main = 'opencode-ollama-main'; Exact = 'opencode-ollama-qwen3-8-27b'; Metadata = @('contextWindowTokens', 'inputWindowTokens', 'outputWindowTokens', 'compactionReserveTokens', 'preserveRecentTokens', 'tailTurns') }
-        )
-        $artifactFields = @(
-            'minimumVersion', 'tag', 'baseTag', 'numCtx', 'quantization', 'manifestDigest',
-            'baseManifestDigest', 'configDigest', 'modelBlobDigest',
-            'projectorBlobDigest', 'parametersDigest', 'draftNumPredict'
-        )
-
-        foreach ($pair in $pairs) {
-            $main = $script:LocalMainMigrationProfiles[$pair.Main]
-            $exact = $script:LocalMainMigrationProfiles[$pair.Exact]
-            $main.models.primary | Should -BeExactly $script:LocalMainMigrationRuntimeTag -Because $pair.Main
-            $exact.models.primary | Should -BeExactly $script:LocalMainMigrationRuntimeTag -Because $pair.Exact
-            $main.models.small | Should -BeExactly $exact.models.small -Because $pair.Main
-            $main.endpoint | Should -BeExactly $exact.endpoint -Because $pair.Main
-            $main.transport | Should -BeExactly $exact.transport -Because $pair.Main
-            $main.defaultEffort | Should -BeExactly $exact.defaultEffort -Because $pair.Main
-            @($main.effortLevels) | Should -Be @($exact.effortLevels) -Because $pair.Main
-            $main.flexible | Should -Be $exact.flexible -Because $pair.Main
-            $main.requiresSecret | Should -Be $exact.requiresSecret -Because $pair.Main
-            $main.virtualReady | Should -Be $exact.virtualReady -Because $pair.Main
-            $main.capabilities.tools | Should -Be $exact.capabilities.tools -Because $pair.Main
-            $main.capabilities.streaming | Should -Be $exact.capabilities.streaming -Because $pair.Main
-            $main.capabilities.images | Should -Be $exact.capabilities.images -Because $pair.Main
-            $main.capabilities.machineRun | Should -Be $exact.capabilities.machineRun -Because $pair.Main
-
-            foreach ($field in $artifactFields) {
-                $main.compatibility.ollamaArtifact.$field |
-                    Should -Be $exact.compatibility.ollamaArtifact.$field -Because "$($pair.Main): $field"
-            }
-            foreach ($field in $pair.Metadata) {
-                $main.modelMetadata.$($script:LocalMainMigrationRuntimeTag).$field |
-                    Should -Be $exact.modelMetadata.$($script:LocalMainMigrationRuntimeTag).$field -Because "$($pair.Main): $field"
-            }
-
-            if ($pair.Main -eq 'codex-ollama-main') {
-                $main.codexModelCatalog | Should -BeExactly 'qwen3.8-27b-codex.json'
-                $exact.codexModelCatalog | Should -BeExactly 'qwen3.8-27b-codex.json'
-                @($main.models.candidates) | Should -Be @($exact.models.candidates)
-                @($main.models.reserved) | Should -BeNullOrEmpty
-                @($exact.models.reserved) | Should -BeNullOrEmpty
-            }
-        }
-    }
-
-    It 'keeps Codex review on its independent Qwen3.6 35B model and catalog' {
+    It 'keeps review separate from main and verifies its actual 256K model metadata' {
         $main = $script:LocalMainMigrationProfiles['codex-ollama-main']
         $review = $script:LocalMainMigrationProfiles['codex-ollama-review']
-        $review.models.primary | Should -BeExactly 'qwen-main-v1'
-        $review.models.small | Should -BeExactly 'qwen-main-v1'
-        @($review.models.candidates) | Should -Be @('qwen-main-v1')
-        $review.codexModelCatalog | Should -BeExactly 'qwen-main-v1-codex.json'
-        $review.modelMetadata.'qwen-main-v1'.contextWindowTokens | Should -Be 262144
-        $review.modelMetadata.'qwen-main-v1'.outputWindowTokens | Should -Be 8192
-        $review.displayName | Should -Match 'Qwen3\.6 35B'
-        $review.capabilities.images | Should -BeFalse
-        $review.models.primary | Should -Not -BeExactly $main.models.primary
+        $reviewModel = [string]$review.models.primary
+        $reviewModel | Should -Not -BeNullOrEmpty
+        $reviewModel | Should -Not -BeExactly $main.models.primary
+        $review.models.small | Should -BeExactly $reviewModel
+        @($review.models.candidates) | Should -Be @($reviewModel)
         $review.codexModelCatalog | Should -Not -BeExactly $main.codexModelCatalog
-        $review.compatibility.ollamaArtifact | Should -BeNullOrEmpty
+        $reviewMetadata = $review.modelMetadata[$reviewModel]
+        $reviewMetadata.contextWindowTokens | Should -Be 262144
+        $reviewMetadata.outputWindowTokens | Should -BeGreaterThan 0
+        $reviewMetadata.outputWindowTokens | Should -BeLessOrEqual 262144
+        $review.displayName | Should -Not -BeNullOrEmpty
+        $review.displayName | Should -Not -BeExactly $reviewModel
+        $review.displayName | Should -Match '\+\s+[A-Za-z0-9]'
+        $reviewCatalogPath = Join-Path $script:LocalMainMigrationRepoRoot "data\model-catalogs\$($review.codexModelCatalog)"
+        $reviewCatalog = Get-Content -LiteralPath $reviewCatalogPath -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable -Depth 50
+        $reviewCatalog.models[0].slug | Should -BeExactly $reviewModel
+        $reviewCatalog.models[0].context_window | Should -Be 262144
     }
 }

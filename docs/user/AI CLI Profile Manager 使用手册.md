@@ -234,6 +234,18 @@ Claude Code `2.1.193+` 的 DeepSeek Profile 按最终 `--model` 精确注入 100
 
 Codex 的 DeepSeek Key 与其他云端 Profile 一样由 Windows CurrentUser DPAPI 保存。受管 Codex TOML 只写 `env_key`，不会复制官方手工示例中的明文 `experimental_bearer_token` 或 `preferred_auth_method`。Qwen Code 0.21 与 OpenCode 1.18.8 虽有上游原生 DeepSeek 接入，但 AICLI 当前只为它们提供禁网的 machine-only 沙箱，且尚无隔离真实 Key 的远程 egress relay；因此不提供这两类 DeepSeek Profile。
 
+以后更换本地模型时，由维护者先准备 `data/providers/codex-ollama-main.json` 和新模型的独立 catalog，再在仓库根运行：
+
+```powershell
+# 默认只列差异；确认候选配置后同步其他三个引擎的模型身份。
+pwsh -NoProfile -File scripts/Sync-LocalModelProfiles.ps1 -Json
+pwsh -NoProfile -File scripts/Sync-LocalModelProfiles.ps1 -Apply -Json
+```
+
+该命令保留 262144 上下文、各引擎自己的输出/压缩/启动参数，以及原型号专用入口。换型后按输出的 `manual_review` 复核保留的来源链接和说明文字。复核模型独立修改 `codex-ollama-review.json` 与对应目录。不要覆盖旧型号共用的 catalog 或运行标签。随后通过 Toolkit 的显式同步工具更新其注册表，按原有流程安装、运行 `doctor` 并验收实际使用的入口；配置同步成功不表示新模型已通过现场验收。已有受管版本可按 Git 中的原配置回退并重新安装。当前 `Setup-Qwen38-27B256K.ps1` 只负责它命名的 Qwen 版本，不用于创建未来模型。
+
+这些工具供低频、明确选择本地模型时使用。是否调用本地模型由上层 AI 根据任务判断；本地可用不会改变原生子代理的选型，也不会自动替换 Luna Max。
+
 Ollama 公共模板使用默认地址 `127.0.0.1:11434`，不再包含某台机器的私有端口或模型别名。使用前先确认服务和模板所列模型实际存在：
 
 ```powershell
