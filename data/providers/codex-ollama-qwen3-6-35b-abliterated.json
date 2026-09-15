@@ -8,14 +8,21 @@
   "region": "local",
   "transport": "responses",
   "defaultEffort": "max",
-  "effortLevels": ["low", "medium", "high", "max"],
+  "effortLevels": [
+    "low",
+    "medium",
+    "high",
+    "max"
+  ],
   "endpoint": "http://127.0.0.1:32100/v1",
   "codexProviderId": "aicli_ollama_qwen36_35b_abliterated",
   "codexModelCatalog": "qwen3.6-35b-abliterated-codex.json",
   "models": {
     "primary": "aicli-qwen3.6-35b-abliterated-256k:2026-09-15",
     "small": "aicli-qwen3.6-35b-abliterated-256k:2026-09-15",
-    "candidates": ["aicli-qwen3.6-35b-abliterated-256k:2026-09-15"]
+    "candidates": [
+      "aicli-qwen3.6-35b-abliterated-256k:2026-09-15"
+    ]
   },
   "modelMetadata": {
     "aicli-qwen3.6-35b-abliterated-256k:2026-09-15": {
@@ -30,10 +37,23 @@
       "baseTag": "wangzhang/Qwen3.6-35B-A3B-abliterated-GGUF",
       "numCtx": 262144,
       "quantization": "Q4_K_M",
-      "manifestDigest": "sha256:fac24b27fb75f7b365db6061ca2f43ec780ef6dbea30473593a6b7251af9fd53",
-      "configDigest": "sha256:7cfc980a108c3bd6ef5569895ce9bc6774e7d97990e400e1abf160c6760a1cb2",
+      "manifestDigest": "sha256:bdb98c4eedddabf2ed3f64d12bfe6bc6a24af7c3242354e91a059fba126de201",
+      "configDigest": "sha256:39116ca9baeca5d081c9991d28cf13c2bcb0d008b0211eeb2c7072ea3295770f",
       "modelBlobDigest": "sha256:b1995222870f94e18364a3034dbc8f410460dffbe1bfaa3f7143a171cce44abb",
-      "parametersDigest": "sha256:10fb813580204dcab3ac584e6322e7c998158760e98fef7a73c945879e553b2f"
+      "parametersDigest": "sha256:10fb813580204dcab3ac584e6322e7c998158760e98fef7a73c945879e553b2f",
+      "renderer": "qwen3.5",
+      "parser": "qwen3.5",
+      "parameters": {
+        "min_p": 0,
+        "num_ctx": 262144,
+        "num_predict": 32768,
+        "presence_penalty": 1.5,
+        "repeat_penalty": 1,
+        "temperature": 1,
+        "top_k": 20,
+        "top_p": 0.95
+      },
+      "minimumVersion": "0.33.1"
     },
     "localGpuBrokerSession": {
       "contractVersion": 1,
@@ -41,8 +61,15 @@
       "managementOrigin": "http://127.0.0.1:32100"
     }
   },
-  "auth": {"type": "none"},
-  "capabilities": {"tools": true, "streaming": true, "images": false, "machineRun": true},
+  "auth": {
+    "type": "none"
+  },
+  "capabilities": {
+    "tools": true,
+    "streaming": true,
+    "images": false,
+    "machineRun": true
+  },
   "sources": [
     "https://huggingface.co/wangzhang/Qwen3.6-35B-A3B-abliterated-GGUF",
     "https://docs.ollama.com/integrations/codex"
@@ -51,5 +78,5 @@
   "virtualReady": true,
   "flexible": false,
   "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
-  "notes": "Exact local 256K Qwen3.6 35B abliterated GGUF runtime. Its verified model layer is independent of the official 35B tag; no fallback."
+  "notes": "Exact local 256K Qwen3.6 35B abliterated GGUF runtime. Its verified model layer is independent of the official 35B tag; no fallback. Explicit native Ollama renderer/parser preserve Codex freeform tool compatibility; do not fall back to the raw GGUF Jinja template."
 }

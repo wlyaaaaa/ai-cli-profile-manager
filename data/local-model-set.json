@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    "codex-ollama-main",
+    "codex-ollama-review",
+    "codex-ollama-qwen3-6-35b-abliterated",
+    "codex-ollama-qwen3-8-27b-abliterated"
+  ],
+  "clients": {
+    "codex-ollama-main": { "opencodeKey": "qwen3.8-27b-256k", "backendId": "local-default" },
+    "codex-ollama-review": { "opencodeKey": "qwen-main-think-v1", "backendId": "local-crosscheck-35b" },
+    "codex-ollama-qwen3-6-35b-abliterated": { "opencodeKey": "qwen3.6-35b-abliterated-256k", "backendId": "local-qwen3-6-35b-abliterated" },
+    "codex-ollama-qwen3-8-27b-abliterated": { "opencodeKey": "qwen3.8-27b-abliterated-256k", "backendId": "local-qwen3-8-27b-abliterated" }
+  }
+}

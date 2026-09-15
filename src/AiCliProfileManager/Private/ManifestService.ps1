@@ -508,6 +508,16 @@ function Import-AiCliProviderManifests {
         if (Test-AiCliMapHasKey -Map $map -Key $id) { throw "重复 Manifest ID: $id" }
         $map[$id] = $m
     }
+    $setPath = Get-AiCliDataPath -Relative 'local-model-set.json'
+    if (Test-Path -LiteralPath $setPath) {
+        $set = Read-AiCliJsonFile -Path $setPath
+        $selected = @($set.profiles | ForEach-Object { $map[$_].models.primary })
+        $managed = @($set.clients.Keys | ForEach-Object { $map[$_].models.primary })
+        foreach ($manifest in $map.Values) {
+            if ($manifest.provider -eq 'ollama' -and $manifest.models.primary -in $managed -and
+                $manifest.models.primary -notin $selected) { $manifest.hidden = $true }
+        }
+    }
     return $map
 }
 

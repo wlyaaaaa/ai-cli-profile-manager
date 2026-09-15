@@ -1,7 +1,7 @@
 #Requires -Version 7.2
 [CmdletBinding()]
 param(
-    [string[]]$ProfileId = @('codex-ollama-main', 'codex-ollama-review'),
+    [string[]]$ProfileId = @(),
     [string]$ModulePath = (Join-Path $PSScriptRoot '..\AiCliProfileManager.psd1'),
     [switch]$UpstreamOnly
 )
@@ -16,6 +16,12 @@ if (-not (Test-Path -LiteralPath $ModulePath) -and -not $PSBoundParameters.Conta
     $ModulePath = 'AiCliProfileManager'
 }
 $module = Import-Module -Name $ModulePath -Force -PassThru
+$setPath = & $module { Get-AiCliDataPath -Relative 'local-model-set.json' }
+if ($ProfileId.Count -eq 0 -and -not $UpstreamOnly) {
+    $set = Get-Content -LiteralPath $setPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 20
+    $ProfileId = @($set.profiles | ForEach-Object { [string]$_ })
+    if ($ProfileId.Count -eq 0) { throw 'Desktop local model set is empty.' }
+}
 $engineResolver = Join-Path $PSScriptRoot 'ResolveDesktopEngine.ps1'
 $plan = & $module {
     param([string[]]$Ids, [bool]$OnlyUpstream, [string]$EngineResolver)

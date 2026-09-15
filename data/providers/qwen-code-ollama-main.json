@@ -43,7 +43,20 @@
       "projectorBlobDigest": "sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e",
       "parametersDigest": "sha256:f31338adbd0f8703936e46b65304ae9369378184f88dd20b9760b0d8ed8b50f0",
       "draftNumPredict": 0,
-      "numBatch": 128
+      "numBatch": 128,
+      "parameters": {
+        "draft_num_predict": 0,
+        "min_p": 0,
+        "num_batch": 128,
+        "num_ctx": 262144,
+        "presence_penalty": 0,
+        "repeat_penalty": 1,
+        "temperature": 1,
+        "top_k": 20,
+        "top_p": 0.95
+      },
+      "renderer": "qwen3.8",
+      "parser": "qwen3.5"
     }
   }
 }

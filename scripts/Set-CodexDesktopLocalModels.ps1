@@ -130,7 +130,7 @@ if ($Mode -eq 'Build') {
     if (-not (Test-Path -LiteralPath $installedResolver)) { Copy-Item -LiteralPath $resolver -Destination $installedResolver }
     # Validate the installed discovery route before changing the desktop entry.
     $plan = & pwsh -NoProfile -File $installedExporter | ConvertFrom-Json -Depth 100
-    if ($LASTEXITCODE -ne 0 -or @($plan.models).Count -ne 2) { throw 'Installed local model discovery did not return the two configured models.' }
+    if ($LASTEXITCODE -ne 0 -or @($plan.models).Count -eq 0) { throw 'Installed local model discovery did not return the configured models.' }
     Register-LocalProviders $plan
     $previous = if ($null -ne $state -and $current -eq $state.executable) { $state.previousUserValue } else { $current }
     $newState = [ordered]@{

@@ -40,7 +40,19 @@
       "manifestDigest": "sha256:7dd8a375ab919bd63cc558161d4209b4d9f66ea858acb4f10641a8d80028626a",
       "configDigest": "sha256:85b5358cae239e22459ef81434b8cc4adf10572ab0a6f6657f6abb45fd9f81be",
       "modelBlobDigest": "sha256:f5ee307a2982106a6eb82b62b2c00b575c9072145a759ae4660378acda8dcf2d",
-      "parametersDigest": "sha256:10fb813580204dcab3ac584e6322e7c998158760e98fef7a73c945879e553b2f"
+      "parametersDigest": "sha256:10fb813580204dcab3ac584e6322e7c998158760e98fef7a73c945879e553b2f",
+      "parameters": {
+        "min_p": 0,
+        "num_ctx": 262144,
+        "num_predict": 32768,
+        "presence_penalty": 1.5,
+        "repeat_penalty": 1,
+        "temperature": 1,
+        "top_k": 20,
+        "top_p": 0.95
+      },
+      "renderer": "qwen3.5",
+      "parser": "qwen3.5"
     },
     "localGpuBrokerSession": {
       "contractVersion": 1,

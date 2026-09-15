@@ -37,7 +37,7 @@
 
 - 外部 CLI、模型、端点、套餐、代理版本和参数属于动态事实；实现和发布验收时重新核对官方文档与精确上游仓库。
 - Provider 定义采用无执行能力的数据 Manifest；厂商差异放适配器，不散落在通用启动逻辑。
-- 本地模型是低频、按需能力，不因可用就替代原生子代理。未来换型以现有 Codex main/review Manifest 与对应 catalog 为入口；`scripts/Sync-LocalModelProfiles.ps1` 显式同步其他 main 引擎的共同模型字段，保留各引擎输出、压缩和启动参数。固定型号的兼容 Profile 独立保留；测试比较实际身份与能力，不把当前主/复核型号永久写成路由规则。上下文继续保持 262144，模型/参数改变后重新验收。
+- 本地模型是低频、按需能力，不因可用就替代原生子代理。未来换型以现有 Codex main/review Manifest 与对应 catalog 为入口；`scripts/Sync-LocalModelProfiles.ps1` 显式同步其他 main 引擎的共同模型字段，保留各引擎输出、压缩和启动参数。固定型号的兼容 Profile 独立保留；测试比较实际身份与能力，不把当前主/复核型号永久写成路由规则。上下文继续保持 262144。当前启用集合由 data/local-model-set.json 管理，日常统一运行 scripts/Sync-LocalModelConfiguration.ps1；普通增减做配置同步与必要读回，实际故障再定向验证，不机械要求全客户端 E2E。
 - 面向用户的 Profile 名称以真实模型名称为主，可保留引擎和必要套餐信息；`main`、`local-default`、主用、辅助、复核等内部识别不得出现在菜单、最近/默认项、启动提示或普通列表。稳定 Profile ID、Provider、wire、模型参数和 JSON 机器字段继续保留；同一用户可见本地模型的兼容入口在菜单去重时必须记住实际选中的 ID，不能重路由。
 - 所有路径通过 Windows Known Folders 计算，不硬编码本机用户名或盘符。
 - 含中文常量的 `.ps1` 使用 UTF-8 BOM，并显式处理 PowerShell/外部进程编码；JSON/Markdown 默认 UTF-8 无 BOM。

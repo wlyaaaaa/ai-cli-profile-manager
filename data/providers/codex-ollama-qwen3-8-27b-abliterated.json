@@ -39,8 +39,8 @@
       "numCtx": 262144,
       "numBatch": 128,
       "quantization": "Q4_K_M",
-      "manifestDigest": "sha256:8ee8e56391b2b404a050562b931d53888ca6fa747fd5201a65c291600d44988d",
-      "configDigest": "sha256:f2ce70b3de2f8e5e1e3f31a88d678f6787f4e154f9f45ae9a9543974d99ba8f7",
+      "manifestDigest": "sha256:8175b17fb6b4325a327e04081eab6aafb197f72b92fac74148d8801a5886ad4a",
+      "configDigest": "sha256:19a5c290a334cc4cb84ee00c24b86766f822a74c686933d08e48f5551de620cb",
       "modelBlobDigest": "sha256:6c2c13cef89238c3604d756b07b3ef5fafebbd61095feb8553ff449c95e4c1c6",
       "projectorBlobDigest": "sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e",
       "parametersDigest": "sha256:f31338adbd0f8703936e46b65304ae9369378184f88dd20b9760b0d8ed8b50f0",
@@ -55,7 +55,9 @@
         "temperature": 1,
         "top_k": 20,
         "top_p": 0.95
-      }
+      },
+      "renderer": "qwen3.8",
+      "parser": "qwen3.5"
     },
     "localGpuBrokerSession": {
       "contractVersion": 1,
@@ -80,5 +82,5 @@
   "virtualReady": true,
   "flexible": false,
   "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
-  "notes": "Publisher-verified Huihui Qwen3.8 27B Q4_K_M text weights paired with the compatible official Qwen3.8 base BF16 projector. Native 256K, batch128, MTP disabled. LocalGpuBroker session required; no cloud or fallback."
+  "notes": "Publisher-verified Huihui Qwen3.8 27B Q4_K_M text weights paired with the compatible official Qwen3.8 base BF16 projector. Native 256K, batch128, MTP disabled. LocalGpuBroker session required; no cloud or fallback. Explicit native Ollama renderer/parser preserve Codex freeform tool compatibility; do not fall back to the raw GGUF Jinja template."
 }
