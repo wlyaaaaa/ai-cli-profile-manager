@@ -16,16 +16,16 @@
   ],
   "endpoint": "http://127.0.0.1:32100/v1",
   "codexProviderId": "aicli_ollama_review",
-  "codexModelCatalog": "qwen-main-v1-codex.json",
+  "codexModelCatalog": "qwen3.6-35b-codex.json",
   "models": {
-    "primary": "qwen-main-v1",
-    "small": "qwen-main-v1",
+    "primary": "qwen3.6-35b:256k",
+    "small": "qwen3.6-35b:256k",
     "candidates": [
-      "qwen-main-v1"
+      "qwen3.6-35b:256k"
     ]
   },
   "modelMetadata": {
-    "qwen-main-v1": {
+    "qwen3.6-35b:256k": {
       "contextWindowTokens": 262144,
       "outputWindowTokens": 8192
     }
@@ -33,7 +33,7 @@
   "compatibility": {
     "minCliVersion": "0.147.0",
     "ollamaArtifact": {
-      "tag": "qwen-main-v1",
+      "tag": "qwen3.6-35b:256k",
       "baseTag": "qwen3.6:35b",
       "numCtx": 262144,
       "quantization": "Q4_K_M",

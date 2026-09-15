@@ -2,7 +2,7 @@
 
 BeforeAll {
     $script:Qwen38LocalRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-    $script:Qwen38RuntimeTag = 'aicli-qwen3.8-27b-256k:2026-09-15'
+    $script:Qwen38RuntimeTag = 'qwen3.8-27b:256k'
     Get-Module -Name AiCliProfileManager -All -ErrorAction SilentlyContinue |
         Remove-Module -Force -ErrorAction SilentlyContinue
     Import-Module (Join-Path $script:Qwen38LocalRepoRoot 'src\AiCliProfileManager\AiCliProfileManager.psd1') -Force
@@ -64,7 +64,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
                 { Assert-AiCliLockedModelArgs -MergedProfile $Profile -NativeArgs $nativeArgs } |
                     Should -Throw '*模型由 Profile 固定*'
             }
-            Test-AiCliRetiredModelId -ModelId 'aicli-qwen3.8-27b-256k:2026-09-15' | Should -BeFalse
+            Test-AiCliRetiredModelId -ModelId 'qwen3.8-27b:256k' | Should -BeFalse
         }
     }
 

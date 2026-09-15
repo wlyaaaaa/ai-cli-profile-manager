@@ -175,11 +175,11 @@ Describe 'Exact third-party Codex Profiles' {
 
     It 'keeps all local exact identities on max without enabling fallback models' {
         $expected = [ordered]@{
-            'codex-ollama-main' = 'aicli-qwen3.8-27b-256k:2026-09-15'
-            'codex-ollama-qwen3-8-27b' = 'aicli-qwen3.8-27b-256k:2026-09-15'
-            'codex-ollama-review' = 'qwen-main-v1'
-            'codex-ollama-qwen3-6-35b-abliterated' = 'aicli-qwen3.6-35b-abliterated-256k:2026-09-15'
-            'codex-ollama-qwen3-8-27b-abliterated' = 'aicli-qwen3.8-27b-abliterated-256k:2026-09-15'
+            'codex-ollama-main' = 'qwen3.8-27b:256k'
+            'codex-ollama-qwen3-8-27b' = 'qwen3.8-27b:256k'
+            'codex-ollama-review' = 'qwen3.6-35b:256k'
+            'codex-ollama-qwen3-6-35b-abliterated' = 'qwen3.6-35b-abliterated:256k'
+            'codex-ollama-qwen3-8-27b-abliterated' = 'qwen3.8-27b-abliterated:256k'
         }
         foreach ($profileId in $expected.Keys) {
             $manifest = InModuleScope AiCliProfileManager -Parameters @{ ProfileId = $profileId } {

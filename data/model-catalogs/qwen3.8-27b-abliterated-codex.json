@@ -1,7 +1,7 @@
 {
   "models": [
     {
-      "slug": "aicli-qwen3.8-27b-abliterated-256k:2026-09-15",
+      "slug": "qwen3.8-27b-abliterated:256k",
       "prefer_websockets": false,
       "support_verbosity": false,
       "default_verbosity": null,
@@ -29,7 +29,7 @@
       "comp_hash": "3000",
       "reasoning_summary_format": null,
       "default_reasoning_summary": "none",
-      "display_name": "Qwen3.8 27B 去限制版（256K）",
+      "display_name": "Qwen3.8 27B 去限制版",
       "description": "Local Qwen3.8 27B ablated Responses model with publisher-verified Q4_K_M text weights and a compatible official-base visual projector.",
       "default_reasoning_level": "max",
       "supported_reasoning_levels": [

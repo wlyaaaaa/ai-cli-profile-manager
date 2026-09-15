@@ -97,9 +97,9 @@ Describe 'Third-party context management' {
             $profile = [ordered]@{
                 engine = 'claude'
                 provider = 'ollama'
-                models = [ordered]@{ primary = 'qwen-main-v1' }
+                models = [ordered]@{ primary = 'qwen3.6-35b:256k' }
                 modelMetadata = [ordered]@{
-                    'qwen-main-v1' = [ordered]@{
+                    'qwen3.6-35b:256k' = [ordered]@{
                         contextWindowTokens = 262144
                         autoCompactWindowTokens = 262144
                     }
@@ -107,7 +107,7 @@ Describe 'Third-party context management' {
             }
             $plan = [pscustomobject]@{
                 engine = 'claude'
-                argumentList = @('--model', 'qwen-main-v1')
+                argumentList = @('--model', 'qwen3.6-35b:256k')
                 environmentDelta = @{}
                 removeEnvironment = @()
                 notes = @()
@@ -125,9 +125,9 @@ Describe 'Third-party context management' {
             $profile = [ordered]@{
                 engine = 'opencode'
                 provider = 'ollama'
-                models = [ordered]@{ primary = 'qwen-main-v1' }
+                models = [ordered]@{ primary = 'qwen3.6-35b:256k' }
                 modelMetadata = [ordered]@{
-                    'qwen-main-v1' = [ordered]@{
+                    'qwen3.6-35b:256k' = [ordered]@{
                         contextWindowTokens = 262144
                         inputWindowTokens = 262144
                         outputWindowTokens = 8192
@@ -143,7 +143,7 @@ Describe 'Third-party context management' {
                 environmentDelta = @{}
                 removeEnvironment = @()
                 notes = @()
-                machineRuntime = [ordered]@{ kind = 'opencode'; model = 'qwen-main-v1' }
+                machineRuntime = [ordered]@{ kind = 'opencode'; model = 'qwen3.6-35b:256k' }
             }
 
             $result = Apply-AiCliContextManagementPolicy -Plan $plan -MergedProfile $profile
@@ -210,12 +210,12 @@ Describe 'Third-party context management' {
                 environmentDelta = @{}
                 removeEnvironment = @()
                 notes = @()
-                machineRuntime = [ordered]@{ kind = 'opencode'; model = 'qwen-main-v1' }
+                machineRuntime = [ordered]@{ kind = 'opencode'; model = 'qwen3.6-35b:256k' }
             }
             $thirdPartyProfile = [ordered]@{
                 provider = 'ollama'
                 modelMetadata = [ordered]@{
-                    'qwen-main-v1' = [ordered]@{
+                    'qwen3.6-35b:256k' = [ordered]@{
                         contextWindowTokens = 262144
                         inputWindowTokens = 262144
                         outputWindowTokens = 8192

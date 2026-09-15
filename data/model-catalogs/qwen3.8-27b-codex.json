@@ -1,7 +1,7 @@
 {
   "models": [
     {
-      "slug": "aicli-qwen3.8-27b-256k:2026-09-15",
+      "slug": "qwen3.8-27b:256k",
       "prefer_websockets": false,
       "support_verbosity": false,
       "default_verbosity": null,
@@ -29,7 +29,7 @@
       "comp_hash": "3000",
       "reasoning_summary_format": null,
       "default_reasoning_summary": "none",
-      "display_name": "Qwen3.8-27B Q4_K_M",
+      "display_name": "Qwen3.8 27B",
       "description": "Exact local Qwen3.8-27B Responses model using the managed 256K runtime image over the official Ollama weights.",
       "default_reasoning_level": "max",
       "supported_reasoning_levels": [

@@ -57,7 +57,7 @@ Describe 'Codex Responses loopback capture' -Tag 'Integration' {
                 '-C'
                 $workspace
                 '-c'
-                'model="qwen-main-v1"'
+                'model="qwen3.6-35b:256k"'
                 '-c'
                 'model_provider="aicli_capture"'
                 '-c'
@@ -117,7 +117,7 @@ Describe 'Codex Responses loopback capture' -Tag 'Integration' {
             $request = $requestBody | ConvertFrom-Json
             $requestMethod | Should -Be 'POST'
             $requestPath | Should -Be '/v1/responses'
-            $request.model | Should -Be 'qwen-main-v1'
+            $request.model | Should -Be 'qwen3.6-35b:256k'
             $request.reasoning.effort | Should -Be 'max'
         } finally {
             if ($process) {

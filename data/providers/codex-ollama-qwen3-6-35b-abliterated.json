@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "codex-ollama-qwen3-6-35b-abliterated",
-  "displayName": "Codex CLI + Qwen3.6 35B Abliterated",
+  "displayName": "Codex CLI + Qwen3.6 35B 去限制版",
   "engine": "codex",
   "provider": "ollama",
   "plan": "local",
@@ -18,14 +18,14 @@
   "codexProviderId": "aicli_ollama_qwen36_35b_abliterated",
   "codexModelCatalog": "qwen3.6-35b-abliterated-codex.json",
   "models": {
-    "primary": "aicli-qwen3.6-35b-abliterated-256k:2026-09-15",
-    "small": "aicli-qwen3.6-35b-abliterated-256k:2026-09-15",
+    "primary": "qwen3.6-35b-abliterated:256k",
+    "small": "qwen3.6-35b-abliterated:256k",
     "candidates": [
-      "aicli-qwen3.6-35b-abliterated-256k:2026-09-15"
+      "qwen3.6-35b-abliterated:256k"
     ]
   },
   "modelMetadata": {
-    "aicli-qwen3.6-35b-abliterated-256k:2026-09-15": {
+    "qwen3.6-35b-abliterated:256k": {
       "contextWindowTokens": 262144,
       "outputWindowTokens": 32768
     }
@@ -33,7 +33,7 @@
   "compatibility": {
     "minCliVersion": "0.147.0",
     "ollamaArtifact": {
-      "tag": "aicli-qwen3.6-35b-abliterated-256k:2026-09-15",
+      "tag": "qwen3.6-35b-abliterated:256k",
       "baseTag": "wangzhang/Qwen3.6-35B-A3B-abliterated-GGUF",
       "numCtx": 262144,
       "quantization": "Q4_K_M",

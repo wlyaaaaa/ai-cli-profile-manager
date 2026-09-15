@@ -29,18 +29,18 @@
 
 除上述 06-08 exact Codex Profile 外，Qwen3.7 Max/Plus 云入口与目录继续退役；旧用户 Profile 或原生 `--model` 参数会失败关闭，不会自动改投新入口、Qwen3.8 或其他模型。
 
-`qwen-main-v1-codex.json` 由同一生成器的 `-CatalogKind local` 模式生成，只包含本机 LocalGpuBroker 登记的 `qwen-main-v1`：
+`qwen3.6-35b-codex.json` 由同一生成器的 `-CatalogKind local` 模式生成，只包含本机 LocalGpuBroker 登记的 `qwen3.6-35b:256k`：
 
 - `context_window=max_context_window=262144`，默认 effort 为 `max`，只列 `low` / `medium` / `high` / `max`；
 - 与云千问 983616 目录分离，避免把套餐或上下文事实跨 Provider 复用；
 - 目录内容寻址发布后，用当前 Codex `debug models` 回读唯一 slug、窗口和非空基础指令，不发起模型请求。
 
-`qwen3.8-27b-codex.json` 由同一生成器的 `-CatalogKind localQwen38_27b` 模式生成，只服务本机 `codex-ollama-qwen3-8-27b`：
+`qwen3.8-27b-codex.json` 由同一生成器的 `-CatalogKind localQwen38_27b` 模式生成，服务同一模型的 `codex-ollama-main` 与 `codex-ollama-qwen3-8-27b`：
 
 - 上游模型为 <https://huggingface.co/Qwen/Qwen3.8-27B>，公开权重提交 `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`，原生 context 为 262144；1M YaRN 只作为可选扩展事实，不进入本机默认目录；
-- 官方基础标签是 `qwen3.8:27b` Q4_K_M，manifest digest `sha256:22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643`；运行标签是 `aicli-qwen3.8-27b-256k:2026-08-14`，manifest digest `sha256:e200453f7eea321eab068edbc22c5d38a384a162e46c30ed266c62f0388c4723`，参数层固定 `num_ctx 262144`；
+- 官方基础标签是 `qwen3.8:27b` Q4_K_M，manifest digest `sha256:22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643`；运行标签是 `qwen3.8-27b:256k`，manifest digest `sha256:8040835723046ec2631b64b960d44414636ea5147942a7d68eaaa7ccdb492e20`，参数层固定 `num_ctx 262144`；
 - 两个标签共用 config digest `sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f`、模型 blob digest `sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d` 与 projector digest `sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e`；
 - `context_window=max_context_window=262144`，输入支持 text/image，默认 effort 为 `max`，只列 `low` / `medium` / `high` / `max`；
-- 与云端 `qwen3.8-max` 及本地 `qwen-main-v1` 分离，避免把供应商套餐、模型权重或上下文事实互相冒充。
+- 与云端 `qwen3.8-max` 及本地 `qwen3.6-35b:256k` 分离，避免把供应商套餐、模型权重或上下文事实互相冒充。
 
 目录生成后必须运行 Manifest/CodexAdapter 离线测试，并确认再次运行生成器不产生 diff；任何提示版本升级都要重新绑定并验证，不能把旧基础指令无限沿用。

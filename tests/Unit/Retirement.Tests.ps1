@@ -56,7 +56,9 @@ Describe 'Retired provider identities' {
         @($manifests.Keys | Where-Object { $_ -like '*qwen*' -or $_ -like '*ollama-main' -or $_ -eq 'codex-ollama-review' } | Sort-Object) | Should -Be @(
             'claude-ollama-main',
             'codex-ollama-main',
+            'codex-ollama-qwen3-6-35b-abliterated',
             'codex-ollama-qwen3-8-27b',
+            'codex-ollama-qwen3-8-27b-abliterated',
             'codex-ollama-review',
             'codex-qwen3-7-max-paygo',
             'codex-qwen3-8-max-paygo',
@@ -171,7 +173,7 @@ Describe 'Retired provider identities' {
             )) {
                 Test-AiCliRetiredModelId -ModelId $modelId | Should -BeTrue -Because $modelId
             }
-            foreach ($modelId in @('qwen3:8b', 'qwen-main-v1', 'qwen3.8-max')) {
+            foreach ($modelId in @('qwen3:8b', 'qwen3.6-35b:256k', 'qwen3.8-max')) {
                 Test-AiCliRetiredModelId -ModelId $modelId | Should -BeFalse -Because $modelId
             }
             foreach ($modelId in @('qwen-review-v1', 'qwen3.6:27b', 'qwen3.6-27b-256k')) {

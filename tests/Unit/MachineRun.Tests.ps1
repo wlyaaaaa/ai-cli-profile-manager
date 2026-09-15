@@ -43,7 +43,7 @@ $text = [Console]::In.ReadToEnd()
                 $ok = Write-AiCliMachineEvent -Stream $stream `
                     -Sequence ([ref]$sequence) -Kind 'runtime.identity' `
                     -Data @{
-                        model = 'qwen-main-v1'
+                        model = 'qwen3.6-35b:256k'
                         provider_id = 'aicli_ollama_main'
                         cli_version = '0.147.0'
                         unsafe_note = 'ollama'
@@ -68,7 +68,7 @@ $text = [Console]::In.ReadToEnd()
                     fileName = 'C:\fake\codex.exe'
                     argumentList = @('exec', '--json', '-')
                     workingDirectory = $Work
-                    model = 'qwen-main-v1'
+                    model = 'qwen3.6-35b:256k'
                     modelProvider = 'aicli_ollama_main'
                     environmentDelta = @{ OPENAI_API_KEY = 'CANARY_SECRET' }
                     removeEnvironment = @('ANTHROPIC_API_KEY')
@@ -96,7 +96,7 @@ $text = [Console]::In.ReadToEnd()
                         output_tokens = [long]67
                     }
                     RuntimeIdentity = [ordered]@{
-                        model = 'qwen-main-v1'
+                        model = 'qwen3.6-35b:256k'
                         model_provider = 'aicli_ollama_main'
                         cli_version = '0.147.0'
                         permission = [ordered]@{
@@ -116,7 +116,7 @@ $text = [Console]::In.ReadToEnd()
             $result.exitCode | Should -Be 0
             $result.stdout | Should -Match 'agent_message'
             $result.durationMs | Should -Be 123
-            $result.model | Should -Be 'qwen-main-v1'
+            $result.model | Should -Be 'qwen3.6-35b:256k'
             $result.limitEnforcement.timeout | Should -Be 'hard'
             $result.limitEnforcement.maxSteps | Should -Be 'hard'
             $result.limitEnforcement.maxToolCalls | Should -Be 'hard'
@@ -334,7 +334,7 @@ exit 0
                     workingDirectory = $Work
                     environmentDelta = @{ AICLI_CODEX_PROVIDER_KEY = 'ollama' }
                     removeEnvironment = @()
-                    model = 'qwen-main-v1'
+                    model = 'qwen3.6-35b:256k'
                     modelProvider = 'aicli_ollama_main'
                     machineRuntime = [ordered]@{
                         kind = 'codex'
@@ -361,7 +361,7 @@ exit 0
                     CleanupMethod = 'none'
                     Usage = [ordered]@{}
                     RuntimeIdentity = [ordered]@{
-                        model = 'qwen-main-v1'
+                        model = 'qwen3.6-35b:256k'
                         model_provider = 'aicli_ollama_main'
                         cli_version = '0.147.0'
                         permission = [ordered]@{
@@ -382,7 +382,7 @@ exit 0
             # The local compatibility key happens to equal a substring of the
             # public Provider ID. Whole-receipt secret redaction must not erase
             # the already verified runtime identity or top-level launch identity.
-            $result.runtimeIdentity.model | Should -BeExactly 'qwen-main-v1'
+            $result.runtimeIdentity.model | Should -BeExactly 'qwen3.6-35b:256k'
             $result.runtimeIdentity.model_provider | Should -BeExactly 'aicli_ollama_main'
             $result.modelProvider | Should -BeExactly 'aicli_ollama_main'
 
@@ -2599,7 +2599,7 @@ Start-Sleep -Seconds 2
                 machineRuntime = [ordered]@{
                     kind = 'qwen-code'
                     endpoint = 'http://127.0.0.1:32100/v1'
-                    model = 'qwen-main-v1'
+                    model = 'qwen3.6-35b:256k'
                 }
             }
             $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' `
@@ -2720,7 +2720,7 @@ foreach ($argument in @('-NoProfile','-File',$ChildScript,'-LockPath',$LockPath,
                 [pscustomobject]@{
                     engine = 'qwen-code'; profileFingerprint = ('a' * 64)
                     workingDirectory = $Work; environmentDelta = @{}; removeEnvironment = @()
-                    model = 'qwen-main-v1'; modelProvider = 'aicli_ollama_main'; wire = 'responses'
+                    model = 'qwen3.6-35b:256k'; modelProvider = 'aicli_ollama_main'; wire = 'responses'
                     effort = $null; effectiveEffort = $null
                 }
             }
@@ -2784,7 +2784,7 @@ foreach ($argument in @('-NoProfile','-File',$ChildScript,'-LockPath',$LockPath,
                 machineRuntime = [ordered]@{
                     kind = 'opencode'
                     endpoint = 'http://127.0.0.1:32100/v1'
-                    model = 'qwen-main-v1'
+                    model = 'qwen3.6-35b:256k'
                     modelMetadata = [ordered]@{
                         contextWindowTokens = 262144
                         inputWindowTokens = 262144
@@ -2801,19 +2801,19 @@ foreach ($argument in @('-NoProfile','-File',$ChildScript,'-LockPath',$LockPath,
                 ($runtime.ArgumentList -join ' ') | Should -Not -Match 'PRIVATE_TASK_CANARY'
                 $runtime.StdInText | Should -Be ''
                 $openCodeConfig = $runtime.EnvironmentDelta.OPENCODE_CONFIG_CONTENT | ConvertFrom-Json -Depth 30
-                $openCodeConfig.model | Should -Be 'aicli_ollama/qwen-main-v1'
-                $openCodeConfig.small_model | Should -Be 'aicli_ollama/qwen-main-v1'
+                $openCodeConfig.model | Should -Be 'aicli_ollama/qwen3.6-35b:256k'
+                $openCodeConfig.small_model | Should -Be 'aicli_ollama/qwen3.6-35b:256k'
                 @($openCodeConfig.enabled_providers) | Should -Be @('aicli_ollama')
                 $openCodeConfig.share | Should -Be 'disabled'
-                $openCodeConfig.provider.aicli_ollama.models.'qwen-main-v1'.limit.context | Should -Be 262144
-                $openCodeConfig.provider.aicli_ollama.models.'qwen-main-v1'.limit.input | Should -Be 262144
-                $openCodeConfig.provider.aicli_ollama.models.'qwen-main-v1'.limit.output | Should -Be 8192
+                $openCodeConfig.provider.aicli_ollama.models.'qwen3.6-35b:256k'.limit.context | Should -Be 262144
+                $openCodeConfig.provider.aicli_ollama.models.'qwen3.6-35b:256k'.limit.input | Should -Be 262144
+                $openCodeConfig.provider.aicli_ollama.models.'qwen3.6-35b:256k'.limit.output | Should -Be 8192
                 $openCodeConfig.compaction.auto | Should -BeTrue
                 $openCodeConfig.compaction.prune | Should -BeFalse
                 $openCodeConfig.compaction.reserved | Should -Be 20000
                 $openCodeConfig.compaction.tail_turns | Should -Be 4
                 $openCodeConfig.compaction.preserve_recent_tokens | Should -Be 16384
-                $openCodeConfig.agent.compaction.model | Should -Be 'aicli_ollama/qwen-main-v1'
+                $openCodeConfig.agent.compaction.model | Should -Be 'aicli_ollama/qwen3.6-35b:256k'
                 $openCodeConfig.agent.build.steps | Should -Be 30
                 ($runtime.EnvironmentDelta.OPENCODE_CONFIG_CONTENT) | Should -Not -Match 'dashscope|deepseek|api\.openai'
                 Get-Content -Raw -LiteralPath (Join-Path $runtime.RuntimePath 'task.md') | Should -Be 'PRIVATE_TASK_CANARY'
@@ -2833,7 +2833,7 @@ foreach ($argument in @('-NoProfile','-File',$ChildScript,'-LockPath',$LockPath,
             Set-Content -LiteralPath $entry -Value '// stub' -Encoding ascii
             Set-Content -LiteralPath $native -Value 'native stub' -Encoding ascii
             Set-Content -LiteralPath (Join-Path $package 'package.json') -Value '{}' -Encoding ascii
-            Set-Content -LiteralPath $config -Value 'model = "qwen-main-v1"' -Encoding ascii
+            Set-Content -LiteralPath $config -Value 'model = "qwen3.6-35b:256k"' -Encoding ascii
             $plan = [pscustomobject]@{
                 engine = 'codex'
                 fileName = (Get-Command pwsh.exe).Source
@@ -2842,7 +2842,7 @@ foreach ($argument in @('-NoProfile','-File',$ChildScript,'-LockPath',$LockPath,
                     '--profile',
                     'aicli-local',
                     '-c',
-                    'model="qwen-main-v1"',
+                    'model="qwen3.6-35b:256k"',
                     'exec',
                     '--json',
                     '-'
@@ -2869,7 +2869,7 @@ foreach ($argument in @('-NoProfile','-File',$ChildScript,'-LockPath',$LockPath,
                 $bridgeConfig.argumentList | Should -Not -Contain '--profile'
                 $bridgeConfig.argumentList | Should -Not -Contain 'aicli-local'
                 $bridgeConfig.argumentList | Should -Contain '-c'
-                $bridgeConfig.argumentList | Should -Contain 'model="qwen-main-v1"'
+                $bridgeConfig.argumentList | Should -Contain 'model="qwen3.6-35b:256k"'
                 $bridgeConfig.fileName | Should -Be ([IO.Path]::GetFullPath($native))
                 $runtime.StdInText | Should -Be 'PRIVATE_TASK_CANARY'
                 $runtime.PrivateTaskPipeName | Should -Match '^aicli-[a-f0-9]{32}$'
@@ -3249,7 +3249,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 [Console]::Out.WriteLine('{"id":2,"error":{"code":-32602,"message":"dynamic tool missing"}}')
                 continue
             }
-            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.147.0"},"model":"qwen-main-v1","modelProvider":"aicli_ollama_main","approvalPolicy":"never","sandbox":{"type":"dangerFullAccess"},"activePermissionProfile":{"id":":danger-full-access"}}}')
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.147.0"},"model":"qwen3.6-35b:256k","modelProvider":"aicli_ollama_main","approvalPolicy":"never","sandbox":{"type":"dangerFullAccess"},"activePermissionProfile":{"id":":danger-full-access"}}}')
         }
         'turn/start' {
             if ($null -ne $message.params.dynamicTools) {
@@ -3279,7 +3279,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 workingDirectory = $Work
                 sandboxBoundary = 'codex-native'
                 sandboxPolicy = 'danger-full-access'
-                expectedModel = 'qwen-main-v1'
+                expectedModel = 'qwen3.6-35b:256k'
                 expectedModelProvider = 'aicli_ollama_main'
                 requireRuntimeIdentity = $true
                 minimumCliVersion = '0.147.0'
@@ -3302,7 +3302,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 -EventProtocol codex-app-server -MachineEventFile $eventFile `
                 -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 5000 `
                 -RequireRuntimeIdentity `
-                -ExpectedRuntimeModel 'qwen-main-v1' `
+                -ExpectedRuntimeModel 'qwen3.6-35b:256k' `
                 -ExpectedRuntimeModelProvider 'aicli_ollama_main'
 
             $captured.ExitCode | Should -Be 0

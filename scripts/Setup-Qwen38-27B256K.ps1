@@ -3,7 +3,7 @@
 param(
     [string] $BrokerOrigin = 'http://127.0.0.1:32100',
     [string] $BaseTag = 'qwen3.8:27b',
-    [string] $RuntimeTag = 'aicli-qwen3.8-27b-256k:2026-09-15',
+    [string] $RuntimeTag = 'qwen3.8-27b:256k',
     [int] $ContextLength = 262144,
     [string] $OpenCodeProviderId = 'ollama5090d',
     [string] $OpenCodeModelId = 'qwen3.8-27b-256k',
@@ -27,7 +27,7 @@ if ($BrokerOrigin.TrimEnd('/') -cne $expectedOrigin) {
 if ($BaseTag -cne 'qwen3.8:27b' -or $ContextLength -ne 262144) {
     throw 'qwen38_setup_artifact_contract_invalid'
 }
-if ($RuntimeTag -cne 'aicli-qwen3.8-27b-256k:2026-09-15') {
+if ($RuntimeTag -cne 'qwen3.8-27b:256k') {
     throw 'qwen38_setup_runtime_tag_invalid'
 }
 

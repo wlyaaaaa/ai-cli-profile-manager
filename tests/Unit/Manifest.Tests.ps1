@@ -87,7 +87,7 @@ Describe 'Manifest' {
 
     It 'binds third-party Claude and OpenCode profiles to exact model context metadata' {
         $all = Import-AiCliProviderManifests
-        $runtimeTag = 'aicli-qwen3.8-27b-256k:2026-09-15'
+        $runtimeTag = 'qwen3.8-27b:256k'
         $all['claude-deepseek'].compatibility.minCliVersion | Should -Be '2.1.193'
         $all['claude-deepseek'].modelMetadata.'deepseek-v4-flash'.contextWindowTokens | Should -Be 1000000
         $all['claude-deepseek'].modelMetadata.'deepseek-v4-flash'.autoCompactWindowTokens | Should -Be 1000000
@@ -165,7 +165,7 @@ Describe 'Manifest' {
     It 'binds local Codex main to the exact deterministic Qwen3.8-27B 256K catalog' {
         $all = Import-AiCliProviderManifests
         $profile = $all['codex-ollama-main']
-        $runtimeTag = 'aicli-qwen3.8-27b-256k:2026-09-15'
+        $runtimeTag = 'qwen3.8-27b:256k'
         $profile.codexModelCatalog | Should -Be 'qwen3.8-27b-codex.json'
         $profile.models.primary | Should -BeExactly $runtimeTag
         @($profile.models.candidates) | Should -Be @($runtimeTag)
@@ -228,7 +228,7 @@ Describe 'Manifest' {
             {
                 Assert-AiCliManifestCore -M @{
                     schemaVersion=1; id="$engine-local"; displayName='x'; engine=$engine; provider='ollama'; plan='local'; transport='openai-compatible'
-                    endpoint='http://127.0.0.1:32100/v1'; models=@{ primary='qwen-main-v1' }
+                    endpoint='http://127.0.0.1:32100/v1'; models=@{ primary='qwen3.6-35b:256k' }
                     auth=@{}; capabilities=@{}; sources=@('https://example.com/docs'); requiresSecret=$false
                     virtualReady=$true; dataDestination='local broker'
                 }

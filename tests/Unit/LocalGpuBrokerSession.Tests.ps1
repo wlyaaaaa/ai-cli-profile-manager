@@ -20,10 +20,10 @@ Describe 'LocalGpuBroker clean-base module and profile contracts' {
     It 'defines exact local main and cross-check routes without agent-acceptance fields' {
         $expected = [ordered]@{
             'codex-ollama-main.json' = [ordered]@{
-                model = 'aicli-qwen3.8-27b-256k:2026-09-15'; context = 262144; output = 32768
+                model = 'qwen3.8-27b:256k'; context = 262144; output = 32768
             }
             'codex-ollama-review.json' = [ordered]@{
-                model = 'qwen-main-v1'; context = 262144; output = 8192
+                model = 'qwen3.6-35b:256k'; context = 262144; output = 8192
             }
         }
         foreach ($name in $expected.Keys) {
@@ -86,7 +86,7 @@ Describe 'LocalGpuBroker clean-base module and profile contracts' {
             $profile = Get-AiCliProviderManifest -Id 'codex-ollama-main'
             {
                 Resolve-AiCliCodexModel -MergedProfile $profile `
-                    -NativeArgs @('--fallback-model', 'qwen-main-v1')
+                    -NativeArgs @('--fallback-model', 'qwen3.6-35b:256k')
             } | Should -Throw '*fallback*'
         }
     }
@@ -100,7 +100,7 @@ Describe 'LocalGpuBroker binding and secret boundary' {
                 displayName = 'Codex local'
                 endpoint = 'http://127.0.0.1:32100/v1'
                 codexProviderId = 'aicli_ollama_main'
-                models = [ordered]@{ primary = 'qwen-main-v1' }
+                models = [ordered]@{ primary = 'qwen3.6-35b:256k' }
                 compatibility = [ordered]@{
                     localGpuBrokerSession = [ordered]@{
                         contractVersion = 1
@@ -159,7 +159,7 @@ Describe 'LocalGpuBroker binding and secret boundary' {
             }
             $plan = [pscustomobject]@{
                 profileId = 'codex-ollama-main'; profileFingerprint = ('a' * 64)
-                engine = 'codex'; model = 'qwen-main-v1'
+                engine = 'codex'; model = 'qwen3.6-35b:256k'
                 modelProvider = 'aicli_ollama_main'; endpoint = 'http://127.0.0.1:32100/v1'
                 wire = 'responses'; machineRuntime = [ordered]@{
                     localGpuBrokerSession = [ordered]@{
@@ -200,7 +200,7 @@ Describe 'LocalGpuBroker binding and secret boundary' {
                 request_sha256 = 'sha256:' + ('7' * 64)
                 profile_id = 'codex-ollama-main'
                 profile_fingerprint = 'sha256:' + ('8' * 64)
-                model = 'qwen-main-v1'; model_provider = 'aicli_ollama_main'
+                model = 'qwen3.6-35b:256k'; model_provider = 'aicli_ollama_main'
                 registry_source = [ordered]@{
                     schema = 'aicli.profile-registry-source.v1'
                     kind = 'bundled-provider-manifest'; id = 'codex-ollama-main'
@@ -359,7 +359,7 @@ $variants = @(
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $participant = Join-Path $Work 'fake-runtime-identity.ps1'
             @'
-[Console]::Out.WriteLine('{"type":"runtime.identity","model":"qwen-main-v1","model_provider":"aicli_ollama_main","cli_version":"0.147.0","permission":{"approval_policy":"never","requested_policy":"workspace-write","sandbox_boundary":"outer-codex","sandbox_type":"externalSandbox","permission_profile":":workspace-write"}}')
+[Console]::Out.WriteLine('{"type":"runtime.identity","model":"qwen3.6-35b:256k","model_provider":"aicli_ollama_main","cli_version":"0.147.0","permission":{"approval_policy":"never","requested_policy":"workspace-write","sandbox_boundary":"outer-codex","sandbox_type":"externalSandbox","permission_profile":":workspace-write"}}')
 [Console]::Out.WriteLine('{"type":"turn.started"}')
 [Console]::Out.WriteLine('{"type":"item.completed","item":{"id":"message-1","type":"agent_message","text":"STATIC_OK"}}')
 [Console]::Out.WriteLine('{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"current_context_tokens":2,"context_window_tokens":262144}}')
@@ -371,7 +371,7 @@ $variants = @(
                 -EventProtocol codex-jsonl -CloseStdIn -TimeoutMs 5000
 
             $captured.ExitCode | Should -Be 0
-            $captured.RuntimeIdentity.model | Should -BeExactly 'qwen-main-v1'
+            $captured.RuntimeIdentity.model | Should -BeExactly 'qwen3.6-35b:256k'
             $captured.RuntimeIdentity.model_provider | Should -BeExactly 'aicli_ollama_main'
             $captured.RuntimeIdentity.cli_version | Should -BeExactly '0.147.0'
             $captured.RuntimeIdentity.permission.permission_profile |
@@ -395,11 +395,11 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         'initialize' { [Console]::Out.WriteLine('{"id":1,"result":{}}') }
         'initialized' {}
         'thread/start' {
-            if ([string]$message.params.model -ne 'qwen-main-v1') {
+            if ([string]$message.params.model -ne 'qwen3.6-35b:256k') {
                 [Console]::Out.WriteLine('{"id":2,"error":{"code":-32602,"message":"model was not injected"}}')
                 break
             }
-            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.147.0"},"model":"qwen-main-v1","modelProvider":"aicli_ollama_main"}}')
+            [Console]::Out.WriteLine('{"id":2,"result":{"thread":{"id":"019f98ff-110f-7390-8d7b-d85d70bba89f","cliVersion":"0.147.0"},"model":"qwen3.6-35b:256k","modelProvider":"aicli_ollama_main"}}')
         }
         'turn/start' {
             [Console]::Out.WriteLine('{"id":3,"result":{"turn":{"id":"019f98ff-110f-7390-8d7b-d85d70bba890","items":[],"status":"inProgress"}}}')
@@ -419,7 +419,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 workingDirectory = $Work
                 sandboxBoundary = 'outer-codex'
                 sandboxPolicy = 'workspace-write'
-                expectedModel = 'qwen-main-v1'
+                expectedModel = 'qwen3.6-35b:256k'
                 expectedModelProvider = 'aicli_ollama_main'
                 requireRuntimeIdentity = $true
                 minimumCliVersion = '0.147.0'
@@ -437,11 +437,11 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 -WorkingDirectory $Work -StdInText 'STATIC TASK' `
                 -EventProtocol codex-app-server -CloseStdIn -TimeoutMs 5000 `
                 -RequireRuntimeIdentity `
-                -ExpectedRuntimeModel 'qwen-main-v1' `
+                -ExpectedRuntimeModel 'qwen3.6-35b:256k' `
                 -ExpectedRuntimeModelProvider 'aicli_ollama_main'
 
             $captured.ExitCode | Should -Be 0
-            $captured.RuntimeIdentity.model | Should -BeExactly 'qwen-main-v1'
+            $captured.RuntimeIdentity.model | Should -BeExactly 'qwen3.6-35b:256k'
             $captured.RuntimeIdentity.model_provider |
                 Should -BeExactly 'aicli_ollama_main'
             $captured.RuntimeIdentity.cli_version | Should -BeExactly '0.147.0'
@@ -624,7 +624,7 @@ while (`$null -ne (`$line = [Console]::In.ReadLine())) {
                     id = '019f98ff-110f-7390-8d7b-d85d70bba89f'
                     cliVersion = '0.147.0'
                 }
-                model = 'qwen-main-v1'
+                model = 'qwen3.6-35b:256k'
             }
             $providerStatement
             [Console]::Out.WriteLine((@{ id = 2; result = `$result } | ConvertTo-Json -Depth 10 -Compress))
@@ -643,7 +643,7 @@ while (`$null -ne (`$line = [Console]::In.ReadLine())) {
                 workingDirectory = $Work
                 sandboxBoundary = 'outer-codex'
                 sandboxPolicy = 'workspace-write'
-                expectedModel = 'qwen-main-v1'
+                expectedModel = 'qwen3.6-35b:256k'
                 expectedModelProvider = 'aicli_ollama_main'
                 requireRuntimeIdentity = $true
                 minimumCliVersion = '0.147.0'
@@ -661,7 +661,7 @@ while (`$null -ne (`$line = [Console]::In.ReadLine())) {
                 -WorkingDirectory $Work -StdInText 'STATIC TASK' `
                 -EventProtocol codex-app-server -CloseStdIn -TimeoutMs 5000 `
                 -RequireRuntimeIdentity `
-                -ExpectedRuntimeModel 'qwen-main-v1' `
+                -ExpectedRuntimeModel 'qwen3.6-35b:256k' `
                 -ExpectedRuntimeModelProvider 'aicli_ollama_main'
 
             $captured.ExitCode | Should -Be 74
@@ -748,12 +748,12 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 engine = 'codex'
                 fileName = (Get-Command pwsh.exe).Source
                 argumentList = @(
-                    $entry, '-c', 'model="qwen-main-v1"',
+                    $entry, '-c', 'model="qwen3.6-35b:256k"',
                     'exec', '--json', '-'
                 )
                 workingDirectory = $Work
                 environmentDelta = @{}
-                model = 'qwen-main-v1'
+                model = 'qwen3.6-35b:256k'
                 modelProvider = 'aicli_ollama_main'
                 machineRuntime = [ordered]@{
                     kind = 'codex'; configFiles = @()
@@ -772,7 +772,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 $bridgeConfig = Get-Content -LiteralPath $runtime.ArgumentList[-1] `
                     -Raw -Encoding utf8 | ConvertFrom-Json
                 $bridgeConfig.requireRuntimeIdentity | Should -BeTrue
-                $bridgeConfig.expectedModel | Should -BeExactly 'qwen-main-v1'
+                $bridgeConfig.expectedModel | Should -BeExactly 'qwen3.6-35b:256k'
                 $bridgeConfig.expectedModelProvider |
                     Should -BeExactly 'aicli_ollama_main'
                 $bridgeConfig.minimumCliVersion | Should -BeExactly '0.147.0'
@@ -796,7 +796,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     resumeSupported = $false; resumeReason = 'terminal_completed'
                     receipt = [pscustomobject]@{
                         profileId = 'codex-ollama-main'; engine = 'codex'
-                        model = 'qwen-main-v1'; exitCode = 0; stdout = ''
+                        model = 'qwen3.6-35b:256k'; exitCode = 0; stdout = ''
                         stderr = ''; timedOut = $false; durationMs = 1
                         outputTruncated = $false; usage = @{}
                     }
@@ -852,7 +852,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     request_sha256 = 'sha256:' + ('9' * 64)
                     profile_id = 'codex-ollama-main'
                     profile_fingerprint = 'sha256:' + ('a' * 64)
-                    model = 'qwen-main-v1'; model_provider = 'aicli_ollama_main'
+                    model = 'qwen3.6-35b:256k'; model_provider = 'aicli_ollama_main'
                     registry_source = [ordered]@{
                         schema = 'aicli.profile-registry-source.v1'; kind = 'bundled-provider-manifest'
                         id = 'codex-ollama-main'; relative_path = 'providers/codex-ollama-main.json'
@@ -869,7 +869,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     request_sha256 = 'sha256:' + ('9' * 64)
                     profile_id = 'codex-ollama-main'
                     profile_fingerprint = 'sha256:' + ('a' * 64)
-                    model = 'qwen-main-v1'; model_provider = 'aicli_ollama_main'
+                    model = 'qwen3.6-35b:256k'; model_provider = 'aicli_ollama_main'
                     registry_source = [ordered]@{
                         schema = 'aicli.profile-registry-source.v1'; kind = 'bundled-provider-manifest'
                         id = 'codex-ollama-main'; relative_path = 'providers/codex-ollama-main.json'
@@ -892,7 +892,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     engine = 'codex'; profileId = 'codex-ollama-main'
                     profileFingerprint = ('a' * 64); fileName = 'C:\fake\codex.exe'
                     argumentList = @('exec','--json','-'); workingDirectory = $Work
-                    model = 'qwen-main-v1'; modelProvider = 'aicli_ollama_main'
+                    model = 'qwen3.6-35b:256k'; modelProvider = 'aicli_ollama_main'
                     endpoint = 'http://127.0.0.1:32100/v1'; wire = 'responses'
                     environmentDelta = @{}; removeEnvironment = @()
                     machineRuntime = [ordered]@{ localGpuBrokerSession = [ordered]@{
@@ -927,7 +927,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     LimitsHard = $true; CleanupConfirmed = $true
                     CleanupMethod = 'job-object-tree-confirmed'; Usage = @{}
                     RuntimeIdentity = [ordered]@{
-                        model = 'qwen-main-v1'; model_provider = 'aicli_ollama_main'
+                        model = 'qwen3.6-35b:256k'; model_provider = 'aicli_ollama_main'
                         cli_version = '0.147.0'; permission = [ordered]@{
                             approval_policy = 'never'; requested_policy = 'danger-full-access'
                             sandbox_boundary = 'codex-native'; sandbox_type = 'dangerFullAccess'
@@ -975,7 +975,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
             Should -Invoke Invoke-AiCliChildCapture -Times 1 -Exactly `
                 -ParameterFilter {
                     $RequireRuntimeIdentity -and
-                    $ExpectedRuntimeModel -ceq 'qwen-main-v1' -and
+                    $ExpectedRuntimeModel -ceq 'qwen3.6-35b:256k' -and
                     $ExpectedRuntimeModelProvider -ceq 'aicli_ollama_main'
                 }
             ($result | ConvertTo-Json -Depth 30 -Compress) |
@@ -1012,7 +1012,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     engine = 'codex'; profileId = 'codex-ollama-main'
                     profileFingerprint = ('a' * 64); fileName = 'C:\fake\codex.exe'
                     argumentList = @('exec','--json','-'); workingDirectory = $Work
-                    model = 'qwen-main-v1'; modelProvider = 'aicli_ollama_main'
+                    model = 'qwen3.6-35b:256k'; modelProvider = 'aicli_ollama_main'
                     endpoint = 'http://127.0.0.1:32100/v1'; wire = 'responses'
                     environmentDelta = @{}; removeEnvironment = @()
                     machineRuntime = [ordered]@{ localGpuBrokerSession = [ordered]@{
@@ -1043,7 +1043,7 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
                     LimitHit = $null; LimitsHard = $true; CleanupConfirmed = $true
                     CleanupMethod = 'normal'; Usage = @{}
                     RuntimeIdentity = [ordered]@{
-                        model = 'qwen-main-v1'; model_provider = 'aicli_ollama_main'
+                        model = 'qwen3.6-35b:256k'; model_provider = 'aicli_ollama_main'
                         cli_version = '0.147.0'; permission = [ordered]@{
                             approval_policy = 'never'; requested_policy = 'danger-full-access'
                             sandbox_boundary = 'codex-native'; sandbox_type = 'dangerFullAccess'

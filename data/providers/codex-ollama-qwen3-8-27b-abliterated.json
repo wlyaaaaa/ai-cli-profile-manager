@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "codex-ollama-qwen3-8-27b-abliterated",
-  "displayName": "Codex CLI + Qwen3.8 27B 去限制版（256K）",
+  "displayName": "Codex CLI + Qwen3.8 27B 去限制版",
   "engine": "codex",
   "provider": "ollama",
   "plan": "local",
@@ -18,14 +18,14 @@
   "codexProviderId": "aicli_ollama_qwen38_abliterated",
   "codexModelCatalog": "qwen3.8-27b-abliterated-codex.json",
   "models": {
-    "primary": "aicli-qwen3.8-27b-abliterated-256k:2026-09-15",
-    "small": "aicli-qwen3.8-27b-abliterated-256k:2026-09-15",
+    "primary": "qwen3.8-27b-abliterated:256k",
+    "small": "qwen3.8-27b-abliterated:256k",
     "candidates": [
-      "aicli-qwen3.8-27b-abliterated-256k:2026-09-15"
+      "qwen3.8-27b-abliterated:256k"
     ]
   },
   "modelMetadata": {
-    "aicli-qwen3.8-27b-abliterated-256k:2026-09-15": {
+    "qwen3.8-27b-abliterated:256k": {
       "contextWindowTokens": 262144,
       "outputWindowTokens": 32768
     }
@@ -34,7 +34,7 @@
     "minCliVersion": "0.147.0",
     "ollamaArtifact": {
       "minimumVersion": "0.33.1",
-      "tag": "aicli-qwen3.8-27b-abliterated-256k:2026-09-15",
+      "tag": "qwen3.8-27b-abliterated:256k",
       "baseTag": "hf.co/huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF:Q4_K",
       "numCtx": 262144,
       "numBatch": 128,

@@ -3,13 +3,15 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '..\..\src\AiCliProfileManager\AiCliProfileManager.psd1') -Force
 }
 Describe 'Local model selection' {
-    InModuleScope AiCliProfileManager {
-        It 'keeps the current four model identities visible' {
+    It 'keeps the current four model identities visible' {
+        InModuleScope AiCliProfileManager {
             $all = Import-AiCliProviderManifests
             $set = Read-AiCliJsonFile -Path (Get-AiCliDataPath -Relative 'local-model-set.json')
             foreach ($id in $set.profiles) { [bool](Get-AiCliProperty $all[$id] 'hidden' $false) | Should -BeFalse }
         }
-        It 'retires a removed model without hiding official or retained local profiles' {
+    }
+    It 'retires a removed model without hiding official or retained local profiles' {
+        InModuleScope AiCliProfileManager {
             $set = Read-AiCliJsonFile -Path (Get-AiCliDataPath -Relative 'local-model-set.json')
             $removed = 'codex-ollama-qwen3-8-27b-abliterated'
             $set.profiles = @($set.profiles | Where-Object { $_ -ne $removed })

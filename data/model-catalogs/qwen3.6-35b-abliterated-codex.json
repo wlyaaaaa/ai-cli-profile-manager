@@ -1,7 +1,7 @@
 {
   "models": [
     {
-      "slug": "aicli-qwen3.6-35b-abliterated-256k:2026-09-15",
+      "slug": "qwen3.6-35b-abliterated:256k",
       "prefer_websockets": false,
       "support_verbosity": false,
       "default_verbosity": null,
@@ -28,7 +28,7 @@
       "comp_hash": "3000",
       "reasoning_summary_format": null,
       "default_reasoning_summary": "none",
-      "display_name": "Qwen3.6 35B Abliterated",
+      "display_name": "Qwen3.6 35B 去限制版",
       "description": "AICLI managed local Qwen3.6 35B abliterated Responses model.",
       "default_reasoning_level": "max",
       "supported_reasoning_levels": [

@@ -33,7 +33,7 @@ Describe 'human-visible local model names' {
             $profile = [ordered]@{
                 schemaVersion = 1; id = 'codex-ollama-main'; templateId = 'codex-ollama-main'
                 engine = 'codex'; provider = 'ollama'; plan = 'local'; transport = 'responses'
-                endpoint = 'http://127.0.0.1:32100/v1'; models = [ordered]@{ primary = 'aicli-qwen3.8-27b-256k:2026-09-15' }
+                endpoint = 'http://127.0.0.1:32100/v1'; models = [ordered]@{ primary = 'qwen3.8-27b:256k' }
                 compatibility = [ordered]@{}; defaultEffort = 'max'; effortLevels = @('low','medium','high','max')
                 displayName = 'Codex CLI + Qwen3.8 27B'
             }
@@ -45,8 +45,8 @@ Describe 'human-visible local model names' {
 
     It 'deduplicates same-model local compatibility entries while retaining the chosen ID' {
         InModuleScope AiCliProfileManager {
-            $main = [ordered]@{ id='codex-ollama-main'; displayName='Codex CLI + Qwen3.8 27B'; isVirtual=$true; configured=$true; provider='ollama'; engine='codex'; transport='responses'; endpoint='http://127.0.0.1:32100/v1'; models=[ordered]@{primary='aicli-qwen3.8-27b-256k:2026-09-15'} }
-            $compat = [ordered]@{ id='codex-ollama-qwen3-8-27b'; displayName='Codex CLI + Qwen3.8 27B'; isVirtual=$true; configured=$true; provider='ollama'; engine='codex'; transport='responses'; endpoint='http://127.0.0.1:32100/v1'; models=[ordered]@{primary='aicli-qwen3.8-27b-256k:2026-09-15'} }
+            $main = [ordered]@{ id='codex-ollama-main'; displayName='Codex CLI + Qwen3.8 27B'; isVirtual=$true; configured=$true; provider='ollama'; engine='codex'; transport='responses'; endpoint='http://127.0.0.1:32100/v1'; models=[ordered]@{primary='qwen3.8-27b:256k'} }
+            $compat = [ordered]@{ id='codex-ollama-qwen3-8-27b'; displayName='Codex CLI + Qwen3.8 27B'; isVirtual=$true; configured=$true; provider='ollama'; engine='codex'; transport='responses'; endpoint='http://127.0.0.1:32100/v1'; models=[ordered]@{primary='qwen3.8-27b:256k'} }
             $script:capturedChoices = @(); $script:selectedId = ''
             Mock Get-AiCliSettings { [ordered]@{ lastProfileId='codex-ollama-qwen3-8-27b'; defaultProfileId='codex-ollama-main' } }
             Mock Get-AiCliResolvedProfile { if ($Id -eq 'codex-ollama-main') { $main } else { $compat } }

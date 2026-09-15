@@ -52,7 +52,7 @@ public sealed class AiCliProviderReadinessFixture : IDisposable
                             Thread.Sleep(10000);
                             return;
                         }
-                        string body = request.Contains("/_gpu_broker/status") ? "{\"ok\":true}" : (mode == "missing-model" ? "{\"data\":[{\"id\":\"other:latest\"}]}" : (mode == "truncated-json" ? "{\"data\":" : "{\"data\":[{\"id\":\"qwen-main-v1:latest\"}]}"));
+                        string body = request.Contains("/_gpu_broker/status") ? "{\"ok\":true}" : (mode == "missing-model" ? "{\"data\":[{\"id\":\"other:latest\"}]}" : (mode == "truncated-json" ? "{\"data\":" : "{\"data\":[{\"id\":\"qwen3.6-35b:256k\"}]}"));
                         byte[] bytes = Encoding.UTF8.GetBytes(body);
                         string header = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + bytes.Length + "\r\nConnection: close\r\n\r\n";
                         byte[] response = Encoding.UTF8.GetBytes(header + body);
@@ -94,7 +94,7 @@ Describe 'selected local Provider readiness' {
         $fixture = [AiCliProviderReadinessFixture]::new('ready')
         $fixture.Start()
         try {
-            $profile = [ordered]@{ id = 'test-local-provider'; provider = 'ollama'; endpoint = "http://127.0.0.1:$($fixture.Port)/v1"; models = [ordered]@{ primary = 'qwen-main-v1' }; compatibility = [ordered]@{ localGpuBrokerSession = [ordered]@{ contractVersion = 1; requiredForMachineRun = $true; managementOrigin = "http://127.0.0.1:$($fixture.Port)" } } }
+            $profile = [ordered]@{ id = 'test-local-provider'; provider = 'ollama'; endpoint = "http://127.0.0.1:$($fixture.Port)/v1"; models = [ordered]@{ primary = 'qwen3.6-35b:256k' }; compatibility = [ordered]@{ localGpuBrokerSession = [ordered]@{ contractVersion = 1; requiredForMachineRun = $true; managementOrigin = "http://127.0.0.1:$($fixture.Port)" } } }
             $actual = InModuleScope AiCliProfileManager -Parameters @{ Profile = $profile } {
                 Test-AiCliSelectedLocalProviderReadiness -MergedProfile $Profile
             }
@@ -111,7 +111,7 @@ Describe 'selected local Provider readiness' {
         $fixture = [AiCliProviderReadinessFixture]::new('body-never-arrives')
         $fixture.Start()
         try {
-            $profile = [ordered]@{ id = 'test-local-provider'; provider = 'ollama'; endpoint = "http://127.0.0.1:$($fixture.Port)/v1"; models = [ordered]@{ primary = 'qwen-main-v1' }; compatibility = [ordered]@{ localGpuBrokerSession = [ordered]@{ contractVersion = 1; requiredForMachineRun = $true; managementOrigin = "http://127.0.0.1:$($fixture.Port)" } } }
+            $profile = [ordered]@{ id = 'test-local-provider'; provider = 'ollama'; endpoint = "http://127.0.0.1:$($fixture.Port)/v1"; models = [ordered]@{ primary = 'qwen3.6-35b:256k' }; compatibility = [ordered]@{ localGpuBrokerSession = [ordered]@{ contractVersion = 1; requiredForMachineRun = $true; managementOrigin = "http://127.0.0.1:$($fixture.Port)" } } }
             $watch = [Diagnostics.Stopwatch]::StartNew()
             $actual = InModuleScope AiCliProfileManager -Parameters @{ Profile = $profile } {
                 Test-AiCliSelectedLocalProviderReadiness -MergedProfile $Profile -ConnectTimeoutSeconds 1 -TotalTimeoutSeconds 1
@@ -129,7 +129,7 @@ Describe 'selected local Provider readiness' {
         $fixture = [AiCliProviderReadinessFixture]::new('missing-model')
         $fixture.Start()
         try {
-            $profile = [ordered]@{ id = 'test-local-provider'; provider = 'ollama'; endpoint = "http://127.0.0.1:$($fixture.Port)/v1"; models = [ordered]@{ primary = 'qwen-main-v1' }; compatibility = [ordered]@{ localGpuBrokerSession = [ordered]@{ contractVersion = 1; requiredForMachineRun = $true; managementOrigin = "http://127.0.0.1:$($fixture.Port)" } } }
+            $profile = [ordered]@{ id = 'test-local-provider'; provider = 'ollama'; endpoint = "http://127.0.0.1:$($fixture.Port)/v1"; models = [ordered]@{ primary = 'qwen3.6-35b:256k' }; compatibility = [ordered]@{ localGpuBrokerSession = [ordered]@{ contractVersion = 1; requiredForMachineRun = $true; managementOrigin = "http://127.0.0.1:$($fixture.Port)" } } }
             $actual = InModuleScope AiCliProfileManager -Parameters @{ Profile = $profile } {
                 Test-AiCliSelectedLocalProviderReadiness -MergedProfile $Profile
             }
@@ -144,7 +144,7 @@ Describe 'selected local Provider readiness' {
         $fixture = [AiCliProviderReadinessFixture]::new('truncated-json')
         $fixture.Start()
         try {
-            $profile = [ordered]@{ id = 'test-local-provider'; provider = 'ollama'; endpoint = "http://127.0.0.1:$($fixture.Port)/v1"; models = [ordered]@{ primary = 'qwen-main-v1' }; compatibility = [ordered]@{ localGpuBrokerSession = [ordered]@{ contractVersion = 1; requiredForMachineRun = $true; managementOrigin = "http://127.0.0.1:$($fixture.Port)" } } }
+            $profile = [ordered]@{ id = 'test-local-provider'; provider = 'ollama'; endpoint = "http://127.0.0.1:$($fixture.Port)/v1"; models = [ordered]@{ primary = 'qwen3.6-35b:256k' }; compatibility = [ordered]@{ localGpuBrokerSession = [ordered]@{ contractVersion = 1; requiredForMachineRun = $true; managementOrigin = "http://127.0.0.1:$($fixture.Port)" } } }
             $actual = InModuleScope AiCliProfileManager -Parameters @{ Profile = $profile } {
                 Test-AiCliSelectedLocalProviderReadiness -MergedProfile $Profile
             }
@@ -157,7 +157,7 @@ Describe 'selected local Provider readiness' {
 
     It 'keeps the real child and its CODEX_HOME inheritance untouched when readiness fails' {
         InModuleScope AiCliProfileManager {
-            $profile = [ordered]@{ provider = 'ollama'; endpoint = 'http://127.0.0.1:32100/v1'; models = [ordered]@{ primary = 'qwen-main-v1' } }
+            $profile = [ordered]@{ provider = 'ollama'; endpoint = 'http://127.0.0.1:32100/v1'; models = [ordered]@{ primary = 'qwen3.6-35b:256k' } }
             Mock Get-AiCliResolvedProfile { $profile }
             Mock Test-AiCliSelectedLocalProviderReadiness {
                 [pscustomobject]@{ Applicable = $true; Ready = $false; Reason = 'response_timeout'; Summary = '本地 Provider 未在 5 秒内返回完整正文' }
@@ -175,7 +175,7 @@ Describe 'selected local Provider readiness' {
             $profile = [ordered]@{
                 id = 'test-local-provider'; templateId = 'test-local-provider'; configured = $true
                 provider = 'ollama'; engine = 'codex'; transport = 'responses'
-                endpoint = 'http://127.0.0.1:32100/v1'; models = [ordered]@{ primary = 'qwen-main-v1' }
+                endpoint = 'http://127.0.0.1:32100/v1'; models = [ordered]@{ primary = 'qwen3.6-35b:256k' }
             }
             Mock Resolve-AiCliLaunchExecutable { $null }
             Mock Find-AiCliCommandPath { $null }

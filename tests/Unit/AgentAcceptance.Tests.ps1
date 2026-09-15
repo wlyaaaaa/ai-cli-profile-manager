@@ -67,7 +67,7 @@ Describe 'Codex Agent live acceptance' {
                 profileFingerprint = ('a' * 64)
             }
             $plan = [ordered]@{
-                model = 'aicli-qwen3.8-27b-256k:2026-09-15'
+                model = 'qwen3.8-27b:256k'
                 modelProvider = 'aicli_ollama_qwen38_27b'
                 effort = 'max'
                 effectiveEffort = 'max'
@@ -111,7 +111,7 @@ Describe 'Codex Agent live acceptance' {
                         threadId = '01a00000-0000-7000-8000-000000000001'
                         sessionId = '01a00000-0000-7000-8000-000000000001'
                         runtimeIdentity = [ordered]@{
-                            model = 'aicli-qwen3.8-27b-256k:2026-09-15'
+                            model = 'qwen3.8-27b:256k'
                             model_provider = 'aicli_ollama_qwen38_27b'
                             cli_version = '0.147.0'
                             permission = [ordered]@{

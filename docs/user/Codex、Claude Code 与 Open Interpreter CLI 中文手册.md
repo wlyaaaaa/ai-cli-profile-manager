@@ -336,9 +336,9 @@ Usage by model:
 `/compact` 会把长历史总结成较短内容。它能腾出上下文，但摘要无法无损保存所有数字、文件细节、授权边界和未完成分支。
 
 - **原生 ChatGPT + Codex**：作为基准，使用上游默认机制，AICLI 不附加压缩限制。
-- **Codex + DeepSeek/千问**：自定义 Provider 没有 OpenAI 原生 remote compact；受管 model catalog 负责给出真实窗口，云千问为 983616，本地 `qwen-main-v1` 与 Qwen3.8-27B 256K 运行标签均为 262144，摘要仍由当前客户端/模型完成。
+- **Codex + DeepSeek/千问**：自定义 Provider 没有 OpenAI 原生 remote compact；受管 model catalog 负责给出真实窗口，云千问为 983616，本地 `qwen3.6-35b:256k` 与 Qwen3.8-27B 256K 运行标签均为 262144，摘要仍由当前客户端/模型完成。
 - **Claude Code + DeepSeek/千问/本地 Qwen**：AICLI 按最终有效模型设置 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 与 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`。不设置只能提前压缩的百分比覆盖，也不关闭自动溢出保护。未知模型不猜窗口，并清除父进程遗留的窗口/禁压缩变量。
-- **OpenCode + 本地千问**：`qwen-main-v1` 声明 262144 context / 8192 output，Qwen3.8-27B 256K 运行标签声明 262144 context/input / 32768 output；两者使用 20000 reserved，保留最近 4 轮/16384 token，并关闭有损 tool-output pruning。一次 `aicli run` 的 checkpoint 不跨 run 持久。
+- **OpenCode + 本地千问**：`qwen3.6-35b:256k` 声明 262144 context / 8192 output，Qwen3.8-27B 256K 运行标签声明 262144 context/input / 32768 output；两者使用 20000 reserved，保留最近 4 轮/16384 token，并关闭有损 tool-output pruning。一次 `aicli run` 的 checkpoint 不跨 run 持久。
 
 聪明用法是一个会话/run 只做一个内聚里程碑；AICLI 的第三方连续性契约要求在自然边界把目标与验收、约束/授权/owner、规则与关键文件、改动文件及既有脏改动、决定、测试/Live 缺口、阻塞项和下一步写入项目已有 plan/progress/decision。接近真实窗口时优先拆任务或开 fresh session；确需压缩时先落盘。压缩后把摘要当线索，重新读取适用的 `AGENTS.md` / `CLAUDE.md`、状态文档以及 `git status` / `git diff`，再继续编辑；不得建立第二事实源。
 

@@ -12,7 +12,7 @@ function Build-AiCliQwenCodeLaunchPlan {
     if (-not $endpoint) { $endpoint = 'http://127.0.0.1:32100/v1' }
     Assert-AiCliEndpointSafe -Url $endpoint
     $model = [string](Get-AiCliProperty (Get-AiCliProperty $MergedProfile 'models') 'primary')
-    if (-not $model) { $model = 'qwen-main-v1' }
+    if (-not $model) { $model = 'qwen3.6-35b:256k' }
     $arguments = @((Get-AiCliProperty $resolved 'PrefixArgs') | ForEach-Object { [string]$_ })
     $arguments += @('--bare','--auth-type','openai','--model',$model,'--yolo','-p','','--output-format','json')
     $arguments += @($NativeArgs)

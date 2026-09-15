@@ -87,7 +87,7 @@ Describe 'Codex Ollama reasoning effort' {
             @($launchArgs | Where-Object { $_ -eq '-c' }).Count | Should -Be 11
 
             $expectedProviderOverrides = @(
-                'model="aicli-qwen3.8-27b-256k:2026-09-15"'
+                'model="qwen3.8-27b:256k"'
                 'model_provider="aicli_ollama_main"'
                 'model_providers.aicli_ollama_main.name="Codex CLI + Qwen3.8 27B"'
                 'model_providers.aicli_ollama_main.base_url="http://127.0.0.1:32100/v1"'

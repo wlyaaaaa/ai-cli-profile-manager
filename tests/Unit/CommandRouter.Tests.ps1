@@ -60,9 +60,9 @@ Describe 'CommandRouter' {
             @{ id = 'codex-qwen3-8-max-paygo'; model = 'qwen3.8-max'; requested = 'max'; effective = 'xhigh' },
             @{ id = 'codex-deepseek'; model = 'deepseek-v4-flash'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; requested = 'max'; effective = 'max' },
-            @{ id = 'codex-ollama-main'; model = 'aicli-qwen3.8-27b-256k:2026-09-15'; requested = 'max'; effective = 'max' },
-            @{ id = 'codex-ollama-qwen3-8-27b'; model = 'aicli-qwen3.8-27b-256k:2026-09-15'; requested = 'max'; effective = 'max' },
-            @{ id = 'codex-ollama-review'; model = 'qwen-main-v1'; requested = 'max'; effective = 'max' }
+            @{ id = 'codex-ollama-main'; model = 'qwen3.8-27b:256k'; requested = 'max'; effective = 'max' },
+            @{ id = 'codex-ollama-qwen3-8-27b'; model = 'qwen3.8-27b:256k'; requested = 'max'; effective = 'max' },
+            @{ id = 'codex-ollama-review'; model = 'qwen3.6-35b:256k'; requested = 'max'; effective = 'max' }
         )) {
             $row = @($profiles | Where-Object id -eq $expected.id)
             $row.Count | Should -Be 1 -Because $expected.id

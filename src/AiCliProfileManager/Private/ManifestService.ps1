@@ -88,7 +88,7 @@ function Assert-AiCliModelIsActive {
     if ($normalized -and (Test-AiCliRetiredModelId -ModelId $normalized) -and
         ($normalized.ToLowerInvariant() -match '^qwen3\.6(?::|[-_])27b(?:$|[-._:/+@])' -or
          $normalized.ToLowerInvariant() -match '^qwen-review-v1(?:$|[-._:/+@])')) {
-        throw "$Context 引用了已退役的 Qwen3.6 27B 模型 $ModelId；备用交叉模型已切换为 qwen-main-v1（Qwen3.6 35B）。"
+        throw "$Context 引用了已退役的 Qwen3.6 27B 模型 $ModelId；备用交叉模型已切换为 qwen3.6-35b:256k（Qwen3.6 35B）。"
     }
     if (Test-AiCliRetiredModelId -ModelId $ModelId) {
         throw "$Context 引用了已退役或脱离 exact Profile 的 Qwen3.7 云模型 $ModelId；仅 qwen3.7-max-2026-06-08 可通过 codex-qwen3-7-max-paygo 使用，且不会自动改投其他模型。"

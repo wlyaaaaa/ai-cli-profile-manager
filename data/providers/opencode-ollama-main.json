@@ -9,11 +9,11 @@
   "transport": "openai-compatible",
   "endpoint": "http://127.0.0.1:32100/v1",
   "models": {
-    "primary": "aicli-qwen3.8-27b-256k:2026-09-15",
-    "small": "aicli-qwen3.8-27b-256k:2026-09-15"
+    "primary": "qwen3.8-27b:256k",
+    "small": "qwen3.8-27b:256k"
   },
   "modelMetadata": {
-    "aicli-qwen3.8-27b-256k:2026-09-15": {
+    "qwen3.8-27b:256k": {
       "contextWindowTokens": 262144,
       "inputWindowTokens": 262144,
       "outputWindowTokens": 32768,
@@ -26,7 +26,7 @@
     "minCliVersion": "1.18.8",
     "ollamaArtifact": {
       "minimumVersion": "0.32.12",
-      "tag": "aicli-qwen3.8-27b-256k:2026-09-15",
+      "tag": "qwen3.8-27b:256k",
       "baseTag": "qwen3.8:27b",
       "numCtx": 262144,
       "quantization": "Q4_K_M",

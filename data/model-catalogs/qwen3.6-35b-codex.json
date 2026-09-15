@@ -1,7 +1,7 @@
 {
   "models": [
     {
-      "slug": "qwen-main-v1",
+      "slug": "qwen3.6-35b:256k",
       "prefer_websockets": false,
       "support_verbosity": false,
       "default_verbosity": null,
@@ -29,8 +29,8 @@
       "comp_hash": "3000",
       "reasoning_summary_format": null,
       "default_reasoning_summary": "none",
-      "display_name": "Local Qwen Main",
-      "description": "AICLI managed local Qwen Responses model.",
+      "display_name": "Qwen3.6 35B",
+      "description": "Local Qwen3.6 35B Responses model with 256K context.",
       "default_reasoning_level": "max",
       "supported_reasoning_levels": [
         {

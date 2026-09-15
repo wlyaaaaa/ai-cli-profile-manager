@@ -26,7 +26,7 @@ foreach ($id in $set.profiles) {
 if (-not $profiles.Count) { throw 'Select at least one local model.' }
 $writes = [Collections.Generic.List[object]]::new()
 function Plan-JsonWrite([string]$Path, $Value, [string]$Before) {
-    $after = ($Value | ConvertTo-Json -Depth 80) + "`n"
+    $after = (($Value | ConvertTo-Json -Depth 80) -replace "`r`n", "`n") + "`n"
     $old = $Before | ConvertFrom-Json -AsHashtable -Depth 80 | ConvertTo-Json -Depth 80
     if (-not [System.Text.Json.Nodes.JsonNode]::DeepEquals([System.Text.Json.Nodes.JsonNode]::Parse($old),[System.Text.Json.Nodes.JsonNode]::Parse($after))) { $writes.Add(@{path=$Path;before=$Before;after=$after}) }
 }
@@ -43,7 +43,10 @@ foreach ($id in $profiles.Keys) {
     $models[$set.clients[$id].opencodeKey] = [ordered]@{
         id=$m; name=(Model-Name $p); reasoning=$true; tool_call=[bool]$p.capabilities.tools; temperature=$true
         limit=@{context=$p.modelMetadata[$m].contextWindowTokens;output=$p.modelMetadata[$m].outputWindowTokens}
-        modalities=@{input=$(if($p.capabilities.images){@('text','image')}else{@('text')});output=@('text')}
+        modalities=@{
+            input=@(if($p.capabilities.images){'text';'image'}else{'text'})
+            output=@('text')
+        }
     }
 }
 $op.provider[$providerId].models=$models
@@ -106,13 +109,10 @@ foreach ($id in $profiles.Keys) {
     $match=@($tags.models | Where-Object name -CEQ $canonical)
     if ($match.Count -ne 1 -or ('sha256:'+$match[0].digest) -cne $p.compatibility.ollamaArtifact.manifestDigest) { throw "Prepare the declared Ollama artifact before syncing: $tag" }
 }
-foreach ($entry in $set.clients.GetEnumerator()) {
-    if ($entry.Key -in $profiles.Keys) { continue }
-    $p=Get-Content (Join-Path $root "data\providers\$($entry.Key).json") -Raw | ConvertFrom-Json
-    $tag=[string]$p.models.primary
-    if (-not $tag.Contains(':')) { $tag+=':latest' }
-    if ($tag -in $tags.models.name) { $retired+=$tag }
-}
+# This configured Ollama instance is dedicated to the selected local model set.
+# Validate every retained artifact above before removing extra/obsolete tags.
+$expectedTags=@($modelIds | ForEach-Object { if($_.Contains(':')){$_}else{"${_}:latest"} })
+$retired=@($tags.models.name | Where-Object { $_ -cnotin $expectedTags })
 $desktop=$null
 if ($Apply) {
     foreach ($write in $writes) { if ([IO.File]::ReadAllText($write.path) -cne $write.before) { throw 'Configuration changed during sync; rerun.' } }
@@ -126,6 +126,14 @@ if ($Apply) {
     $desktop=& (Join-Path $PSScriptRoot 'Set-CodexDesktopLocalModels.ps1') -Mode Status -Json | ConvertFrom-Json
     if ($desktop.status -eq 'enabled') { $desktop=& (Join-Path $PSScriptRoot 'Set-CodexDesktopLocalModels.ps1') -Mode Enable -Json | ConvertFrom-Json }
     foreach ($tag in $retired) { Invoke-RestMethod "$native/api/delete" -Method Delete -ContentType application/json -Body (@{model=$tag}|ConvertTo-Json) | Out-Null }
+    $actual=@((Invoke-RestMethod "$native/api/tags" -TimeoutSec 15).models)
+    if ($actual.Count -ne $expectedTags.Count -or @($actual.name | Where-Object { $_ -cnotin $expectedTags }).Count) { throw 'Ollama model set readback differs from the selected profiles.' }
+    foreach ($p in $profiles.Values) {
+        $tag=[string]$p.models.primary
+        if (-not $tag.Contains(':')) { $tag+=':latest' }
+        $match=@($actual | Where-Object name -CEQ $tag)
+        if ($match.Count -ne 1 -or ('sha256:'+$match[0].digest) -cne $p.compatibility.ollamaArtifact.manifestDigest) { throw "Ollama artifact changed during sync: $tag" }
+    }
 }
 $result=[ordered]@{schema='aicli.local-model-configuration-sync.v1';status=$(if($Apply){'applied'}else{'preview'});models=@($modelIds);changed_files=@($writes | ForEach-Object { $_.path });retired_models=$retired;desktop_restart_required=[bool]$desktop.restartRequired;live_acceptance='not_performed'}
 if($Json){$result|ConvertTo-Json -Depth 10}else{[pscustomobject]$result}
