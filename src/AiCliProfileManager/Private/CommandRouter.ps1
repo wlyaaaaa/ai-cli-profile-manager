@@ -268,7 +268,7 @@ function Invoke-AiCliProfileCommand {
                         $requestedEffort
                     }
                     Write-Host ("{0} | {1} | {2}" -f `
-                        (Get-AiCliProperty $p 'displayName'),
+                        (Get-AiCliProfileDisplayName -Profile $p),
                         $effortDisplay,
                         (Get-AiCliProperty $p 'status'))
                 }
@@ -842,7 +842,7 @@ function Invoke-AiCliInteractiveSelector {
             if (-not [bool](Get-AiCliProperty $resolvedRecent 'configured' $false)) { continue }
             $identity = Get-AiCliInteractiveProfileIdentity -Profile $resolvedRecent
             if (-not $identities.Add($identity)) { continue }
-            $choices.Add("$($entry.Label): $(Get-AiCliProperty $resolvedRecent 'displayName')")
+            $choices.Add("$($entry.Label): $(Get-AiCliProfileDisplayName -Profile $resolvedRecent)")
             $ids.Add($entry.Id)
         } catch {
             # A removed/retired/conflicting ID must not survive as a launchable
@@ -854,7 +854,7 @@ function Invoke-AiCliInteractiveSelector {
         $pidStr = [string](Get-AiCliProperty $p 'id')
         if ($ids -contains $pidStr) { continue }
         if (-not $identities.Add((Get-AiCliInteractiveProfileIdentity -Profile $p))) { continue }
-        $choices.Add([string](Get-AiCliProperty $p 'displayName'))
+        $choices.Add((Get-AiCliProfileDisplayName -Profile $p))
         $ids.Add($pidStr)
     }
     if ($choices.Count -eq 0) {

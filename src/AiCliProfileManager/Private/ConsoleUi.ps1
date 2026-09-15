@@ -54,6 +54,22 @@ function Confirm-AiCliAction {
     return ($ans -eq 'yes')
 }
 
+function Get-AiCliProfileDisplayName {
+    param([Parameter(Mandatory)]$Profile, [string]$Model)
+    $name = [string](Get-AiCliProperty $Profile 'displayName')
+    $configuredModel = [string](Get-AiCliProperty (Get-AiCliProperty $Profile 'models') 'primary')
+    if (-not $Model) { $Model = $configuredModel }
+    if (-not $Model) { return "$name（模型由客户端选择）" }
+    # Specific local labels already name the model behind the runtime tag.
+    # Generic Ollama/official/provider labels still need the effective model.
+    if ([string](Get-AiCliProperty $Profile 'provider') -eq 'ollama' -and
+        $Model -ceq $configuredModel -and $name -notmatch '(?i)\bOllama\b') { return $name }
+    $normalizedName = $name -replace '[^\p{L}\p{Nd}]', ''
+    $normalizedModel = $Model -replace '[^\p{L}\p{Nd}]', ''
+    if ($normalizedModel -and $normalizedName.IndexOf($normalizedModel, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $name }
+    return "$name · $Model"
+}
+
 function Show-AiCliMenu {
     [CmdletBinding()]
     param(

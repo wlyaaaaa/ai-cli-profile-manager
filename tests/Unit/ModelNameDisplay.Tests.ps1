@@ -7,6 +7,15 @@ BeforeAll {
 }
 
 Describe 'human-visible local model names' {
+    It 'adds the effective model to generic provider labels without losing plan information' {
+        InModuleScope AiCliProfileManager {
+            $profile = @{ displayName='Codex 官方 (ChatGPT/OpenAI)'; provider='openai'; models=@{primary='gpt-5.6-sol'} }
+            (Get-AiCliProfileDisplayName -Profile $profile) | Should -Match 'gpt-5\.6-sol'
+            (Get-AiCliProfileDisplayName -Profile $profile -Model 'gpt-5.6-terra') | Should -Match 'gpt-5\.6-terra'
+            $profile = @{ displayName='Claude Code + Ollama'; provider='ollama'; models=@{primary='qwen3:8b'} }
+            (Get-AiCliProfileDisplayName -Profile $profile) | Should -Match 'qwen3:8b'
+        }
+    }
     It 'keeps internal role words out of the local model display names' {
         foreach ($file in @(
             'codex-ollama-main.json', 'codex-ollama-qwen3-8-27b.json', 'codex-ollama-review.json',
