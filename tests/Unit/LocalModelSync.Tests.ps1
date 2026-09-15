@@ -46,6 +46,7 @@ BeforeAll {
             CatalogRoot = $catalogRoot
             CandidateModel = 'aicli-candidate-32b-256k:2026-10-01'
             CandidateCatalog = 'candidate-32b-codex.json'
+            TemplateCatalog = (Read-TestJson (Join-Path $providerRoot 'codex-ollama-main.json')).codexModelCatalog
             TargetPaths = @()
             ProtectedPaths = @()
             WatchedPaths = @()
@@ -84,10 +85,8 @@ BeforeAll {
             (Join-Path $providerRoot 'codex-ollama-qwen3-8-27b.json'),
             (Join-Path $providerRoot 'opencode-ollama-qwen3-8-27b.json'),
             (Join-Path $providerRoot 'codex-ollama-review.json'),
-            (Join-Path $catalogRoot $fixture.CandidateCatalog),
-            (Join-Path $catalogRoot 'qwen3.8-27b-codex.json'),
-            (Join-Path $catalogRoot 'qwen-main-v1-codex.json')
-        )
+            (Join-Path $catalogRoot $fixture.CandidateCatalog)
+        ) + @($catalogNames.Keys | ForEach-Object { Join-Path $catalogRoot $_ })
         $fixture.WatchedPaths = @($fixture.TargetPaths) + @($fixture.ProtectedPaths)
         return $fixture
     }
@@ -126,7 +125,7 @@ BeforeAll {
         if (Test-Path -LiteralPath $catalogPath) {
             $catalog = Read-TestJson $catalogPath
         } else {
-            $template = Read-TestJson (Join-Path $Fixture.CatalogRoot 'qwen3.8-27b-codex.json')
+            $template = Read-TestJson (Join-Path $Fixture.CatalogRoot $Fixture.TemplateCatalog)
             $catalog = $template
         }
         $catalog.models[0].slug = $Model
