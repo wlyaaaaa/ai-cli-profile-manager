@@ -87,15 +87,18 @@ Describe 'Manifest' {
 
     It 'binds third-party Claude and OpenCode profiles to exact model context metadata' {
         $all = Import-AiCliProviderManifests
+        $runtimeTag = 'aicli-qwen3.8-27b-256k:2026-09-15'
         $all['claude-deepseek'].compatibility.minCliVersion | Should -Be '2.1.193'
         $all['claude-deepseek'].modelMetadata.'deepseek-v4-flash'.contextWindowTokens | Should -Be 1000000
         $all['claude-deepseek'].modelMetadata.'deepseek-v4-flash'.autoCompactWindowTokens | Should -Be 1000000
         $all['claude-ollama-main'].compatibility.minCliVersion | Should -Be '2.1.193'
-        $all['claude-ollama-main'].modelMetadata.'qwen-main-v1'.contextWindowTokens | Should -Be 262144
-        $all['claude-ollama-main'].modelMetadata.'qwen-main-v1'.autoCompactWindowTokens | Should -Be 262144
-        $all['opencode-ollama-main'].modelMetadata.'qwen-main-v1'.contextWindowTokens | Should -Be 262144
-        $all['opencode-ollama-main'].modelMetadata.'qwen-main-v1'.compactionReserveTokens | Should -Be 20000
-        $runtimeTag = 'aicli-qwen3.8-27b-256k:2026-08-14'
+        $all['claude-ollama-main'].modelMetadata.$runtimeTag.contextWindowTokens | Should -Be 262144
+        $all['claude-ollama-main'].modelMetadata.$runtimeTag.outputWindowTokens | Should -Be 32768
+        $all['claude-ollama-main'].modelMetadata.$runtimeTag.autoCompactWindowTokens | Should -Be 262144
+        $all['opencode-ollama-main'].modelMetadata.$runtimeTag.contextWindowTokens | Should -Be 262144
+        $all['opencode-ollama-main'].modelMetadata.$runtimeTag.inputWindowTokens | Should -Be 262144
+        $all['opencode-ollama-main'].modelMetadata.$runtimeTag.outputWindowTokens | Should -Be 32768
+        $all['opencode-ollama-main'].modelMetadata.$runtimeTag.compactionReserveTokens | Should -Be 20000
         $all['opencode-ollama-qwen3-8-27b'].modelMetadata.$runtimeTag.contextWindowTokens | Should -Be 262144
         $all['opencode-ollama-qwen3-8-27b'].modelMetadata.$runtimeTag.outputWindowTokens | Should -Be 32768
     }
@@ -159,16 +162,21 @@ Describe 'Manifest' {
         }
     }
 
-    It 'binds local Codex Qwen to an exact deterministic 262144 catalog' {
+    It 'binds local Codex main to the exact deterministic Qwen3.8-27B 256K catalog' {
         $all = Import-AiCliProviderManifests
         $profile = $all['codex-ollama-main']
-        $profile.codexModelCatalog | Should -Be 'qwen-main-v1-codex.json'
+        $runtimeTag = 'aicli-qwen3.8-27b-256k:2026-09-15'
+        $profile.codexModelCatalog | Should -Be 'qwen3.8-27b-codex.json'
+        $profile.models.primary | Should -BeExactly $runtimeTag
+        @($profile.models.candidates) | Should -Be @($runtimeTag)
+        $profile.modelMetadata.$runtimeTag.contextWindowTokens | Should -Be 262144
+        $profile.modelMetadata.$runtimeTag.outputWindowTokens | Should -Be 32768
         $profile.compatibility.minCliVersion | Should -Be '0.147.0'
 
-        $catalogPath = Join-Path $root 'data\model-catalogs\qwen-main-v1-codex.json'
+        $catalogPath = Join-Path $root 'data\model-catalogs\qwen3.8-27b-codex.json'
         $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100
         @($catalog.models).Count | Should -Be 1
-        $catalog.models[0].slug | Should -Be 'qwen-main-v1'
+        $catalog.models[0].slug | Should -BeExactly $runtimeTag
         $catalog.models[0].context_window | Should -Be 262144
         $catalog.models[0].max_context_window | Should -Be 262144
         $catalog.models[0].effective_context_window_percent | Should -Be 95
@@ -176,8 +184,9 @@ Describe 'Manifest' {
         @($catalog.models[0].supported_reasoning_levels.effort) | Should -Be @('low', 'medium', 'high', 'max')
         $catalog.models[0].base_instructions | Should -Not -BeNullOrEmpty
 
-        $generated = Join-Path $TestDrive 'qwen-main-v1-codex.json'
-        & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') -CatalogKind local -OutputCatalog $generated | Out-Null
+        $generated = Join-Path $TestDrive 'qwen3.8-27b-codex.json'
+        & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') `
+            -CatalogKind localQwen38_27b -OutputCatalog $generated | Out-Null
         Assert-CanonicalCatalogBytes -Path $generated
         Assert-CanonicalCatalogBytes -Path $catalogPath
         (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |

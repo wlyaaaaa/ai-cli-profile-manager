@@ -20,7 +20,7 @@ Describe 'LocalGpuBroker clean-base module and profile contracts' {
     It 'defines exact local main and cross-check routes without agent-acceptance fields' {
         $expected = [ordered]@{
             'codex-ollama-main.json' = [ordered]@{
-                model = 'qwen-main-v1'; context = 262144; output = 8192
+                model = 'aicli-qwen3.8-27b-256k:2026-09-15'; context = 262144; output = 32768
             }
             'codex-ollama-review.json' = [ordered]@{
                 model = 'qwen-main-v1'; context = 262144; output = 8192

@@ -646,8 +646,11 @@ function Build-AiCliCodexLaunchPlan {
         foreach ($v in $script:AiCliCodexProviderVars) { $removeEnv += $v }
         $removeEnv += @('OPENAI_BASE_URL')
         $envDelta['AICLI_CODEX_PROVIDER_KEY'] = 'ollama'
-        $envDelta['NO_PROXY'] = '127.0.0.1,localhost,::1'
-        $envDelta['no_proxy'] = '127.0.0.1,localhost,::1'
+        # Preserve existing direct routes (for example a user's tailnet exclusions).
+        $noProxyItems = @('127.0.0.1', 'localhost', '::1') + @(([Environment]::GetEnvironmentVariable('NO_PROXY', 'Process') -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $noProxy = (@($noProxyItems | Select-Object -Unique) -join ',')
+        $envDelta['NO_PROXY'] = $noProxy
+        $envDelta['no_proxy'] = $noProxy
         $cliArgs.Add('-c') | Out-Null
         $cliArgs.Add("model_reasoning_effort=`"$effort`"") | Out-Null
         Add-AiCliCodexProviderOverrides -ArgumentList $cliArgs -MergedProfile $merged2 `
@@ -656,7 +659,7 @@ function Build-AiCliCodexLaunchPlan {
         if ($modelCatalogPath) { $configFiles += $modelCatalogPath }
         $notes += "本机 Ollama 兼容网关: $endpoint"
         $notes += "模型: $model；wire_api=responses；思考等级 $requestedEffort（有效档位 $effort）"
-        $notes += '公开模板使用 Ollama 默认 11434；其他本机网关请配置独立用户 Profile。'
+        $notes += '本次使用上述 Profile 端点；本地模型请求保持直连。'
     }
     else {
         # Scrub parent hijacks so only profile provider base_url is used

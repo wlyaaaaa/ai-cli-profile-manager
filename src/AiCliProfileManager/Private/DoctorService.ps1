@@ -180,6 +180,13 @@ function Invoke-AiCliDoctor {
                     $checks.Add((New-AiCliCheck -Id 'profile.endpoint' -Status '不可用' -Summary $_.Exception.Message)) | Out-Null
                 }
             }
+            $localReadiness = Test-AiCliSelectedLocalProviderReadiness -MergedProfile $merged
+            if ($localReadiness.Applicable) {
+                $checks.Add((New-AiCliCheck -Id 'profile.local_provider_readiness' `
+                    -Status $(if ($localReadiness.Ready) { '通过' } else { '不可用' }) `
+                    -Summary $localReadiness.Summary `
+                    -NextStep $(if (-not $localReadiness.Ready) { '恢复本机 loopback Provider 后重试；不要改写模型或全局配置。' }))) | Out-Null
+            }
             $ver = Get-AiCliProperty $merged 'verification'
             if ($null -eq $ver) {
                 $invalidated = Get-AiCliProperty $merged 'verificationInvalidation'

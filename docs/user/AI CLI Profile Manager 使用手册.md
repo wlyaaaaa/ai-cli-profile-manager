@@ -230,7 +230,7 @@ aicli profile remove qwen-work
 
 Claude Code `2.1.193+` 的 DeepSeek Profile 按最终 `--model` 精确注入 1000000 token 模型窗口。AICLI 不设置会提前压缩的 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`，也不默认禁用自动/手动压缩；未知或自定义模型不猜测。
 
-本机 `claude-ollama-main` 同样按 `qwen-main-v1=262144` 注入 MAX/AUTO；`codex-ollama-main` 使用独立的 262144 受管目录，不再采用 Codex 未知模型 272K 回退。新 `codex-ollama-qwen3-8-27b` 固定 `aicli-qwen3.8-27b-256k:2026-08-14`、Responses、`max`、262144 上下文和 no-fallback；该运行标签与官方 `qwen3.8:27b` 共用 Q4_K_M 权重，只增加 `num_ctx 262144` 参数层。先执行 `scripts\Setup-Qwen38-27B256K.ps1`；它也会把 `Qwen3.8 27B MAX (256K)` 注册到 OpenCode Desktop。运行要求 Ollama 0.32.12+。任何第三方 Claude 模型未命中受管元数据时，AICLI 会清除父进程遗留的 MAX/AUTO、提前压缩百分比和两个禁压缩变量，再交给 Claude Code 的保守默认，避免把上一模型的窗口误套到未来模型。
+本机主用入口 `codex-ollama-main`、`claude-ollama-main`、`opencode-ollama-main`、`qwen-code-ollama-main` 统一使用 Qwen3.8 27B 的受管运行标签 `aicli-qwen3.8-27b-256k:2026-09-15`，保留 262144（256K）最大上下文。Codex 使用 Responses、`max` 和独立受管目录；原显式 27B Profile 保留兼容。运行标签复用官方 `qwen3.8:27b` 的 Q4_K_M 权重，固定 `num_ctx 262144` 与 `draft_num_predict 0`，避免 Ollama 0.33.1 的 MTP 草稿上下文初始化崩溃，不降低模型思考等级。先运行 `scripts\Setup-Qwen38-27B256K.ps1` 安装并回读；它可更新 OpenCode Desktop 的现有 27B 目录项。`codex-ollama-review` 继续使用 Qwen3.6 35B 的独立复核路线。
 
 Codex 的 DeepSeek Key 与其他云端 Profile 一样由 Windows CurrentUser DPAPI 保存。受管 Codex TOML 只写 `env_key`，不会复制官方手工示例中的明文 `experimental_bearer_token` 或 `preferred_auth_method`。Qwen Code 0.21 与 OpenCode 1.18.8 虽有上游原生 DeepSeek 接入，但 AICLI 当前只为它们提供禁网的 machine-only 沙箱，且尚无隔离真实 Key 的远程 egress relay；因此不提供这两类 DeepSeek Profile。
 
@@ -425,7 +425,7 @@ Claude 官方登录与 `ANTHROPIC_API_KEY` 同时存在时，上游可能显示�
 
 原生 ChatGPT + Codex 是基准，保持上游默认。DeepSeek/千问经 Codex 或 Claude Code 时，客户端压缩是可能丢文件细节、数字和未完成分支的摘要；不要为了“省上下文”主动 `/compact`。AICLI 的第三方连续性契约要求一个会话只做一个内聚里程碑，在自然边界把目标与验收、约束/授权/owner、规则与关键文件、改动、决定、测试/Live 缺口、阻塞和下一步写入项目已有 plan/progress/decision 状态；接近窗口时优先 fresh session 或拆任务。压缩后把摘要当线索，重新读取适用的 `AGENTS.md` / `CLAUDE.md`、状态文档以及 `git status` / `git diff`，不建立第二事实源。
 
-本机 `qwen-main-v1` 在 Codex、Claude Code 与 OpenCode 中统一声明 262144 context。`opencode-ollama-main` 的一次性配置固定 8192 output；`opencode-ollama-qwen3-8-27b` 固定同权重 256K 运行标签、262144 context/input 和 32768 output。两者使用 20000 reserved，关闭 tool-output pruning并保留最近 4 轮/16384 token；`agent.build.steps` 只算上游软收尾，不冒充 AICLI 硬工具调用门。OpenCode checkpoint 随 run 清理，跨 run 连续性必须靠项目状态文件。远程 DeepSeek/千问 OpenCode 仍因 key-isolated egress relay 缺口不开放。
+本机 27B 主用与显式 27B 兼容入口保持同一模型身份和 262144 context；OpenCode 同时声明 262144 input、32768 output、20000 reserved，并保留最近 4 轮/16384 token。35B 复核与 27B 主用分别验收。改主用模型时须同步实际 Profile、Toolkit 默认路线、运行时镜像及安装后的配置；旧指纹的 Live 记录不会自动继承。
 
 第三方模型（如千问）下，Claude 会话结束页的 **Total cost: $… (costs may be inaccurate due to usage of unknown models)** **不是** 阿里云百炼账单。token 量级可能接近真实调用；美元金额多半按 Claude 内置未知模型单价估算，**往往偏高**。真费用以百炼「模型监控 / 账单」为准（调用后约一小时可查）。详见《CLI 中文手册》用量说明。
 

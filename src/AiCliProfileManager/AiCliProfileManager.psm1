@@ -27,6 +27,7 @@ $privateOrder = @(
     'InterpreterAdapter.ps1',
     'ContextManagement.ps1',
     'ProxyService.ps1',
+    'ProviderReadiness.ps1',
     'LaunchPlan.ps1',
     'RecoveryService.ps1',
     'AgentAcceptance.ps1',

@@ -61,8 +61,8 @@ $requiredExactProfiles = @(
     [pscustomobject]@{ id = 'codex-qwen3-8-max-paygo'; model = 'qwen3.8-max'; effectiveEffort = 'xhigh' },
     [pscustomobject]@{ id = 'codex-deepseek'; model = 'deepseek-v4-flash'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; effectiveEffort = 'max' },
-    [pscustomobject]@{ id = 'codex-ollama-main'; model = 'qwen-main-v1'; effectiveEffort = 'max' },
-    [pscustomobject]@{ id = 'codex-ollama-qwen3-8-27b'; model = 'aicli-qwen3.8-27b-256k:2026-08-14'; effectiveEffort = 'max' },
+    [pscustomobject]@{ id = 'codex-ollama-main'; model = 'aicli-qwen3.8-27b-256k:2026-09-15'; effectiveEffort = 'max' },
+    [pscustomobject]@{ id = 'codex-ollama-qwen3-8-27b'; model = 'aicli-qwen3.8-27b-256k:2026-09-15'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-ollama-review'; model = 'qwen-main-v1'; effectiveEffort = 'max' }
 )
 foreach ($expected in $requiredExactProfiles) {

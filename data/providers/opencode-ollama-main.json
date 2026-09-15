@@ -1,33 +1,61 @@
 {
   "schemaVersion": 1,
   "id": "opencode-ollama-main",
-  "displayName": "OpenCode + local Qwen main",
+  "displayName": "OpenCode + Qwen3.8 27B（本地主用）",
   "engine": "opencode",
   "provider": "ollama",
   "plan": "local",
   "region": "local",
   "transport": "openai-compatible",
   "endpoint": "http://127.0.0.1:32100/v1",
-  "models": { "primary": "qwen-main-v1", "small": "qwen-main-v1" },
+  "models": {
+    "primary": "aicli-qwen3.8-27b-256k:2026-09-15",
+    "small": "aicli-qwen3.8-27b-256k:2026-09-15"
+  },
   "modelMetadata": {
-    "qwen-main-v1": {
+    "aicli-qwen3.8-27b-256k:2026-09-15": {
       "contextWindowTokens": 262144,
       "inputWindowTokens": 262144,
-      "outputWindowTokens": 8192,
+      "outputWindowTokens": 32768,
       "compactionReserveTokens": 20000,
       "preserveRecentTokens": 16384,
       "tailTurns": 4
     }
   },
-  "compatibility": { "minCliVersion": "1.18.8" },
-  "auth": { "type": "none" },
-  "capabilities": { "tools": true, "streaming": true, "images": true, "machineRun": true },
+  "compatibility": {
+    "minCliVersion": "1.18.8",
+    "ollamaArtifact": {
+      "minimumVersion": "0.32.12",
+      "tag": "aicli-qwen3.8-27b-256k:2026-09-15",
+      "baseTag": "qwen3.8:27b",
+      "numCtx": 262144,
+      "quantization": "Q4_K_M",
+      "manifestDigest": "sha256:885ca6e9d68fbda050eee055145891e7c45fa8a0bec8c62dc8cd90708f6bedcd",
+      "baseManifestDigest": "sha256:22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643",
+      "configDigest": "sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f",
+      "modelBlobDigest": "sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d",
+      "projectorBlobDigest": "sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e",
+      "parametersDigest": "sha256:14bb2c63f1a0e61969a5bceba301ea9d60740ce64b72813cc018acfc63c940c2",
+      "draftNumPredict": 0
+    }
+  },
+  "auth": {
+    "type": "none"
+  },
+  "capabilities": {
+    "tools": true,
+    "streaming": true,
+    "images": true,
+    "machineRun": true
+  },
   "sources": [
-    "https://opencode.ai/docs/cli/",
+    "https://huggingface.co/Qwen/Qwen3.8-27B",
+    "https://ollama.com/library/qwen3.8:27b",
     "https://opencode.ai/docs/providers/"
   ],
   "requiresSecret": false,
   "virtualReady": true,
+  "flexible": false,
   "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",
-  "notes": "Machine-only. Pure mode and transient config; no cloud or fallback."
+  "notes": "Exact managed 256K runtime image over the official qwen3.8:27b Q4_K_M weights. Machine-only pure mode and transient config; no cloud or fallback."
 }

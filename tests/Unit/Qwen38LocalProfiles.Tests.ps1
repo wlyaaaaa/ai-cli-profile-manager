@@ -2,7 +2,7 @@
 
 BeforeAll {
     $script:Qwen38LocalRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-    $script:Qwen38RuntimeTag = 'aicli-qwen3.8-27b-256k:2026-08-14'
+    $script:Qwen38RuntimeTag = 'aicli-qwen3.8-27b-256k:2026-09-15'
     Get-Module -Name AiCliProfileManager -All -ErrorAction SilentlyContinue |
         Remove-Module -Force -ErrorAction SilentlyContinue
     Import-Module (Join-Path $script:Qwen38LocalRepoRoot 'src\AiCliProfileManager\AiCliProfileManager.psd1') -Force
@@ -31,6 +31,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
         @($manifest.models.candidates) | Should -Be @($script:Qwen38RuntimeTag)
         @($manifest.models.reserved) | Should -BeNullOrEmpty
         $manifest.modelMetadata.$($script:Qwen38RuntimeTag).contextWindowTokens | Should -Be 262144
+        $manifest.modelMetadata.$($script:Qwen38RuntimeTag).outputWindowTokens | Should -Be 32768
         $manifest.defaultEffort | Should -BeExactly 'max'
         @($manifest.effortLevels) | Should -Be @('low', 'medium', 'high', 'max')
         $manifest.flexible | Should -BeFalse
@@ -41,8 +42,9 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
         $manifest.compatibility.ollamaArtifact.baseTag | Should -BeExactly 'qwen3.8:27b'
         $manifest.compatibility.ollamaArtifact.numCtx | Should -Be 262144
         $manifest.compatibility.ollamaArtifact.quantization | Should -BeExactly 'Q4_K_M'
+        $manifest.compatibility.ollamaArtifact.draftNumPredict | Should -Be 0
         $manifest.compatibility.ollamaArtifact.manifestDigest |
-            Should -BeExactly 'sha256:e200453f7eea321eab068edbc22c5d38a384a162e46c30ed266c62f0388c4723'
+            Should -BeExactly 'sha256:885ca6e9d68fbda050eee055145891e7c45fa8a0bec8c62dc8cd90708f6bedcd'
         $manifest.compatibility.ollamaArtifact.baseManifestDigest |
             Should -BeExactly 'sha256:22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643'
         $manifest.compatibility.ollamaArtifact.configDigest |
@@ -50,7 +52,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
         $manifest.compatibility.ollamaArtifact.modelBlobDigest |
             Should -BeExactly 'sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d'
         $manifest.compatibility.ollamaArtifact.parametersDigest |
-            Should -BeExactly 'sha256:b36f2538f3527050f56153c91815f99fb6e51bf6a98b935e31da5358a4b5c5cb'
+            Should -BeExactly 'sha256:14bb2c63f1a0e61969a5bceba301ea9d60740ce64b72813cc018acfc63c940c2'
         $manifest.compatibility.localGpuBrokerSession.requiredForMachineRun | Should -BeTrue
 
         InModuleScope AiCliProfileManager -Parameters @{ Profile = $manifest } {
@@ -61,7 +63,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
                 { Assert-AiCliLockedModelArgs -MergedProfile $Profile -NativeArgs $nativeArgs } |
                     Should -Throw '*模型由 Profile 固定*'
             }
-            Test-AiCliRetiredModelId -ModelId 'aicli-qwen3.8-27b-256k:2026-08-14' | Should -BeFalse
+            Test-AiCliRetiredModelId -ModelId 'aicli-qwen3.8-27b-256k:2026-09-15' | Should -BeFalse
         }
     }
 
@@ -111,7 +113,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
             Should -BeExactly 'sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f'
         $manifest.compatibility.ollamaArtifact.quantization | Should -BeExactly 'Q4_K_M'
         $manifest.compatibility.ollamaArtifact.manifestDigest |
-            Should -BeExactly 'sha256:e200453f7eea321eab068edbc22c5d38a384a162e46c30ed266c62f0388c4723'
+            Should -BeExactly 'sha256:885ca6e9d68fbda050eee055145891e7c45fa8a0bec8c62dc8cd90708f6bedcd'
         $manifest.requiresSecret | Should -BeFalse
         $manifest.virtualReady | Should -BeTrue
         $manifest.capabilities.machineRun | Should -BeTrue
@@ -127,19 +129,22 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
                 }
             }
         })
-        @($artifactProfiles | Where-Object tag -eq $script:Qwen38RuntimeTag).Count | Should -Be 2
+        @($artifactProfiles | Where-Object tag -eq $script:Qwen38RuntimeTag).Count | Should -Be 6
 
         foreach ($group in @($artifactProfiles | Group-Object tag | Where-Object Count -gt 1)) {
             $reference = $group.Group[0].artifact
             foreach ($profile in @($group.Group | Select-Object -Skip 1)) {
                 foreach ($field in @(
                     'tag',
+                    'baseTag',
+                    'numCtx',
                     'quantization',
                     'manifestDigest',
                     'configDigest',
                     'modelBlobDigest',
                     'projectorBlobDigest',
-                    'parametersDigest'
+                    'parametersDigest',
+                    'draftNumPredict'
                 )) {
                     $profile.artifact.$field | Should -BeExactly $reference.$field
                 }
@@ -215,7 +220,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
     It 'ships the deterministic Ollama Modelfile that makes 262144 the actual runtime context' {
         $modelfile = Join-Path $script:Qwen38LocalRepoRoot 'data\ollama\qwen3.8-27b-256k.Modelfile'
         $content = (Get-Content -LiteralPath $modelfile -Raw -Encoding utf8).Replace("`r`n", "`n").Trim()
-        $content | Should -BeExactly "FROM qwen3.8:27b`nPARAMETER num_ctx 262144"
+        $content | Should -BeExactly "FROM qwen3.8:27b`nPARAMETER num_ctx 262144`nPARAMETER draft_num_predict 0"
     }
 
     It 'ships a public-broker-only setup that pins the runtime digest and registers the Desktop label' {
@@ -226,8 +231,8 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
         $setup | Should -Match "expectedOrigin\s*=\s*'http://127\.0\.0\.1:32100'"
         $setup | Should -Not -Match '127\.0\.0\.1:32101'
         $setup | Should -Match '/api/create'
-        $setup | Should -Match 'parameters\s*=\s*\[ordered\]@\{\s*num_ctx'
-        $setup | Should -Match 'e200453f7eea321eab068edbc22c5d38a384a162e46c30ed266c62f0388c4723'
+        $setup | Should -Match 'parameters\s*=\s*\[ordered\]@\{\s*num_ctx\s*=\s*\$ContextLength\s*;\s*draft_num_predict\s*=\s*0'
+        $setup | Should -Match '885ca6e9d68fbda050eee055145891e7c45fa8a0bec8c62dc8cd90708f6bedcd'
         $setup | Should -Match 'Qwen3\.8 27B MAX \(256K\)'
     }
 

@@ -1,9 +1,9 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 [CmdletBinding()]
 param(
     [string] $BrokerOrigin = 'http://127.0.0.1:32100',
     [string] $BaseTag = 'qwen3.8:27b',
-    [string] $RuntimeTag = 'aicli-qwen3.8-27b-256k:2026-08-14',
+    [string] $RuntimeTag = 'aicli-qwen3.8-27b-256k:2026-09-15',
     [int] $ContextLength = 262144,
     [string] $OpenCodeProviderId = 'ollama5090d',
     [string] $OpenCodeModelId = 'qwen3.8-27b-256k',
@@ -19,7 +19,7 @@ $utf8NoBom = [Text.UTF8Encoding]::new($false)
 $OutputEncoding = $utf8NoBom
 
 $expectedBaseDigest = '22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643'
-$expectedRuntimeDigest = 'e200453f7eea321eab068edbc22c5d38a384a162e46c30ed266c62f0388c4723'
+$expectedRuntimeDigest = '885ca6e9d68fbda050eee055145891e7c45fa8a0bec8c62dc8cd90708f6bedcd'
 $expectedOrigin = 'http://127.0.0.1:32100'
 if ($BrokerOrigin.TrimEnd('/') -cne $expectedOrigin) {
     throw 'qwen38_setup_broker_origin_invalid'
@@ -27,13 +27,13 @@ if ($BrokerOrigin.TrimEnd('/') -cne $expectedOrigin) {
 if ($BaseTag -cne 'qwen3.8:27b' -or $ContextLength -ne 262144) {
     throw 'qwen38_setup_artifact_contract_invalid'
 }
-if ($RuntimeTag -cne 'aicli-qwen3.8-27b-256k:2026-08-14') {
+if ($RuntimeTag -cne 'aicli-qwen3.8-27b-256k:2026-09-15') {
     throw 'qwen38_setup_runtime_tag_invalid'
 }
 
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $modelfile = Join-Path $repoRoot 'data\ollama\qwen3.8-27b-256k.Modelfile'
-$expectedModelfile = "FROM qwen3.8:27b`nPARAMETER num_ctx 262144"
+$expectedModelfile = "FROM qwen3.8:27b`nPARAMETER num_ctx 262144`nPARAMETER draft_num_predict 0"
 $actualModelfile = (Get-Content -LiteralPath $modelfile -Raw -Encoding utf8).
     Replace("`r`n", "`n").Trim()
 if ($actualModelfile -cne $expectedModelfile) {
@@ -49,7 +49,7 @@ if ($base.Count -ne 1 -or [string]$base[0].digest -cne $expectedBaseDigest) {
 $createBody = [ordered]@{
     model = $RuntimeTag
     from = $BaseTag
-    parameters = [ordered]@{ num_ctx = $ContextLength }
+    parameters = [ordered]@{ num_ctx = $ContextLength; draft_num_predict = 0 }
     stream = $false
 } | ConvertTo-Json -Depth 10 -Compress
 $created = Invoke-RestMethod `
@@ -72,6 +72,10 @@ $shown = Invoke-RestMethod `
 $parameterLines = @(([string]$shown.parameters -split "`r?`n") | ForEach-Object { $_.Trim() })
 if (@($parameterLines | Where-Object { $_ -match '^num_ctx\s+262144$' }).Count -ne 1) {
     throw 'qwen38_setup_runtime_context_not_pinned'
+}
+
+if (@($parameterLines | Where-Object { $_ -match '^draft_num_predict\s+0$' }).Count -ne 1) {
+    throw 'qwen38_setup_runtime_draft_not_disabled'
 }
 
 $tagsAfter = Invoke-RestMethod -Uri "$expectedOrigin/api/tags" -Method Get -TimeoutSec 15

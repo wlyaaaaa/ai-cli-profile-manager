@@ -175,8 +175,8 @@ Describe 'Exact third-party Codex Profiles' {
 
     It 'keeps all local exact identities on max without enabling fallback models' {
         $expected = [ordered]@{
-            'codex-ollama-main' = 'qwen-main-v1'
-            'codex-ollama-qwen3-8-27b' = 'aicli-qwen3.8-27b-256k:2026-08-14'
+            'codex-ollama-main' = 'aicli-qwen3.8-27b-256k:2026-09-15'
+            'codex-ollama-qwen3-8-27b' = 'aicli-qwen3.8-27b-256k:2026-09-15'
             'codex-ollama-review' = 'qwen-main-v1'
         }
         foreach ($profileId in $expected.Keys) {

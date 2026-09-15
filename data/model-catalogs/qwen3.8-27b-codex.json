@@ -1,7 +1,7 @@
 {
   "models": [
     {
-      "slug": "aicli-qwen3.8-27b-256k:2026-08-14",
+      "slug": "aicli-qwen3.8-27b-256k:2026-09-15",
       "prefer_websockets": false,
       "support_verbosity": false,
       "default_verbosity": null,

@@ -32,7 +32,7 @@ Describe 'Codex Ollama reasoning effort' {
                 }
             }
             Mock Publish-AiCliCodexModelCatalog {
-                Join-Path $Work 'qwen-main-v1-codex.json'
+                Join-Path $Work 'qwen3.8-27b-codex.json'
             }
 
             $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile `
@@ -66,10 +66,16 @@ Describe 'Codex Ollama reasoning effort' {
                 }
             }
             Mock Publish-AiCliCodexModelCatalog {
-                Join-Path $Work 'qwen-main-v1-codex.json'
+                Join-Path $Work 'qwen3.8-27b-codex.json'
             }
 
-            $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work
+            $previousNoProxy = [Environment]::GetEnvironmentVariable('NO_PROXY', 'Process')
+            try {
+                [Environment]::SetEnvironmentVariable('NO_PROXY', '.ts.net,example.org', 'Process')
+                $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work
+            } finally {
+                [Environment]::SetEnvironmentVariable('NO_PROXY', $previousNoProxy, 'Process')
+            }
             $launchArgs = @($plan.argumentList)
             $reasoningOverride = 'model_reasoning_effort="max"'
             $reasoningIndex = [Array]::IndexOf([string[]]$launchArgs, $reasoningOverride)
@@ -81,22 +87,27 @@ Describe 'Codex Ollama reasoning effort' {
             @($launchArgs | Where-Object { $_ -eq '-c' }).Count | Should -Be 11
 
             $expectedProviderOverrides = @(
-                'model="qwen-main-v1"'
+                'model="aicli-qwen3.8-27b-256k:2026-09-15"'
                 'model_provider="aicli_ollama_main"'
-                'model_providers.aicli_ollama_main.name="Codex CLI + local Qwen main"'
+                'model_providers.aicli_ollama_main.name="Codex CLI + Qwen3.8 27B（本地主用）"'
                 'model_providers.aicli_ollama_main.base_url="http://127.0.0.1:32100/v1"'
                 'model_providers.aicli_ollama_main.env_key="AICLI_CODEX_PROVIDER_KEY"'
                 'model_providers.aicli_ollama_main.wire_api="responses"'
                 'model_providers.aicli_ollama_main.env_http_headers={"X-LocalGpuBroker-Lease-Id"="AICLI_LOCAL_GPU_BROKER_LEASE_ID","X-LocalGpuBroker-Capability"="AICLI_LOCAL_GPU_BROKER_CAPABILITY"}'
                 'shell_environment_policy.ignore_default_excludes=false'
                 'shell_environment_policy.exclude=["AICLI_CODEX_PROVIDER_KEY","OPENAI_API_KEY","CODEX_API_KEY","DASHSCOPE_API_KEY","QWEN_API_KEY","AICLI_LOCAL_GPU_BROKER_LEASE_ID","AICLI_LOCAL_GPU_BROKER_CAPABILITY"]'
-                ('model_catalog_json=' + (ConvertTo-AiCliTomlString (Join-Path $Work 'qwen-main-v1-codex.json')))
+                ('model_catalog_json=' + (ConvertTo-AiCliTomlString (Join-Path $Work 'qwen3.8-27b-codex.json')))
             )
             foreach ($expected in $expectedProviderOverrides) {
                 $launchArgs | Should -Contain $expected
             }
-            @($plan.configFiles) | Should -Contain (Join-Path $Work 'qwen-main-v1-codex.json')
+            @($plan.configFiles) | Should -Contain (Join-Path $Work 'qwen3.8-27b-codex.json')
             $plan.effort | Should -Be 'max'
+            $noProxyItems = @(([string]$plan.environmentDelta.NO_PROXY).Split(','))
+            foreach ($entry in @('.ts.net', 'example.org', '127.0.0.1', 'localhost', '::1')) {
+                $noProxyItems | Should -Contain $entry
+            }
+            $plan.environmentDelta.no_proxy | Should -BeExactly $plan.environmentDelta.NO_PROXY
         }
     }
 

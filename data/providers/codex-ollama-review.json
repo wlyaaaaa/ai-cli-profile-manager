@@ -1,20 +1,34 @@
 {
   "schemaVersion": 1,
   "id": "codex-ollama-review",
-  "displayName": "Codex CLI + local Qwen cross-check (35B)",
+  "displayName": "Codex CLI + Qwen3.6 35B（独立复核）",
   "engine": "codex",
   "provider": "ollama",
   "plan": "local",
   "region": "local",
   "transport": "responses",
   "defaultEffort": "max",
-  "effortLevels": ["low", "medium", "high", "max"],
+  "effortLevels": [
+    "low",
+    "medium",
+    "high",
+    "max"
+  ],
   "endpoint": "http://127.0.0.1:32100/v1",
   "codexProviderId": "aicli_ollama_review",
   "codexModelCatalog": "qwen-main-v1-codex.json",
-  "models": { "primary": "qwen-main-v1", "small": "qwen-main-v1", "candidates": ["qwen-main-v1"] },
+  "models": {
+    "primary": "qwen-main-v1",
+    "small": "qwen-main-v1",
+    "candidates": [
+      "qwen-main-v1"
+    ]
+  },
   "modelMetadata": {
-    "qwen-main-v1": { "contextWindowTokens": 262144, "outputWindowTokens": 8192 }
+    "qwen-main-v1": {
+      "contextWindowTokens": 262144,
+      "outputWindowTokens": 8192
+    }
   },
   "compatibility": {
     "minCliVersion": "0.147.0",
@@ -24,9 +38,18 @@
       "managementOrigin": "http://127.0.0.1:32100"
     }
   },
-  "auth": { "type": "none" },
-  "capabilities": { "tools": true, "streaming": true, "images": false, "machineRun": true },
-  "sources": ["https://docs.ollama.com/integrations/codex"],
+  "auth": {
+    "type": "none"
+  },
+  "capabilities": {
+    "tools": true,
+    "streaming": true,
+    "images": false,
+    "machineRun": true
+  },
+  "sources": [
+    "https://docs.ollama.com/integrations/codex"
+  ],
   "requiresSecret": false,
   "virtualReady": true,
   "dataDestination": "LocalGpuBroker Ollama endpoint (127.0.0.1:32100)",

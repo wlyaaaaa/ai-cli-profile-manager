@@ -278,6 +278,11 @@ function Start-AiCliProfile {
         [string[]]$NativeArgs = @()
     )
     $merged = Get-AiCliResolvedProfile -Id $ProfileId
+    $localReadiness = Test-AiCliSelectedLocalProviderReadiness -MergedProfile $merged
+    if ($localReadiness.Applicable -and -not $localReadiness.Ready) {
+        Write-AiCliWarn "选定本地 Provider 不可用: $($localReadiness.Summary)"
+        return (Get-AiCliExitCode Unavailable)
+    }
     $proxyRef = Get-AiCliProperty $merged 'proxyRef'
     if ($proxyRef) {
         $state = Get-AiCliProxyState -ProxyId $proxyRef
