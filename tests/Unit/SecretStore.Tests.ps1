@@ -23,4 +23,20 @@ Describe 'SecretStore' {
             }
         }
     }
+
+    It 'keeps existing secret files readable when the directory ACL is refreshed' {
+        InModuleScope AiCliProfileManager -Parameters @{ Root = $script:DataRoot } {
+            Set-AiCliDataRootOverride -Path $Root
+            try {
+                $first = New-AiCliSecret -PlainText 'first-secret-canary' -Label 'first'
+                $second = New-AiCliSecret -PlainText 'second-secret-canary' -Label 'second'
+                Get-AiCliSecret -SecretId $first | Should -BeExactly 'first-secret-canary'
+                Get-AiCliSecret -SecretId $second | Should -BeExactly 'second-secret-canary'
+                Remove-AiCliSecret -SecretId $first
+                Remove-AiCliSecret -SecretId $second
+            } finally {
+                Set-AiCliDataRootOverride -Path $null
+            }
+        }
+    }
 }

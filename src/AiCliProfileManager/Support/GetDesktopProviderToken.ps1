@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('codex-qwen3-8-max-paygo')]
+    [ValidateSet('codex-qwen3-8-max-paygo','codex-glm-5-3','codex-glm-5-3-flash')]
     [string]$ProfileId,
     [string]$ModulePath = (Join-Path $PSScriptRoot '..\AiCliProfileManager.psd1')
 )
@@ -16,10 +16,10 @@ $module = Import-Module -Name $ModulePath -Force -PassThru
     param([string]$Id)
     $profile = Get-AiCliResolvedProfile -Id $Id
     if ((Get-AiCliProperty $profile 'engine') -ne 'codex' -or
-        (Get-AiCliProperty $profile 'provider') -ne 'qwen' -or
+        (Get-AiCliProperty $profile 'provider') -notin @('qwen','glm') -or
         (Get-AiCliProperty $profile 'transport') -ne 'responses' -or
         -not [bool](Get-AiCliProperty $profile 'secretConfigured' $false)) {
-        throw 'The desktop cloud profile is not configured for Qwen Responses authentication.'
+        throw 'The desktop cloud profile is not configured for approved Responses authentication.'
     }
     $secret = $null
     try {

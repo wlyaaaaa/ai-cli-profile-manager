@@ -46,6 +46,8 @@ $name — 命令帮助
 精确第三方 Codex 一键入口：
   $cmd start codex-qwen3-7-max-paygo --project <trusted-workspace>
   $cmd start codex-qwen3-8-max-paygo --project <trusted-workspace>
+  $cmd start codex-glm-5-3 --project <trusted-workspace>
+  $cmd start codex-glm-5-3-flash --project <trusted-workspace>
   $cmd start codex-deepseek --project <trusted-workspace>
   $cmd start codex-deepseek-v4-pro --project <trusted-workspace>
   $cmd start codex-ollama-main --project <trusted-workspace>

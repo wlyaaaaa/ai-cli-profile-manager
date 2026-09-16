@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-glm-5-3-flash",
+  "displayName": "Codex + GLM-5.3-Flash",
+  "engine": "codex",
+  "provider": "glm",
+  "plan": "coding-plan",
+  "region": "cn",
+  "transport": "responses",
+  "endpoint": "https://open.bigmodel.cn/api/v1",
+  "codexProviderId": "aicli_glm_5_3_flash",
+  "codexModelCatalog": "glm-5.3-flash-codex.json",
+  "codexAutoCompactTokenLimit": 996147,
+  "codexAutoCompactTokenLimitScope": "total",
+  "requiresSecret": true,
+  "virtualReady": false,
+  "auth": {
+    "type": "api-key",
+    "envKey": "AICLI_CODEX_PROVIDER_KEY"
+  },
+  "models": {
+    "primary": "glm-5.3-flash",
+    "small": "glm-5.3-flash",
+    "candidates": [
+      "glm-5.3-flash"
+    ]
+  },
+  "defaultEffort": "max",
+  "effortLevels": [
+    "low",
+    "high",
+    "max"
+  ],
+  "flexible": false,
+  "capabilities": {
+    "tools": true,
+    "contextStats": true,
+    "images": true,
+    "streaming": true,
+    "effort": true
+  },
+  "compatibility": {
+    "minCliVersion": "0.154.0",
+    "modelVersion": "glm-5.3-flash",
+    "apiStatus": "available"
+  },
+  "dataDestination": "智谱 GLM 编码套餐中国区 Responses API",
+  "notes": "精确模型 glm-5.3-flash；固定 1M 上下文、Responses、low/high/max 推理档位、无 alias 与 fallback。桌面目录仅声明 Codex 当前可传递的文本与图像输入。",
+  "sources": [
+    "https://docs.bigmodel.cn/cn/coding-plan/tool/codex",
+    "https://docs.z.ai/guides/vlm/glm-5.3-flash"
+  ]
+}

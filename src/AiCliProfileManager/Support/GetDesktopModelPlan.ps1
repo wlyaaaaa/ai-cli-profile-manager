@@ -2,7 +2,11 @@
 [CmdletBinding()]
 param(
     [string[]]$ProfileId = @(),
-    [string[]]$CloudProfileId = @('codex-qwen3-8-max-paygo'),
+    [string[]]$CloudProfileId = @(
+        'codex-qwen3-8-max-paygo',
+        'codex-glm-5-3',
+        'codex-glm-5-3-flash'
+    ),
     [string]$ModulePath = (Join-Path $PSScriptRoot '..\AiCliProfileManager.psd1'),
     [switch]$UpstreamOnly
 )
@@ -79,17 +83,30 @@ $plan = & $module {
     foreach ($id in $(if ($OnlyUpstream) { @() } else { $CloudIds })) {
         $profile = Get-AiCliResolvedProfile -Id $id
         if (-not [bool](Get-AiCliProperty $profile 'configured' $false)) { continue }
+        $cloudProvider = [string](Get-AiCliProperty $profile 'provider')
         if ((Get-AiCliProperty $profile 'engine') -ne 'codex' -or
-            (Get-AiCliProperty $profile 'provider') -ne 'qwen' -or
+            $cloudProvider -notin @('qwen','glm') -or
             (Get-AiCliProperty $profile 'transport') -ne 'responses') {
-            throw "Desktop cloud model profile must use Codex Qwen Responses: $id"
+            throw "Desktop cloud model profile must use an approved Codex Responses provider: $id"
         }
         if ((Get-AiCliProperty (Get-AiCliProperty $profile 'auth') 'type') -ne 'api-key' -or
             -not [bool](Get-AiCliProperty $profile 'secretConfigured' $false)) {
             throw "Desktop cloud model profile has no configured API key: $id"
         }
-        $endpoint = Resolve-AiCliQwenWorkspaceResponsesEndpoint `
-            -Endpoint ([string](Get-AiCliProperty $profile 'endpoint'))
+        $endpoint = [string](Get-AiCliProperty $profile 'endpoint')
+        if ($cloudProvider -eq 'qwen') {
+            $endpoint = Resolve-AiCliQwenWorkspaceResponsesEndpoint -Endpoint $endpoint
+        } else {
+            Assert-AiCliEndpointSafe -Url $endpoint
+            $uri = [Uri]$endpoint
+            if ($uri.Scheme -cne 'https' -or $uri.Port -ne 443 -or
+                $uri.Host -cne 'open.bigmodel.cn' -or
+                $uri.AbsolutePath.TrimEnd('/') -cne '/api/v1' -or
+                $uri.Query -or $uri.Fragment -or $uri.UserInfo) {
+                throw "Desktop GLM profile must use the official China Responses endpoint: $id"
+            }
+            $endpoint = 'https://open.bigmodel.cn/api/v1'
+        }
         $model = [string](Get-AiCliProperty (Get-AiCliProperty $profile 'models') 'primary')
         if (-not $seen.Add($model)) { continue }
         $catalogName = [string](Get-AiCliProperty $profile 'codexModelCatalog')

@@ -101,7 +101,7 @@ function Assert-AiCliExactCodexUserProfileCompatible {
     $engine = [string](Get-AiCliProperty $Template 'engine')
     $provider = [string](Get-AiCliProperty $Template 'provider')
     $flexible = [bool](Get-AiCliProperty $Template 'flexible' $true)
-    if ($engine -cne 'codex' -or $provider -cnotin @('qwen','deepseek','ollama') -or $flexible) {
+    if ($engine -cne 'codex' -or $provider -cnotin @('qwen','deepseek','glm','ollama') -or $flexible) {
         return
     }
 

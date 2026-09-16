@@ -39,28 +39,39 @@ function Set-AiCliSecretAcl {
     param([string]$Path)
     try {
         $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-        $psi = [System.Diagnostics.ProcessStartInfo]::new()
-        $psi.FileName = (Join-Path $env:SystemRoot 'System32\icacls.exe')
-        $psi.UseShellExecute = $false
-        $psi.CreateNoWindow = $true
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        foreach ($arg in @(
-            $Path, '/inheritance:r',
-            '/grant:r', ('*' + $sid + ':(OI)(CI)F'),
-            '/grant:r', '*S-1-5-18:(OI)(CI)F',
-            '/grant:r', '*S-1-5-32-544:(OI)(CI)F',
-            '/T', '/C', '/Q'
-        )) {
-            [void]$psi.ArgumentList.Add($arg)
+        $icacls = Join-Path $env:SystemRoot 'System32\icacls.exe'
+        $apply = {
+            param([string]$Target, [bool]$Container)
+            $suffix = if ($Container) { ':(OI)(CI)F' } else { ':F' }
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = $icacls
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            foreach ($arg in @(
+                $Target, '/inheritance:r',
+                '/grant:r', ('*' + $sid + $suffix),
+                '/grant:r', ('*S-1-5-18' + $suffix),
+                '/grant:r', ('*S-1-5-32-544' + $suffix),
+                '/Q'
+            )) { [void]$psi.ArgumentList.Add($arg) }
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $proc.WaitForExit()
+            if ($proc.ExitCode -ne 0) {
+                $err = Protect-AiCliSecretText $proc.StandardError.ReadToEnd()
+                throw "icacls exit=$($proc.ExitCode) $err"
+            }
+            $proc.Dispose()
         }
-        $proc = [System.Diagnostics.Process]::Start($psi)
-        $proc.WaitForExit()
-        if ($proc.ExitCode -ne 0) {
-            $err = Protect-AiCliSecretText $proc.StandardError.ReadToEnd()
-            throw "icacls exit=$($proc.ExitCode) $err"
+        $item = Get-Item -LiteralPath $Path -Force
+        $isContainer = $item.PSIsContainer
+        & $apply $item.FullName $isContainer
+        if ($isContainer) {
+            foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force -Recurse -ErrorAction Stop)) {
+                & $apply $child.FullName $child.PSIsContainer
+            }
         }
-        $proc.Dispose()
     } catch {
         Write-AiCliLog -Level Warn -Message "无法收紧秘密目录 ACL: $($_.Exception.Message)"
     }

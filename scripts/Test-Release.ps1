@@ -42,7 +42,7 @@ $exactProfiles = & $sourceModule {
     $all = Import-AiCliProviderManifests
     @($all.Values | Where-Object {
         ($_.engine -eq 'codex') -and
-        ($_.provider -in @('qwen','deepseek','ollama')) -and
+        ($_.provider -in @('qwen','deepseek','glm','ollama')) -and
         (-not [bool](Get-AiCliProperty $_ 'hidden' $false))
     } | ForEach-Object {
         [pscustomobject]@{
@@ -59,6 +59,8 @@ $exactProfiles = & $sourceModule {
 $requiredExactProfiles = @(
     [pscustomobject]@{ id = 'codex-qwen3-7-max-paygo'; model = 'qwen3.7-max-2026-06-08'; effectiveEffort = 'xhigh' },
     [pscustomobject]@{ id = 'codex-qwen3-8-max-paygo'; model = 'qwen3.8-max-0902'; effectiveEffort = 'xhigh' },
+    [pscustomobject]@{ id = 'codex-glm-5-3'; model = 'glm-5.3'; effectiveEffort = 'max' },
+    [pscustomobject]@{ id = 'codex-glm-5-3-flash'; model = 'glm-5.3-flash'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-deepseek'; model = 'deepseek-v4-flash'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-ollama-main'; model = 'qwen3.8-27b:256k'; effectiveEffort = 'max' },
