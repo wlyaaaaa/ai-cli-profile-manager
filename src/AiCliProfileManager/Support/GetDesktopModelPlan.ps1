@@ -163,11 +163,13 @@ $plan = & $module {
     }
 } -Ids $ProfileId -CloudIds $CloudProfileId -OnlyUpstream $UpstreamOnly.IsPresent -EngineResolver $engineResolver -SupportRoot $PSScriptRoot
 if (-not $UpstreamOnly) {
-    # Read the unmodified engine's current online catalog BEFORE launching the
-    # desktop app-server with its merged catalog. No official model IDs are
-    # embedded here. The bundled catalog can contain retired visible models, so
-    # it must not replace the live account catalog after a transient failure.
+    # Ask the unmodified engine to refresh its online account catalog BEFORE
+    # launching the desktop app-server. `debug models` can silently return the
+    # bundled catalog when refresh fails, so its stdout is only a refresh trigger.
+    # The native online cache (etag + fetched_at) is the authoritative result.
+    # No official model IDs are embedded here.
     $officialModels = $null
+    $cachePath = Join-Path $plan.codexHome 'models_cache.json'
     for ($attempt = 0; $attempt -lt 3; $attempt++) {
         $start = [Diagnostics.ProcessStartInfo]::new()
         $start.FileName = $plan.upstreamFileName
@@ -190,13 +192,32 @@ if (-not $UpstreamOnly) {
                 continue
             }
             if ($process.ExitCode -ne 0) { continue }
-            try { $catalog = $outputTask.GetAwaiter().GetResult() | ConvertFrom-Json -Depth 100 } catch { continue }
-            if (@($catalog.models).Count -gt 0) { $officialModels = @($catalog.models); break }
+            [void]$outputTask.GetAwaiter().GetResult()
+            if (-not (Test-Path -LiteralPath $cachePath -PathType Leaf)) { continue }
+            try {
+                $cacheFile = Get-Item -LiteralPath $cachePath -Force
+                if ($cacheFile.Length -lt 2 -or $cacheFile.Length -gt 16777216) { continue }
+                $cache = Get-Content -LiteralPath $cachePath -Raw -Encoding utf8 |
+                    ConvertFrom-Json -Depth 100 -DateKind String
+                $fetchedAt = [DateTimeOffset]::Parse(
+                    [string]$cache.fetched_at,
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::RoundtripKind
+                )
+                if ([string]::IsNullOrWhiteSpace([string]$cache.etag) -or
+                    [string]::IsNullOrWhiteSpace([string]$cache.client_version) -or
+                    $fetchedAt -gt [DateTimeOffset]::UtcNow.AddMinutes(5) -or
+                    @($cache.models).Count -eq 0) {
+                    continue
+                }
+                $officialModels = @($cache.models)
+                break
+            } catch { continue }
         } finally { $process.Dispose() }
         if ($attempt -lt 2) { Start-Sleep -Milliseconds 150 }
     }
     if ($null -eq $officialModels) {
-        throw 'The original Codex engine did not provide a usable online model catalog.'
+        throw 'The original Codex engine did not provide a verifiable online model catalog cache.'
     }
     $plan['upstreamModels'] = $officialModels
 }

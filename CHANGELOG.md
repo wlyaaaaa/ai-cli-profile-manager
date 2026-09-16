@@ -10,7 +10,7 @@
 
 ### 修复
 
-- Codex Desktop 官方模型发现只接受原生在线目录并做三次有界重试；在线目录仍不可用时交还原生 Codex，不再用可能包含旧可见模型的 bundled（内置）目录覆盖菜单。
+- Codex Desktop 官方模型发现只接受带 `etag`、`fetched_at` 和客户端版本的原生在线缓存，并做三次有界刷新；`debug models` 即使内部静默退回 bundled（内置）目录，其输出也不再进入桌面菜单。在线缓存不可验证时交还原生 Codex。
 - `update check` 现在把实际启动入口与版本绑定，并只读比较对应渠道的官方稳定版元数据；无法确认、预发行或存在更新时如实报告，不再把本地版本清单当成“已是最新”。Codex harness 与 Desktop 运行时分开识别。
 - Open Interpreter 的 Live 与一次性 machine run 使用独立临时 home，隔离继承的 `INTERPRETER_HOME` / `CODEX_HOME`；交互式启动仍保留用户原有配置。
 - 恢复非 Codex Profile 的公开 `run` / `run start` 一次性入口，明确不支持 exact resume，避免误入仅适用于 Codex 的持久恢复流程。

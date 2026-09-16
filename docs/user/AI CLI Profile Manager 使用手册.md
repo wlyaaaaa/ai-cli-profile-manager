@@ -228,7 +228,7 @@ aicli profile remove qwen-work
 
 两个 Qwen exact Profile 都只接受北京百炼 Workspace 按量 Responses endpoint，并固定 983616 context、95% 有效窗口和 262144 token 自动压缩阈值。`codex-qwen3-7-max-paygo` 只固定 `qwen3.7-max-2026-06-08`；`codex-qwen3-8-max-paygo` 只固定 `qwen3.8-max-0902`。用户 `max` 均映射 effective=`xhigh`。Qwen3.7 的通用 alias、其他快照、preview、Plus，以及 Qwen3.8 的可变 alias、preview、Token Plan 与模型覆盖继续失败关闭。
 
-配置过 `codex-qwen3-8-max-paygo` 后，Codex 桌面桥接会在每次启动时先读取原生 OpenAI 在线模型目录，再把 `Qwen3.8 Max 0902` 合并进模型选择器。在线目录会做三次有界重试；仍不可用时交还原生 Codex，不用可能含旧模型的内置目录覆盖菜单。密钥由受管 Profile 的加密副本按需交给 Codex 的 command-backed auth（命令取令牌认证）通道，不写入基础 `config.toml`、模型目录或全局环境变量。上游官方模型仍动态刷新；关闭或移除这条云 Profile 不会固定、过滤或覆盖 OpenAI 模型。
+配置过 `codex-qwen3-8-max-paygo` 后，Codex 桌面桥接会在每次启动时请求原生引擎刷新在线模型目录，并只接受带 `etag`、抓取时间和客户端版本的原生在线缓存，再把 `Qwen3.8 Max 0902` 合并进模型选择器。刷新会做三次有界重试；仍不可验证时交还原生 Codex。`debug models` 内部即使静默退回可能含旧模型的内置目录，其输出也不会进入菜单。密钥由受管 Profile 的加密副本按需交给 Codex 的 command-backed auth（命令取令牌认证）通道，不写入基础 `config.toml`、模型目录或全局环境变量。上游官方模型仍动态刷新；关闭或移除这条云 Profile 不会固定、过滤或覆盖 OpenAI 模型。
 
 Claude Code `2.1.193+` 的 DeepSeek Profile 按最终 `--model` 精确注入 1000000 token 模型窗口。AICLI 不设置会提前压缩的 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`，也不默认禁用自动/手动压缩；未知或自定义模型不猜测。
 
