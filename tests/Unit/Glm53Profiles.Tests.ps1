@@ -31,6 +31,9 @@ Describe 'Exact GLM-5.3 Codex Profiles' {
             $model.context_window | Should -Be 1048576
             $model.max_context_window | Should -Be 1048576
             $model.auto_compact_token_limit | Should -Be 943718
+            $model.base_instructions | Should -Match '默认使用简体中文'
+            $model.base_instructions | Should -Match '当前结论和下一步'
+            $model.supports_search_tool | Should -BeTrue
             @($model.supported_reasoning_levels.effort) | Should -Be @('low','high','max')
             @($model.input_modalities) | Should -Be $spec.Modalities
         }

@@ -13,6 +13,7 @@
 ### 修复
 
 - 所有 AICLI 自行接入的非 OpenAI Codex 模型统一在各自最大上下文的 90% 自动压缩；GLM 桌面目录启用延迟工具搜索，避免首轮加载完整插件工具定义，并把 GLM 的 raw reasoning 内容兼容映射到桌面思考摘要展示。
+- GLM-5.3 与 GLM-5.3-Flash 的根任务和子代理默认使用简体中文处理模型可见分析；在工具批次和关键判断变化处发送一句“当前结论＋下一步”进度，形成与子代理现有表现一致的摘要式工作过程。
 - Codex Desktop 官方模型发现只接受带 `etag`、`fetched_at` 和客户端版本的原生在线缓存，并做三次有界刷新；`debug models` 即使内部静默退回 bundled（内置）目录，其输出也不再进入桌面菜单。在线缓存不可验证时交还原生 Codex。
 - `update check` 现在把实际启动入口与版本绑定，并只读比较对应渠道的官方稳定版元数据；无法确认、预发行或存在更新时如实报告，不再把本地版本清单当成“已是最新”。Codex harness 与 Desktop 运行时分开识别。
 - Open Interpreter 的 Live 与一次性 machine run 使用独立临时 home，隔离继承的 `INTERPRETER_HOME` / `CODEX_HOME`；交互式启动仍保留用户原有配置。
