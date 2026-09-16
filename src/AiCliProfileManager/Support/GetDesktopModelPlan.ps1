@@ -163,10 +163,12 @@ $plan = & $module {
     }
 } -Ids $ProfileId -CloudIds $CloudProfileId -OnlyUpstream $UpstreamOnly.IsPresent -EngineResolver $engineResolver -SupportRoot $PSScriptRoot
 if (-not $UpstreamOnly) {
-    # Read the unmodified engine's current catalog BEFORE launching the desktop
-    # app-server with its merged catalog. No official model IDs are embedded here.
+    # Read the unmodified engine's current online catalog BEFORE launching the
+    # desktop app-server with its merged catalog. No official model IDs are
+    # embedded here. The bundled catalog can contain retired visible models, so
+    # it must not replace the live account catalog after a transient failure.
     $officialModels = $null
-    foreach ($bundled in @($false, $true)) {
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
         $start = [Diagnostics.ProcessStartInfo]::new()
         $start.FileName = $plan.upstreamFileName
         $start.UseShellExecute = $false
@@ -178,7 +180,6 @@ if (-not $UpstreamOnly) {
         foreach ($arg in $plan.upstreamPrefixArgs) { $start.ArgumentList.Add([string]$arg) }
         $start.ArgumentList.Add('debug')
         $start.ArgumentList.Add('models')
-        if ($bundled) { $start.ArgumentList.Add('--bundled') }
         $process = [Diagnostics.Process]::Start($start)
         try {
             $outputTask = $process.StandardOutput.ReadToEndAsync()
@@ -192,8 +193,11 @@ if (-not $UpstreamOnly) {
             try { $catalog = $outputTask.GetAwaiter().GetResult() | ConvertFrom-Json -Depth 100 } catch { continue }
             if (@($catalog.models).Count -gt 0) { $officialModels = @($catalog.models); break }
         } finally { $process.Dispose() }
+        if ($attempt -lt 2) { Start-Sleep -Milliseconds 150 }
     }
-    if ($null -eq $officialModels) { throw 'The original Codex engine did not provide a usable model catalog.' }
+    if ($null -eq $officialModels) {
+        throw 'The original Codex engine did not provide a usable online model catalog.'
+    }
     $plan['upstreamModels'] = $officialModels
 }
 $plan | ConvertTo-Json -Depth 100 -Compress
