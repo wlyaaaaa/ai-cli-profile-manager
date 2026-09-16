@@ -2,7 +2,7 @@
 
 这里保存 AICLI 随安装包发布、再按内容哈希复制到真实 `CODEX_HOME` 的静态模型目录。目录文件不含 API Key；认证仍由 DPAPI `secretRef` 在启动目标子进程时注入 `env_key`。
 
-`glm-5.3-codex.json` 与 `glm-5.3-flash-codex.json` 对应智谱中国区 Codex Responses exact Profile：模型 ID 分别为 `glm-5.3` / `glm-5.3-flash`，上下文 1048576、有效窗口 95%、自动压缩线 943718（最大上下文 90%），推理档位固定 `low/high/max`。两者不包含凭据、不声明 alias 或 fallback，并启用 Codex 延迟工具搜索；其模型级指令要求根任务和子代理默认使用简体中文处理可见分析，并在关键节点简短汇报“当前结论＋下一步”。Flash 目录只声明 Codex 当前使用的文本和图像输入。
+`glm-5.3-codex.json` 与 `glm-5.3-flash-codex.json` 对应智谱中国区 Codex Responses exact Profile：模型 ID 分别为 `glm-5.3` / `glm-5.3-flash`，上下文 1048576、有效窗口 95%、自动压缩线 943718（最大上下文 90%），推理档位固定 `low/high/max`。两者不包含凭据、不声明 alias 或 fallback，并启用 Codex 延迟工具搜索；其模型级指令要求根任务和子代理默认使用简体中文，以用户目标为中心解释有意义的发现、原因和影响；不固定摘要长度或汇报模板，不播报无关内部操作。最终答复按问题复杂度兼顾必要细节与简洁。Flash 目录只声明 Codex 当前使用的文本和图像输入。
 
 `deepseek-v4-flash.json` 与 `deepseek-v4-pro.json` 从 DeepSeek 官方 Windows/Linux Codex setup 脚本内同一份双模型 `models.json` 按 slug 确定性抽取，各自只保留一个 exact 条目：
 
