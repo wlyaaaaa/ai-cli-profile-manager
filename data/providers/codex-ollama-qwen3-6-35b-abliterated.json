@@ -37,14 +37,15 @@
       "baseTag": "wangzhang/Qwen3.6-35B-A3B-abliterated-GGUF",
       "numCtx": 262144,
       "quantization": "Q4_K_M",
-      "manifestDigest": "sha256:bdb98c4eedddabf2ed3f64d12bfe6bc6a24af7c3242354e91a059fba126de201",
+      "manifestDigest": "sha256:3b401cad6eb22eb1d8bcdc18f92d0f49594dce8e7b05fa07750c58275a3b6a26",
       "configDigest": "sha256:39116ca9baeca5d081c9991d28cf13c2bcb0d008b0211eeb2c7072ea3295770f",
       "modelBlobDigest": "sha256:b1995222870f94e18364a3034dbc8f410460dffbe1bfaa3f7143a171cce44abb",
-      "parametersDigest": "sha256:10fb813580204dcab3ac584e6322e7c998158760e98fef7a73c945879e553b2f",
+      "parametersDigest": "sha256:459ab8e52a4c53f3951b473e54ea57b63b751dbab6c571c9c64c1aee9707d045",
       "renderer": "qwen3.5",
       "parser": "qwen3.5",
       "parameters": {
         "min_p": 0,
+        "num_batch": 512,
         "num_ctx": 262144,
         "num_predict": 32768,
         "presence_penalty": 1.5,
@@ -53,7 +54,8 @@
         "top_k": 20,
         "top_p": 0.95
       },
-      "minimumVersion": "0.33.1"
+      "minimumVersion": "0.33.1",
+      "numBatch": 512
     },
     "localGpuBrokerSession": {
       "contractVersion": 1,
