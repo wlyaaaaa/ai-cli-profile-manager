@@ -4,6 +4,7 @@ param(
     [string]$ConsumerConfigPath = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'AiCliProfileManager\local-model-consumers.json'),
     [ValidateSet(0,128,512)][int]$OllamaNumBatch = 0,
     [string[]]$OllamaProfileId = @(),
+    [ValidatePattern('^[1-9][0-9]*(s|m|h)$')][string]$OllamaKeepAlive,
     [switch]$Apply,
     [switch]$Json
 )
@@ -211,6 +212,8 @@ foreach ($id in $profiles.Keys) {
 $expectedTags=@($modelIds | ForEach-Object { if($_.Contains(':')){$_}else{"${_}:latest"} })
 $retired=@($tags.models.name | Where-Object { $_ -cnotin $expectedTags })
 $desktop=$null
+$keepAliveBefore=[Environment]::GetEnvironmentVariable('OLLAMA_KEEP_ALIVE','User')
+$keepAliveChanged=[bool]($OllamaKeepAlive -and $keepAliveBefore -cne $OllamaKeepAlive)
 if ($Apply) {
     foreach ($write in $writes) { if ([IO.File]::ReadAllText($write.path) -cne $write.before) { throw 'Configuration changed during sync; rerun.' } }
     foreach ($write in $writes) {
@@ -236,6 +239,12 @@ if ($Apply) {
         $match=@($actual | Where-Object name -CEQ $tag)
         if ($match.Count -ne 1 -or ('sha256:'+$match[0].digest) -cne $p.compatibility.ollamaArtifact.manifestDigest) { throw "Ollama artifact changed during sync: $tag" }
     }
+    if ($keepAliveChanged) {
+        if (-not ([Uri]$native).IsLoopback) { throw 'Idle retention can only be configured for local Ollama.' }
+        [Environment]::SetEnvironmentVariable('OLLAMA_KEEP_ALIVE',$OllamaKeepAlive,'User')
+        if ([Environment]::GetEnvironmentVariable('OLLAMA_KEEP_ALIVE','User') -cne $OllamaKeepAlive) { throw 'Ollama idle retention readback failed.' }
+    }
 }
 $result=[ordered]@{schema='aicli.local-model-configuration-sync.v1';status=$(if($Apply){'applied'}else{'preview'});models=@($modelIds);ollama_parameter_updates=$batchUpdates;changed_files=@($writes | ForEach-Object { $_.path });retired_models=$retired;desktop_restart_required=[bool]$desktop.restartRequired;live_acceptance='not_performed'}
+if ($OllamaKeepAlive) { $result.ollama_keep_alive=@{before=$keepAliveBefore;requested=$OllamaKeepAlive;changed=$keepAliveChanged;restart_required=($Apply -and $keepAliveChanged)} }
 if($Json){$result|ConvertTo-Json -Depth 10}else{[pscustomobject]$result}
