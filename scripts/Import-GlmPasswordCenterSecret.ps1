@@ -20,18 +20,34 @@ try {
         try {
             foreach ($id in $ProfileIds) {
                 $current = Get-AiCliUserProfile -Id $id
-                if ($null -eq $current -or [string]$current.templateId -cne $id) {
-                    throw "The exact AICLI profile is unavailable: $id"
+                $existed = $null -ne $current
+                $template = Get-AiCliProviderManifest -Id $id
+                if ($existed -and [string]$current.templateId -cne $id) {
+                    throw "The existing AICLI profile is not bound to the exact template: $id"
                 }
-                $resolved = Get-AiCliResolvedProfile -Id $id
-                if ([string]$resolved.provider -cne 'glm' -or
-                    [string]$resolved.transport -cne 'responses' -or
-                    [string]$resolved.endpoint -cne 'https://open.bigmodel.cn/api/v1') {
+                if (-not $existed) {
+                    $current = [ordered]@{
+                        schemaVersion = 1
+                        id = $id
+                        templateId = $id
+                        displayName = [string](Get-AiCliProperty $template 'displayName')
+                        region = [string](Get-AiCliProperty $template 'region')
+                        plan = [string](Get-AiCliProperty $template 'plan')
+                        models = Get-AiCliProperty $template 'models'
+                        endpoint = [string](Get-AiCliProperty $template 'endpoint')
+                        secretRef = $null
+                        updatedUtc = [DateTime]::UtcNow.ToString('o')
+                    }
+                }
+                if ([string]$template.provider -cne 'glm' -or
+                    [string]$template.transport -cne 'responses' -or
+                    [string]$template.endpoint -cne 'https://open.bigmodel.cn/api/v1') {
                     throw "The exact GLM profile contract is invalid: $id"
                 }
                 $oldProfiles.Add([pscustomobject]@{
                     Id = $id
-                    Profile = $current
+                    Existed = $existed
+                    Profile = if ($existed) { $current } else { $null }
                     SecretRef = [string]$current.secretRef
                 }) | Out-Null
                 $newRef = New-AiCliSecret -PlainText $PlainText -Label "$id-api-key"
@@ -59,7 +75,16 @@ try {
             }
         } catch {
             foreach ($old in $oldProfiles) {
-                try { Save-AiCliUserProfile -Profile $old.Profile } catch {}
+                try {
+                    if ($old.Existed) {
+                        Save-AiCliUserProfile -Profile $old.Profile
+                    } else {
+                        $path = Get-AiCliUserProfilePath -Id $old.Id
+                        if (Test-Path -LiteralPath $path -PathType Leaf) {
+                            Remove-Item -LiteralPath $path -Force
+                        }
+                    }
+                } catch {}
             }
             foreach ($newRef in $created) {
                 try { Remove-AiCliSecret -SecretId $newRef } catch {}

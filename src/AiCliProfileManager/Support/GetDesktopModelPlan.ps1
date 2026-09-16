@@ -82,15 +82,19 @@ $plan = & $module {
     }
     foreach ($id in $(if ($OnlyUpstream) { @() } else { $CloudIds })) {
         $profile = Get-AiCliResolvedProfile -Id $id
-        if (-not [bool](Get-AiCliProperty $profile 'configured' $false)) { continue }
         $cloudProvider = [string](Get-AiCliProperty $profile 'provider')
+        $blindProvision = $cloudProvider -eq 'glm' -and
+            $id -in @('codex-glm-5-3','codex-glm-5-3-flash')
+        if (-not [bool](Get-AiCliProperty $profile 'configured' $false) -and
+            -not $blindProvision) { continue }
         if ((Get-AiCliProperty $profile 'engine') -ne 'codex' -or
             $cloudProvider -notin @('qwen','glm') -or
             (Get-AiCliProperty $profile 'transport') -ne 'responses') {
             throw "Desktop cloud model profile must use an approved Codex Responses provider: $id"
         }
         if ((Get-AiCliProperty (Get-AiCliProperty $profile 'auth') 'type') -ne 'api-key' -or
-            -not [bool](Get-AiCliProperty $profile 'secretConfigured' $false)) {
+            (-not [bool](Get-AiCliProperty $profile 'secretConfigured' $false) -and
+                -not $blindProvision)) {
             throw "Desktop cloud model profile has no configured API key: $id"
         }
         $endpoint = [string](Get-AiCliProperty $profile 'endpoint')

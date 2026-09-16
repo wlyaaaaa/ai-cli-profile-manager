@@ -8,6 +8,7 @@
 
 - `codex-qwen3-8-max-paygo` 现精确固定 `qwen3.8-max-0902`；Codex Desktop 在启动时保留原生 OpenAI 动态目录，并把已配置的 0902 云端模型与本地模型合并到同一选择器。云端密钥通过 command-backed auth 按需读取受管加密副本，不写入基础配置或全局环境变量。
 - 新增 `codex-glm-5-3` 与 `codex-glm-5-3-flash` 两个中国区 exact Responses Profile。两者固定 `https://open.bigmodel.cn/api/v1`、1M 上下文、`low/high/max` 和单模型目录；Codex Desktop 从 Password Center 的 GLM 凭据副本按需认证，并继续保留 OpenAI 原生动态目录。
+- GLM 首次选择时通过 Password Center 注册目标盲注入已有 Key 并建立 AICLI 的 CurrentUser DPAPI 运行副本，不再要求用户重复录入。
 
 ### 修复
 

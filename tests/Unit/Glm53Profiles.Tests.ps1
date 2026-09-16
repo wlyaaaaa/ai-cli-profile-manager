@@ -58,4 +58,15 @@ Describe 'Exact GLM-5.3 Codex Profiles' {
             ($plan.argumentList -join "`n") | Should -Not -Match 'glm-secret-canary-never-serialize|opaque-glm-secret-ref'
         }
     }
+
+    It 'keeps GLM desktop authentication on the registered Password Center blind target' {
+        $plan = Get-Content -LiteralPath (Join-Path $script:GlmRepoRoot 'src\AiCliProfileManager\Support\GetDesktopModelPlan.ps1') -Raw
+        $token = Get-Content -LiteralPath (Join-Path $script:GlmRepoRoot 'src\AiCliProfileManager\Support\GetDesktopProviderToken.ps1') -Raw
+        $plan | Should -Match "'codex-glm-5-3'"
+        $plan | Should -Match "'codex-glm-5-3-flash'"
+        $plan | Should -Match '\$blindProvision'
+        $token | Should -Match "'AgentSecretRef'"
+        $token | Should -Match "'aicli-glm-codex-profile-import'"
+        $token | Should -Not -Match 'experimental_bearer_token|AllowPlaintextOutput|Reveal'
+    }
 }
