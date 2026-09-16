@@ -7,6 +7,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'CodexUserCommunicationPolicy.ps1')
 $source = Get-Content -LiteralPath $SourceCatalog -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100
 if (@($source.models).Count -ne 1) {
     throw 'The source catalog must contain exactly one baseline model.'
@@ -113,7 +114,11 @@ for ($index = 0; $index -lt $definitions.Count; $index++) {
         supports_search_tool = $true
         default_service_tier = $null
         supports_reasoning_summaries = $false
-        base_instructions = [string]$baseline.base_instructions
+        # This is an AICLI Codex presentation policy, shared by local and
+        # cloud Qwen catalogs. It never changes Qwen model identity or
+        # capabilities, and remains idempotent when the baseline already
+        # carries the policy through the DeepSeek source catalog.
+        base_instructions = Add-AiCliCodexUserCommunicationPolicy -BaseInstructions ([string]$baseline.base_instructions)
     }
     $models.Add($model) | Out-Null
 }

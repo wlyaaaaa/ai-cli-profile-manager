@@ -12,7 +12,7 @@
 - 上游双模型 `models.json` SHA-256：`b459a6e438d6a9939d01fd0dbb4693f165ed732bc8e4fd58d7145d9d94bd49a4`
 - 官方规范化单条目 SHA-256：Flash `8065e17700fe1a88bed911114c10f3e792eac48601aa765e067bec13eb0ae1d4`；Pro `16e8716359c27ade5f748e586e2b25886f5a7257ab4e9795436e11f9c4fdeedf`
 - alias 到版本的映射由官方 Models & Pricing 页分别固定为 Flash 0731 与 Pro 0813；setup catalog 自身只写 alias。
-- AICLI 唯一策略覆盖是把两条目录的 `default_reasoning_level` 从官方示例 `high` 提升为用户最高档 `max`；其余字段必须通过上述单条目哈希校验。
+- AICLI 在验证官方条目后，才叠加三项受管策略：默认推理档位 `max`、最大上下文 90% 自动压缩，以及本文件所述的面向用户的进度与最终答复指令；这些策略不参与官方条目哈希，模型身份和其他官方字段仍必须通过上述单条目哈希校验。
 
 `scripts/Build-DeepSeekCodexCatalog.ps1` 负责上述抽取和哈希绑定。Flash 与 Pro 目录、Provider ID 和 Profile 指纹互相隔离；任何一方的 Live 回执不能证明另一方。
 
@@ -21,7 +21,7 @@
 - 精确 slug `qwen3.8-max-0902`、Responses 能力与 983616 输入窗口来自[阿里云 Responses 文档](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses)及模型页；
 - `effective_context_window_percent=95`、`auto_compact_token_limit=885254`（最大上下文 90%）；用户 `max` 在 Profile 层映射为模型原生最高 `xhigh`；
 - Workspace 按量 Profile 不包含 preview、Token Plan 或其他候选；
-- 基础指令与 `model_messages` 复用同一发布版 `deepseek-v4-flash.json` 中的通用 Codex 0.146 指令，避免阿里云最小示例的空 `base_instructions` 覆盖 Codex Agent 行为；其余能力与限制由生成器白名单逐项声明，不随 DeepSeek 目录静默漂移。
+- 基础指令与 `model_messages` 复用同一发布版 `deepseek-v4-flash.json` 中的通用 Codex 指令，避免阿里云最小示例的空 `base_instructions` 覆盖 Codex Agent 行为；生成器再叠加 `CodexUserCommunicationPolicy.ps1` 的用户可见进度与最终答复策略。其余能力与限制由生成器白名单逐项声明，不随 DeepSeek 目录静默漂移。
 
 `qwen3.7-max-2026-06-08-codex.json` 由同一生成器的 `-CatalogKind qwen37max0608` 确定性生成，只服务 `codex-qwen3-7-max-paygo`：
 
@@ -48,3 +48,5 @@
 - 与云端 `qwen3.8-max-0902` 及本地 `qwen3.6-35b:256k` 分离，避免把供应商套餐、模型权重或上下文事实互相冒充。
 
 目录生成后必须运行 Manifest/CodexAdapter 离线测试，并确认再次运行生成器不产生 diff；任何提示版本升级都要重新绑定并验证，不能把旧基础指令无限沿用。
+
+`CodexUserCommunicationPolicy.ps1` 是所有受管、非 OpenAI Codex 目录共用的策略来源：当前覆盖 GLM、云端 Qwen、本地 Qwen 和 DeepSeek。它要求在多步工作开始、重要发现、阶段进展、方向变化或阻碍时，以用户可见的中文消息解释目标、原因和影响；最终答复保留理解所需细节。它不改写模型 ID、Provider、上下文、权限、协议或原生 OpenAI 目录。新增受管 DeepSeek 或本地 Codex 模型时，必须复用该策略并由测试确认；OpenAI 原生模型继续由 Codex 动态目录管理。

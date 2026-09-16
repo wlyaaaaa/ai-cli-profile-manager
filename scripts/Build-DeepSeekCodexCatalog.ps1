@@ -8,6 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'CodexUserCommunicationPolicy.ps1')
 if ([string]::IsNullOrWhiteSpace($OutputCatalog)) {
     $OutputCatalog = Join-Path $repoRoot ("data\model-catalogs\deepseek-v4-{0}.json" -f $Model)
 }
@@ -52,12 +53,22 @@ $entry.supported_reasoning_levels = @(
 )
 $entry.minimal_client_version = '0.144.0'
 $entry.priority = $definition.priority
+$entry.base_instructions = Remove-AiCliCodexUserCommunicationPolicy -BaseInstructions ([string]$entry.base_instructions)
 
 # Bind every non-policy field to the current official dual-model catalog from
 # codex-deepseek-setup-en.ps1 (SHA-256 239c5e7e...54a36). AICLI's only
 # deliberate catalog override is the default effort below: users chose max to
 # mean the highest level that this model declares.
-$canonicalOfficialEntry = $entry | ConvertTo-Json -Depth 100 -Compress
+$officialEntryForHash = $entry | ConvertTo-Json -Depth 100 |
+    ConvertFrom-Json -AsHashtable -Depth 100
+# These fields are AICLI's Codex client policy, added after validating the
+# vendor entry. They were previously checked as if they came from DeepSeek,
+# which made the builder fail whenever the managed 90% compaction policy was
+# present in its own source catalog.
+$null = $officialEntryForHash.Remove('include_plugin_usage_instructions')
+$null = $officialEntryForHash.Remove('include_apps_usage_instructions')
+$officialEntryForHash.auto_compact_token_limit = $null
+$canonicalOfficialEntry = $officialEntryForHash | ConvertTo-Json -Depth 100 -Compress
 $canonicalBytes = [Text.Encoding]::UTF8.GetBytes($canonicalOfficialEntry)
 $sha = [Security.Cryptography.SHA256]::Create()
 try {
@@ -69,6 +80,10 @@ if ($canonicalHash -cne $definition.officialCanonicalEntrySha256) {
     throw "DeepSeek official catalog baseline mismatch for $($definition.slug): $canonicalHash"
 }
 $entry.default_reasoning_level = 'max'
+$entry.include_plugin_usage_instructions = $false
+$entry.include_apps_usage_instructions = $false
+$entry.auto_compact_token_limit = 943718
+$entry.base_instructions = Add-AiCliCodexUserCommunicationPolicy -BaseInstructions ([string]$entry.base_instructions)
 
 $json = [ordered]@{ models = @($entry) } | ConvertTo-Json -Depth 100
 $canonicalJson = ($json -replace "`r`n?", "`n") + "`n"
