@@ -12,6 +12,7 @@
 
 ### 修复
 
+- 所有 AICLI 自行接入的非 OpenAI Codex 模型统一在各自最大上下文的 90% 自动压缩；GLM 桌面目录启用延迟工具搜索，避免首轮加载完整插件工具定义，并把 GLM 的 raw reasoning 内容兼容映射到桌面思考摘要展示。
 - Codex Desktop 官方模型发现只接受带 `etag`、`fetched_at` 和客户端版本的原生在线缓存，并做三次有界刷新；`debug models` 即使内部静默退回 bundled（内置）目录，其输出也不再进入桌面菜单。在线缓存不可验证时交还原生 Codex。
 - `update check` 现在把实际启动入口与版本绑定，并只读比较对应渠道的官方稳定版元数据；无法确认、预发行或存在更新时如实报告，不再把本地版本清单当成“已是最新”。Codex harness 与 Desktop 运行时分开识别。
 - Open Interpreter 的 Live 与一次性 machine run 使用独立临时 home，隔离继承的 `INTERPRETER_HOME` / `CODEX_HOME`；交互式启动仍保留用户原有配置。
@@ -94,7 +95,7 @@
 
 ### 新增
 
-- 新增唯一 Qwen3.7 Max Codex 入口 `codex-qwen3-7-max-paygo`，精确固定 `qwen3.7-max-2026-06-08`、北京百炼 Workspace 按量 Responses、单候选、无 fallback、983616/95% 窗口与 262144 自动压缩阈值。
+- 新增唯一 Qwen3.7 Max Codex 入口 `codex-qwen3-7-max-paygo`，精确固定 `qwen3.7-max-2026-06-08`、北京百炼 Workspace 按量 Responses、单候选、无 fallback、983616/95% 窗口；现统一在最大上下文 90%（885254）自动压缩。
 - 用户可继续选择统一 `max`，启动计划、受管 TOML 与回执按供应商当前最高档发出 effective `xhigh`；SecretRef 只经 `AICLI_CODEX_PROVIDER_KEY` 注入。
 - 同一北京 Workspace endpoint 可通过 `--reuse-secret-from codex-qwen3-8-max-paygo` 复用既有不透明 SecretRef；endpoint 不同即失败关闭，不读取或复制秘密值。
 - 新增 clean commit 专用的 `Install-ExactCodexProfileFast.ps1`：只跑 exact Profile 聚焦门禁、发行 smoke、原子安装和固定入口回读；PDF/ZIP、全量回归与付费 Live 留在正式发布车道。Qwen Workspace 同域复用还会盲复用 endpoint，不再重复询问 Workspace URL。

@@ -8,6 +8,32 @@ BeforeAll {
 }
 
 Describe 'Exact third-party Codex Profiles' {
+    It 'keeps every managed non-OpenAI Codex model on the common 90 percent compaction policy' {
+        $profiles = InModuleScope AiCliProfileManager {
+            $all = Import-AiCliProviderManifests
+            @($all.Values | Where-Object {
+                $_.engine -eq 'codex' -and $_.provider -ne 'openai' -and
+                -not [string]::IsNullOrWhiteSpace([string](Get-AiCliProperty $_ 'codexModelCatalog'))
+            })
+        }
+
+        foreach ($manifest in @($profiles)) {
+            $catalogPath = Join-Path $script:ExactProfileRepoRoot (
+                'data\model-catalogs\' + [string]$manifest.codexModelCatalog
+            )
+            $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 |
+                ConvertFrom-Json -Depth 100
+            $model = @($catalog.models | Where-Object slug -CEQ $manifest.models.primary)
+            @($model).Count | Should -Be 1 -Because $manifest.id
+            $expected = [long][Math]::Floor([long]$model[0].context_window * 0.90)
+            [long]$model[0].auto_compact_token_limit | Should -Be $expected -Because $manifest.id
+            if ($null -ne $manifest.codexAutoCompactTokenLimit) {
+                [long]$manifest.codexAutoCompactTokenLimit | Should -Be $expected -Because $manifest.id
+                $manifest.codexAutoCompactTokenLimitScope | Should -BeExactly 'total' -Because $manifest.id
+            }
+        }
+    }
+
     It 'publishes every exact cloud and local Profile through the normal public catalog' {
         $ids = @(InModuleScope AiCliProfileManager { Get-AiCliBuiltinTemplateIds })
 
@@ -81,7 +107,7 @@ Describe 'Exact third-party Codex Profiles' {
         $model.context_window | Should -Be 983616
         $model.max_context_window | Should -Be 983616
         $model.effective_context_window_percent | Should -Be 95
-        $model.auto_compact_token_limit | Should -Be 262144
+        $model.auto_compact_token_limit | Should -Be 885254
         $model.default_reasoning_level | Should -Be 'xhigh'
         @($model.supported_reasoning_levels.effort) | Should -Be @('low', 'medium', 'xhigh')
         @($model.input_modalities) | Should -Be @('text', 'image')
@@ -121,7 +147,7 @@ Describe 'Exact third-party Codex Profiles' {
         $model.context_window | Should -Be 983616
         $model.max_context_window | Should -Be 983616
         $model.effective_context_window_percent | Should -Be 95
-        $model.auto_compact_token_limit | Should -Be 262144
+        $model.auto_compact_token_limit | Should -Be 885254
         $model.default_reasoning_level | Should -Be 'xhigh'
         @($model.supported_reasoning_levels.effort) | Should -Be @('low', 'medium', 'xhigh')
         @($model.input_modalities) | Should -Be @('text', 'image')

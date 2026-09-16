@@ -70,7 +70,7 @@ aicli start codex-official -- --model gpt-5.6-sol
 
 DeepSeek Codex 使用两个 exact Profile：`codex-deepseek` 固定 API alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，`codex-deepseek-v4-pro` 固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`。两者都是 Responses、1M context、默认用户档 `max`，且不接受模型、Provider 或 fallback 覆盖。AICLI 用 DPAPI 保存 Key，受管配置只写 `env_key`；不要照抄官方示例里的明文 `experimental_bearer_token`。
 
-Qwen 使用两个隔离 exact Codex Profile：`codex-qwen3-7-max-paygo` 固定 `qwen3.7-max-2026-06-08`，`codex-qwen3-8-max-paygo` 固定 `qwen3.8-max-0902`。两者均为北京 Workspace 按量 Responses、983616 context、95% 有效窗口、262144 token 自动压缩阈值，用户 `max` 映射原生最高 `xhigh`。通用 alias、其他快照、preview、Plus、通用 DashScope、Token Plan 与 native model/fallback 参数继续失败关闭。
+Qwen 使用两个隔离 exact Codex Profile：`codex-qwen3-7-max-paygo` 固定 `qwen3.7-max-2026-06-08`，`codex-qwen3-8-max-paygo` 固定 `qwen3.8-max-0902`。两者均为北京 Workspace 按量 Responses、983616 context、95% 有效窗口、885254 token（最大上下文 90%）自动压缩阈值，用户 `max` 映射原生最高 `xhigh`。通用 alias、其他快照、preview、Plus、通用 DashScope、Token Plan 与 native model/fallback 参数继续失败关闭。
 
 本机 `Qwen/Qwen3.8-27B` 使用 `codex-ollama-qwen3-8-27b`，固定同权重运行标签 `aicli-qwen3.8-27b-256k:2026-08-14`、Responses、`num_ctx=262144`、`max` 和 no-fallback；OpenCode 对应 `opencode-ollama-qwen3-8-27b`，Desktop 显示 `Qwen3.8 27B MAX (256K)`。1M YaRN 是可选扩展模式，不是 32GB GPU 的默认运行合同。
 

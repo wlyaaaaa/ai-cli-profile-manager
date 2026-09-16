@@ -30,7 +30,7 @@ Describe 'Exact GLM-5.3 Codex Profiles' {
             $model.slug | Should -BeExactly $spec.Model
             $model.context_window | Should -Be 1048576
             $model.max_context_window | Should -Be 1048576
-            $model.auto_compact_token_limit | Should -Be 996147
+            $model.auto_compact_token_limit | Should -Be 943718
             @($model.supported_reasoning_levels.effort) | Should -Be @('low','high','max')
             @($model.input_modalities) | Should -Be $spec.Modalities
         }

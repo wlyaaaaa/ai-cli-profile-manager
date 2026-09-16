@@ -19,8 +19,8 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | Profile / 路径 | 实现状态 | 本轮最终 Live 状态 | 发布说明 |
 |----------------|----------|--------------------|----------|
 | `codex-official` | 已实现 | 可用但有限制（本轮按用户要求未做 Live） | 使用上游官方登录；不得由桌面端登录状态推断 CLI 一定可用 |
-| `codex-qwen3-7-max-paygo` | `0.3.12` source/static 已实现 | 当前版本 Live 待验收 | 精确 `qwen3.7-max-2026-06-08`、北京 Workspace paygo Responses、983616/95%、compact 262144；用户 `max` → 原生 `xhigh`；旧 alias/Plus/Profile 与模型覆盖继续失败关闭。 |
-| `codex-qwen3-8-max-paygo` | 当前 source/static 已实现 | 仅由同指纹发布验收回执判定 | 精确 `qwen3.8-max-0902`、Workspace paygo Responses、983616/95%、compact 262144；用户 `max` → 原生 `xhigh`；拒绝可变 alias、preview/Token Plan/模型覆盖。 |
+| `codex-qwen3-7-max-paygo` | `0.3.12` source/static 已实现 | 当前版本 Live 待验收 | 精确 `qwen3.7-max-2026-06-08`、北京 Workspace paygo Responses、983616/95%、compact 885254（90%）；用户 `max` → 原生 `xhigh`；旧 alias/Plus/Profile 与模型覆盖继续失败关闭。 |
+| `codex-qwen3-8-max-paygo` | 当前 source/static 已实现 | 仅由同指纹发布验收回执判定 | 精确 `qwen3.8-max-0902`、Workspace paygo Responses、983616/95%、compact 885254（90%）；用户 `max` → 原生 `xhigh`；拒绝可变 alias、preview/Token Plan/模型覆盖。 |
 | `codex-deepseek` | `0.3.12` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，1048576 context，Responses，默认/配置/argv `max`。 |
 | `codex-deepseek-v4-pro` | `0.3.12` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`，1048576 context，Responses，默认/配置/argv `max`。 |
 | `codex-ollama-main` | exact source/static 已实现 | 本轮不把旧运行证据晋升为新 Live | `qwen-main-v1`、Responses、max、无 fallback。 |

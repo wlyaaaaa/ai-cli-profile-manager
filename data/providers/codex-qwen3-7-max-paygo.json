@@ -11,7 +11,7 @@
   "workspaceBaseUrlRequired": true,
   "codexProviderId": "aicli_qwen37_max_0608_paygo",
   "codexModelCatalog": "qwen3.7-max-2026-06-08-codex.json",
-  "codexAutoCompactTokenLimit": 262144,
+  "codexAutoCompactTokenLimit": 885254,
   "codexAutoCompactTokenLimitScope": "total",
   "requiresSecret": true,
   "virtualReady": false,

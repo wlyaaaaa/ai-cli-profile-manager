@@ -331,8 +331,10 @@ internal sealed class RpcTransport
                 }
             }
 
-            // Notifications and server requests remain byte-for-byte unchanged at the JSON text level.
-            await WriteClientLineAsync(line, cancellationToken).ConfigureAwait(false);
+            // Provider-specific presentation compatibility is bounded to
+            // managed notifications; every other message stays byte-for-byte unchanged.
+            var normalized = message is not null && router.NormalizeNotification(message);
+            await WriteClientLineAsync(normalized ? message!.ToJsonString() : line, cancellationToken).ConfigureAwait(false);
         }
     }
 

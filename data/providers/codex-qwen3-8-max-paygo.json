@@ -11,7 +11,7 @@
   "workspaceBaseUrlRequired": true,
   "codexProviderId": "aicli_qwen38_max_paygo",
   "codexModelCatalog": "qwen3.8-max-0902-codex.json",
-  "codexAutoCompactTokenLimit": 262144,
+  "codexAutoCompactTokenLimit": 885254,
   "codexAutoCompactTokenLimitScope": "total",
   "requiresSecret": true,
   "virtualReady": false,
@@ -52,7 +52,7 @@
     "apiStatus": "available"
   },
   "dataDestination": "阿里云百炼北京 Workspace 按量 Responses API",
-  "notes": "精确模型 qwen3.8-max-0902。用户档位 max 映射为该模型当前原生最高档 xhigh；运行时同时固定 Responses、Workspace endpoint、模型目录与 262144 token 自动压缩阈值。",
+  "notes": "精确模型 qwen3.8-max-0902。用户档位 max 映射为该模型当前原生最高档 xhigh；运行时同时固定 Responses、Workspace endpoint、模型目录与最大上下文 90% 的自动压缩阈值。",
   "sources": [
     "https://help.aliyun.com/zh/model-studio/codex",
     "https://help.aliyun.com/zh/model-studio/models",

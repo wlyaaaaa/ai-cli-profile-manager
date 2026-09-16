@@ -78,7 +78,7 @@ Describe 'Exact local Qwen3.8-27B Profiles' {
         $model.context_window | Should -Be 262144
         $model.max_context_window | Should -Be 262144
         $model.effective_context_window_percent | Should -Be 95
-        $model.auto_compact_token_limit | Should -BeNullOrEmpty
+        $model.auto_compact_token_limit | Should -Be 235929
         $model.default_reasoning_level | Should -BeExactly 'max'
         @($model.supported_reasoning_levels.effort) | Should -Be @('low', 'medium', 'high', 'max')
         @($model.input_modalities) | Should -Be @('text', 'image')

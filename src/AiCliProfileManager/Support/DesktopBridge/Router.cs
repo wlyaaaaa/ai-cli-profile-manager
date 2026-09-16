@@ -14,6 +14,7 @@ public sealed class ModelRouter
     private readonly ConcurrentDictionary<string, ThreadState> threads = new();
     private readonly ConcurrentDictionary<string, byte> upstreamModels = new();
     private readonly ConcurrentDictionary<string, byte> managedProviders = new();
+    private readonly ConcurrentDictionary<string, byte> rawReasoningProviders = new();
     private readonly string catalogPath;
     public string? StartupCatalogPath => models.Count > 0 ? catalogPath : null;
     private sealed record ThreadState(string Provider, string? Model);
@@ -31,6 +32,8 @@ public sealed class ModelRouter
                 throw new InvalidOperationException("A managed desktop model has no provider definition.");
             modelProviders[model] = routeProvider;
             managedProviders[routeProvider] = 0;
+            if (Text(entry, "profileId") is "codex-glm-5-3" or "codex-glm-5-3-flash")
+                rawReasoningProviders[routeProvider] = 0;
             var normalized = (JsonObject)definition.DeepClone();
             if (routeProvider == LocalProviderId) normalized["name"] = "AICLI local models";
             if (providers.TryGetValue(routeProvider, out var existing) && !JsonNode.DeepEquals(existing, normalized))
@@ -123,11 +126,34 @@ public sealed class ModelRouter
     {
         if (response["result"] is not JsonObject result) return;
         if (method is "thread/start" or "thread/resume" or "thread/read" or "thread/fork")
+        {
             RememberThread(result);
+            var providerId = Text(result, "modelProvider") ?? Text(result["thread"], "modelProvider");
+            if (providerId is not null && rawReasoningProviders.ContainsKey(providerId))
+                PromoteRawReasoning(result);
+        }
         if (method == "thread/settings/update" && Text(originalParams, "threadId") is { } threadId &&
             threads.TryGetValue(threadId, out var state) && SelectedModel(originalParams) is { } selected)
             threads[threadId] = state with { Model = selected };
         if (method == "config/read") RememberProviders(result["config"]);
+    }
+
+    public bool NormalizeNotification(JsonObject message)
+    {
+        if (message["params"] is not JsonObject parameters ||
+            Text(parameters, "threadId") is not { } threadId ||
+            !threads.TryGetValue(threadId, out var state) ||
+            !rawReasoningProviders.ContainsKey(state.Provider)) return false;
+
+        var method = Text(message, "method");
+        if (method == "item/reasoning/textDelta")
+        {
+            message["method"] = "item/reasoning/summaryTextDelta";
+            parameters["summaryIndex"] = parameters["contentIndex"]?.DeepClone() ?? JsonValue.Create(0);
+            parameters.Remove("contentIndex");
+            return true;
+        }
+        return PromoteRawReasoning(parameters);
     }
 
     private async Task<ThreadState> ReadThreadAsync(string id, Func<string, JsonObject, Task<JsonObject>> call)
@@ -187,8 +213,7 @@ public sealed class ModelRouter
         // The official user default can differ from a managed provider.
         // Keep compaction within the selected model's declared capacity.
         var metadata = entry["catalogModel"]!;
-        var percentage = metadata["effective_context_window_percent"]?.GetValue<int>() ?? 95;
-        configuration["model_auto_compact_token_limit"] = metadata["auto_compact_token_limit"]?.DeepClone() ?? JsonValue.Create(window * percentage / 100);
+        configuration["model_auto_compact_token_limit"] = metadata["auto_compact_token_limit"]?.DeepClone() ?? JsonValue.Create(window * 90 / 100);
     }
 
     private void RejectCollision(string model)
@@ -199,5 +224,40 @@ public sealed class ModelRouter
         "此模型与当前任务使用不同的模型服务。请新建任务后选择它；当前任务和历史保持原连接。同一服务内的模型仍可切换。");
     private static string? SelectedModel(JsonObject? parameters) =>
         Text(parameters?["collaborationMode"]?["settings"], "model") ?? Text(parameters, "model");
+    private static bool PromoteRawReasoning(JsonNode? node)
+    {
+        var changed = false;
+        if (node is JsonObject obj)
+        {
+            if (Text(obj, "type") == "reasoning" &&
+                (obj["summary"] is not JsonArray summary || !HasReasoningText(summary)) &&
+                obj["content"] is JsonArray content)
+            {
+                var promoted = new JsonArray();
+                foreach (var part in content)
+                {
+                    if (ReasoningText(part) is { Length: > 0 } text) promoted.Add(text);
+                }
+                if (promoted.Count > 0)
+                {
+                    obj["summary"] = promoted;
+                    changed = true;
+                }
+            }
+            foreach (var child in obj.ToList()) changed |= PromoteRawReasoning(child.Value);
+        }
+        else if (node is JsonArray array)
+        {
+            foreach (var child in array) changed |= PromoteRawReasoning(child);
+        }
+        return changed;
+    }
+    private static bool HasReasoningText(JsonArray parts) =>
+        parts.Any(part => ReasoningText(part) is { Length: > 0 });
+    private static string? ReasoningText(JsonNode? part)
+    {
+        if (part is JsonValue value && value.TryGetValue<string>(out var text)) return text;
+        return Text(part, "text");
+    }
     private static string? Text(JsonNode? node, string key) => node is JsonObject obj && obj[key] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 }

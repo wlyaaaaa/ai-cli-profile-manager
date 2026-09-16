@@ -10,7 +10,7 @@
   "endpoint": "https://open.bigmodel.cn/api/v1",
   "codexProviderId": "aicli_glm_5_3",
   "codexModelCatalog": "glm-5.3-codex.json",
-  "codexAutoCompactTokenLimit": 996147,
+  "codexAutoCompactTokenLimit": 943718,
   "codexAutoCompactTokenLimitScope": "total",
   "requiresSecret": true,
   "virtualReady": false,
