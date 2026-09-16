@@ -67,7 +67,7 @@ Describe 'Retired provider identities' {
             'qwen-code-ollama-main'
         )
         $cloud = $manifests['codex-qwen3-8-max-paygo']
-        $cloud.models.primary | Should -Be 'qwen3.8-max'
+        $cloud.models.primary | Should -Be 'qwen3.8-max-0902'
         $cloud.defaultEffort | Should -Be 'max'
         $cloud.effortMap.max | Should -Be 'xhigh'
     }
@@ -173,9 +173,10 @@ Describe 'Retired provider identities' {
             )) {
                 Test-AiCliRetiredModelId -ModelId $modelId | Should -BeTrue -Because $modelId
             }
-            foreach ($modelId in @('qwen3:8b', 'qwen3.6-35b:256k', 'qwen3.8-max')) {
+            foreach ($modelId in @('qwen3:8b', 'qwen3.6-35b:256k', 'qwen3.8-max-0902')) {
                 Test-AiCliRetiredModelId -ModelId $modelId | Should -BeFalse -Because $modelId
             }
+            Test-AiCliRetiredModelId -ModelId 'qwen3.8-max' | Should -BeTrue
             foreach ($modelId in @('qwen-review-v1', 'qwen3.6:27b', 'qwen3.6-27b-256k')) {
                 Test-AiCliRetiredModelId -ModelId $modelId | Should -BeTrue -Because $modelId
             }

@@ -1,7 +1,7 @@
 {
   "models": [
     {
-      "slug": "qwen3.8-max",
+      "slug": "qwen3.8-max-0902",
       "prefer_websockets": false,
       "support_verbosity": false,
       "default_verbosity": null,
@@ -29,8 +29,8 @@
       "comp_hash": "3000",
       "reasoning_summary_format": null,
       "default_reasoning_summary": "none",
-      "display_name": "Qwen3.8 Max",
-      "description": "Exact Qwen3.8 Max paygo Responses model.",
+      "display_name": "Qwen3.8 Max 0902",
+      "description": "Exact Qwen3.8 Max 0902 paygo Responses snapshot.",
       "default_reasoning_level": "xhigh",
       "supported_reasoning_levels": [
         {
@@ -43,7 +43,7 @@
         },
         {
           "effort": "xhigh",
-          "description": "Maximum native reasoning depth for Qwen3.8 Max"
+          "description": "Maximum native reasoning depth for Qwen3.8 Max 0902"
         }
       ],
       "shell_type": "default",

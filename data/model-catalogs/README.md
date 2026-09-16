@@ -14,9 +14,9 @@
 
 `scripts/Build-DeepSeekCodexCatalog.ps1` 负责上述抽取和哈希绑定。Flash 与 Pro 目录、Provider ID 和 Profile 指纹互相隔离；任何一方的 Live 回执不能证明另一方。
 
-`qwen3.8-max-codex.json` 由 `scripts/Build-QwenCodexCatalog.ps1 -CatalogKind qwen38` 确定性生成：
+`qwen3.8-max-0902-codex.json` 由 `scripts/Build-QwenCodexCatalog.ps1 -CatalogKind qwen38max0902` 确定性生成：
 
-- 精确 slug `qwen3.8-max`、Responses 能力与 983616 输入窗口来自[阿里云 Codex 接入文档](https://help.aliyun.com/zh/model-studio/codex)及模型页；
+- 精确 slug `qwen3.8-max-0902`、Responses 能力与 983616 输入窗口来自[阿里云 Responses 文档](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses)及模型页；
 - `effective_context_window_percent=95`、`auto_compact_token_limit=262144`；用户 `max` 在 Profile 层映射为模型原生最高 `xhigh`；
 - Workspace 按量 Profile 不包含 preview、Token Plan 或其他候选；
 - 基础指令与 `model_messages` 复用同一发布版 `deepseek-v4-flash.json` 中的通用 Codex 0.146 指令，避免阿里云最小示例的空 `base_instructions` 覆盖 Codex Agent 行为；其余能力与限制由生成器白名单逐项声明，不随 DeepSeek 目录静默漂移。
@@ -41,6 +41,6 @@
 - 官方基础标签是 `qwen3.8:27b` Q4_K_M，manifest digest `sha256:22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643`；运行标签是 `qwen3.8-27b:256k`，manifest digest `sha256:8040835723046ec2631b64b960d44414636ea5147942a7d68eaaa7ccdb492e20`，参数层固定 `num_ctx 262144`；
 - 两个标签共用 config digest `sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f`、模型 blob digest `sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d` 与 projector digest `sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e`；
 - `context_window=max_context_window=262144`，输入支持 text/image，默认 effort 为 `max`，只列 `low` / `medium` / `high` / `max`；
-- 与云端 `qwen3.8-max` 及本地 `qwen3.6-35b:256k` 分离，避免把供应商套餐、模型权重或上下文事实互相冒充。
+- 与云端 `qwen3.8-max-0902` 及本地 `qwen3.6-35b:256k` 分离，避免把供应商套餐、模型权重或上下文事实互相冒充。
 
 目录生成后必须运行 Manifest/CodexAdapter 离线测试，并确认再次运行生成器不产生 diff；任何提示版本升级都要重新绑定并验证，不能把旧基础指令无限沿用。

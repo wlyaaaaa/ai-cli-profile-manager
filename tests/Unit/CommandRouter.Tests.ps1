@@ -57,7 +57,7 @@ Describe 'CommandRouter' {
         $profiles = @((($writer.ToString() | ConvertFrom-Json).profiles))
         foreach ($expected in @(
             @{ id = 'codex-qwen3-7-max-paygo'; model = 'qwen3.7-max-2026-06-08'; requested = 'max'; effective = 'xhigh' },
-            @{ id = 'codex-qwen3-8-max-paygo'; model = 'qwen3.8-max'; requested = 'max'; effective = 'xhigh' },
+            @{ id = 'codex-qwen3-8-max-paygo'; model = 'qwen3.8-max-0902'; requested = 'max'; effective = 'xhigh' },
             @{ id = 'codex-deepseek'; model = 'deepseek-v4-flash'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-ollama-main'; model = 'qwen3.8-27b:256k'; requested = 'max'; effective = 'max' },

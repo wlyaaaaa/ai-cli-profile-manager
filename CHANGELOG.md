@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `codex-qwen3-8-max-paygo` 现精确固定 `qwen3.8-max-0902`；Codex Desktop 在启动时保留原生 OpenAI 动态目录，并把已配置的 0902 云端模型与本地模型合并到同一选择器。云端密钥通过 command-backed auth 按需读取受管加密副本，不写入基础配置或全局环境变量。
+
 ### 修复
 
 - `update check` 现在把实际启动入口与版本绑定，并只读比较对应渠道的官方稳定版元数据；无法确认、预发行或存在更新时如实报告，不再把本地版本清单当成“已是最新”。Codex harness 与 Desktop 运行时分开识别。

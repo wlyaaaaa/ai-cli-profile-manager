@@ -563,7 +563,7 @@ Describe 'Live text evidence' {
                 [ordered]@{
                     id = 'failed-plan'; engine = 'codex'; provider = 'qwen'
                     transport = 'responses'; defaultEffort = 'max'
-                    models = [ordered]@{ primary = 'qwen3.8-max' }
+                    models = [ordered]@{ primary = 'qwen3.8-max-0902' }
                 }
             }
             Mock Build-AiCliLaunchPlan { throw 'synthetic plan failure' }

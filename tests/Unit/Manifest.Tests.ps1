@@ -137,11 +137,11 @@ Describe 'Manifest' {
     }
 
     It 'rebuilds the exact Qwen3.8 Max catalog deterministically' {
-        $generated = Join-Path $TestDrive 'qwen3.8-max-codex.json'
+        $generated = Join-Path $TestDrive 'qwen3.8-max-0902-codex.json'
         & (Join-Path $root 'scripts\Build-QwenCodexCatalog.ps1') `
-            -CatalogKind qwen38 -OutputCatalog $generated | Out-Null
+            -CatalogKind qwen38max0902 -OutputCatalog $generated | Out-Null
 
-        $checkedIn = Join-Path $root 'data\model-catalogs\qwen3.8-max-codex.json'
+        $checkedIn = Join-Path $root 'data\model-catalogs\qwen3.8-max-0902-codex.json'
         Assert-CanonicalCatalogBytes -Path $generated
         Assert-CanonicalCatalogBytes -Path $checkedIn
         (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |

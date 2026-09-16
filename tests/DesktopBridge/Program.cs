@@ -12,6 +12,7 @@ JsonObject Parse(string value) => JsonNode.Parse(value)!.AsObject();
 JsonObject Model(string id, string name) => new()
 {
     ["model"] = id, ["providerId"] = "aicli_ollama_" + id,
+    ["routeProviderId"] = "aicli_desktop_local", ["kind"] = "local",
     ["provider"] = new JsonObject { ["name"] = name, ["base_url"] = "http://127.0.0.1:32100/v1", ["wire_api"] = "responses", ["requires_openai_auth"] = false },
     ["contextWindow"] = 262144L,
     ["catalogModel"] = new JsonObject
@@ -22,7 +23,31 @@ JsonObject Model(string id, string name) => new()
         ["supported_reasoning_levels"] = new JsonArray(new JsonObject { ["effort"] = "high", ["description"] = "High" })
     }
 };
-var plan = new JsonObject { ["codexHome"] = root, ["models"] = new JsonArray(Model("local-a", "Named local A"), Model("local-b", "Named local B")) };
+JsonObject CloudModel() => new()
+{
+    ["model"] = "qwen3.8-max-0902", ["providerId"] = "aicli_qwen38_max_paygo",
+    ["routeProviderId"] = "aicli_qwen38_max_paygo", ["kind"] = "cloud",
+    ["provider"] = new JsonObject
+    {
+        ["name"] = "Qwen3.8 Max 0902", ["base_url"] = "https://workspace.example/compatible-mode/v1",
+        ["wire_api"] = "responses", ["requires_openai_auth"] = false,
+        ["auth"] = new JsonObject
+        {
+            ["command"] = "pwsh", ["args"] = new JsonArray("-File", "token.ps1"),
+            ["timeout_ms"] = 10000, ["refresh_interval_ms"] = 0
+        }
+    },
+    ["contextWindow"] = 983616L,
+    ["catalogModel"] = new JsonObject
+    {
+        ["slug"] = "qwen3.8-max-0902", ["display_name"] = "Qwen3.8 Max 0902",
+        ["description"] = "Cloud fixture", ["context_window"] = 983616,
+        ["default_reasoning_level"] = "xhigh", ["effective_context_window_percent"] = 95,
+        ["auto_compact_token_limit"] = 262144, ["input_modalities"] = new JsonArray("text", "image"),
+        ["supported_reasoning_levels"] = new JsonArray(new JsonObject { ["effort"] = "xhigh", ["description"] = "XHigh" })
+    }
+};
+var plan = new JsonObject { ["codexHome"] = root, ["models"] = new JsonArray(Model("local-a", "Named local A"), Model("local-b", "Named local B"), CloudModel()) };
 Task<JsonObject> NoCall(string method, JsonObject args) => throw new Exception("Unexpected upstream call: " + method);
 try
 {
@@ -30,7 +55,7 @@ try
     plan["upstreamModels"] = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "models_cache.json")))!["models"]!.DeepClone();
     var router = new ModelRouter(plan);
     var startup = JsonNode.Parse(File.ReadAllText(router.StartupCatalogPath!))!;
-    Check(startup["models"]!.AsArray().Count == 3 && startup["models"]![0]!["vendorMetadata"]!["unknownFutureField"]!.GetValue<int>() == 17, "Startup catalog must preserve native metadata and load both local models before initialization.");
+    Check(startup["models"]!.AsArray().Count == 4 && startup["models"]![0]!["vendorMetadata"]!["unknownFutureField"]!.GetValue<int>() == 17, "Startup catalog must preserve native metadata and load managed models before initialization.");
     var original = Parse("{\"id\":1,\"method\":\"thread/start\",\"params\":{\"model\":\"cloud-next-generation\",\"config\":{\"custom\":42}}}");
     var official = original.DeepClone();
     await router.BeforeRequestAsync(original, NoCall);
@@ -41,6 +66,12 @@ try
     Check(local["params"]!["modelProvider"]!.GetValue<string>() == "aicli_desktop_local" && local["params"]!["allowProviderModelFallback"]!.GetValue<bool>() == false, "Local selection must bind its service without fallback.");
     Check(local["params"]!["config"]!["model_provider"]!.GetValue<string>() == "aicli_desktop_local" && local["params"]!["config"]!["custom"]!.GetValue<int>() == 42, "Local overrides must agree and preserve unrelated settings.");
     Check(local["params"]!["config"]!["model_context_window"]!.GetValue<long>() == 262144 && !local.ToJsonString().Contains("env_key"), "Local capacity and authentication must come from the local plan.");
+
+    var cloud = Parse("{\"id\":3,\"method\":\"thread/start\",\"params\":{\"model\":\"qwen3.8-max-0902\",\"config\":{}}}");
+    await router.BeforeRequestAsync(cloud, NoCall);
+    Check(cloud["params"]!["modelProvider"]!.GetValue<string>() == "aicli_qwen38_max_paygo", "Cloud selection must bind its exact provider.");
+    Check(cloud["params"]!["config"]!["model_providers.aicli_qwen38_max_paygo"]!["auth"]!["command"]!.GetValue<string>() == "pwsh", "Cloud authentication must stay command-backed.");
+    Check(!cloud.ToJsonString().Contains("env_key"), "Cloud selection must not serialize an API key environment variable.");
 
     var response = Parse("{\"result\":{\"data\":[{\"model\":\"new-upstream-model\",\"isDefault\":true,\"futureField\":17}],\"nextCursor\":\"native-cursor\"}}");
     var unchanged = response.DeepClone();

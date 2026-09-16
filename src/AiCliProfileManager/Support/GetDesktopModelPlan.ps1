@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param(
     [string[]]$ProfileId = @(),
+    [string[]]$CloudProfileId = @('codex-qwen3-8-max-paygo'),
     [string]$ModulePath = (Join-Path $PSScriptRoot '..\AiCliProfileManager.psd1'),
     [switch]$UpstreamOnly
 )
@@ -24,7 +25,7 @@ if ($ProfileId.Count -eq 0 -and -not $UpstreamOnly) {
 }
 $engineResolver = Join-Path $PSScriptRoot 'ResolveDesktopEngine.ps1'
 $plan = & $module {
-    param([string[]]$Ids, [bool]$OnlyUpstream, [string]$EngineResolver)
+    param([string[]]$Ids, [string[]]$CloudIds, [bool]$OnlyUpstream, [string]$EngineResolver, [string]$SupportRoot)
     $entries = [Collections.Generic.List[object]]::new()
     $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($id in $(if ($OnlyUpstream) { @() } else { $Ids })) {
@@ -61,11 +62,70 @@ $plan = & $module {
             profileId = $id
             model = $model
             providerId = $providerId
+            routeProviderId = 'aicli_desktop_local'
+            kind = 'local'
             provider = [ordered]@{
                 name = [string](Get-AiCliProperty $profile 'displayName')
                 base_url = $endpoint
                 wire_api = 'responses'
                 requires_openai_auth = $false
+            }
+            catalogModel = $info
+            catalogPath = [IO.Path]::GetFullPath($catalogPath)
+            contextWindow = [long]$info.context_window
+            defaultEffort = [string]$info.default_reasoning_level
+        })
+    }
+    foreach ($id in $(if ($OnlyUpstream) { @() } else { $CloudIds })) {
+        $profile = Get-AiCliResolvedProfile -Id $id
+        if (-not [bool](Get-AiCliProperty $profile 'configured' $false)) { continue }
+        if ((Get-AiCliProperty $profile 'engine') -ne 'codex' -or
+            (Get-AiCliProperty $profile 'provider') -ne 'qwen' -or
+            (Get-AiCliProperty $profile 'transport') -ne 'responses') {
+            throw "Desktop cloud model profile must use Codex Qwen Responses: $id"
+        }
+        if ((Get-AiCliProperty (Get-AiCliProperty $profile 'auth') 'type') -ne 'api-key' -or
+            -not [bool](Get-AiCliProperty $profile 'secretConfigured' $false)) {
+            throw "Desktop cloud model profile has no configured API key: $id"
+        }
+        $endpoint = Resolve-AiCliQwenWorkspaceResponsesEndpoint `
+            -Endpoint ([string](Get-AiCliProperty $profile 'endpoint'))
+        $model = [string](Get-AiCliProperty (Get-AiCliProperty $profile 'models') 'primary')
+        if (-not $seen.Add($model)) { continue }
+        $catalogName = [string](Get-AiCliProperty $profile 'codexModelCatalog')
+        if (-not $catalogName -or [IO.Path]::GetFileName($catalogName) -ne $catalogName) {
+            throw "Desktop cloud model profile has no valid catalog: $id"
+        }
+        $catalogPath = Get-AiCliDataPath -Relative (Join-Path 'model-catalogs' $catalogName)
+        $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100
+        $matches = @($catalog.models | Where-Object slug -CEQ $model)
+        if ($matches.Count -ne 1) { throw "Desktop cloud catalog does not identify the exact profile model: $id" }
+        $info = $matches[0]
+        $displayName = [string](Get-AiCliProperty $profile 'displayName')
+        $info.display_name = ($displayName -replace '^Codex(?: CLI)?\s*\+\s*', '') -replace '\s*\uFF08[^\uFF09]*\uFF09\s*$', ''
+        $providerId = [string](Get-AiCliProperty $profile 'codexProviderId')
+        if (-not $providerId) { throw "Desktop cloud model profile has no provider ID: $id" }
+        $tokenScript = [IO.Path]::GetFullPath((Join-Path $SupportRoot 'GetDesktopProviderToken.ps1'))
+        if (-not (Test-Path -LiteralPath $tokenScript -PathType Leaf)) {
+            throw 'Desktop provider token helper is unavailable.'
+        }
+        $entries.Add([ordered]@{
+            profileId = $id
+            model = $model
+            providerId = $providerId
+            routeProviderId = $providerId
+            kind = 'cloud'
+            provider = [ordered]@{
+                name = $displayName
+                base_url = $endpoint
+                wire_api = 'responses'
+                requires_openai_auth = $false
+                auth = [ordered]@{
+                    command = 'pwsh'
+                    args = @('-NoProfile', '-NonInteractive', '-File', $tokenScript, '-ProfileId', $id)
+                    timeout_ms = 10000
+                    refresh_interval_ms = 0
+                }
             }
             catalogModel = $info
             catalogPath = [IO.Path]::GetFullPath($catalogPath)
@@ -101,7 +161,7 @@ $plan = & $module {
         models = @($entries)
         legacyModels = @($legacyModels)
     }
-} -Ids $ProfileId -OnlyUpstream $UpstreamOnly.IsPresent -EngineResolver $engineResolver
+} -Ids $ProfileId -CloudIds $CloudProfileId -OnlyUpstream $UpstreamOnly.IsPresent -EngineResolver $engineResolver -SupportRoot $PSScriptRoot
 if (-not $UpstreamOnly) {
     # Read the unmodified engine's current catalog BEFORE launching the desktop
     # app-server with its merged catalog. No official model IDs are embedded here.

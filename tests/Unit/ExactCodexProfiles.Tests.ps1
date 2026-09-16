@@ -87,7 +87,7 @@ Describe 'Exact third-party Codex Profiles' {
         @($model.input_modalities) | Should -Be @('text', 'image')
     }
 
-    It 'seals Qwen3.8 Max to the paygo Responses route and maps user max to native xhigh' {
+    It 'seals Qwen3.8 Max 0902 to the paygo Responses route and maps user max to native xhigh' {
         $manifest = InModuleScope AiCliProfileManager {
             Get-AiCliProviderManifest -Id 'codex-qwen3-8-max-paygo'
         }
@@ -99,25 +99,25 @@ Describe 'Exact third-party Codex Profiles' {
         $manifest.endpoint | Should -BeNullOrEmpty
         $manifest.workspaceBaseUrlRequired | Should -BeTrue
         $manifest.codexProviderId | Should -Be 'aicli_qwen38_max_paygo'
-        $manifest.codexModelCatalog | Should -Be 'qwen3.8-max-codex.json'
-        $manifest.models.primary | Should -Be 'qwen3.8-max'
-        $manifest.models.small | Should -Be 'qwen3.8-max'
-        @($manifest.models.candidates) | Should -Be @('qwen3.8-max')
+        $manifest.codexModelCatalog | Should -Be 'qwen3.8-max-0902-codex.json'
+        $manifest.models.primary | Should -Be 'qwen3.8-max-0902'
+        $manifest.models.small | Should -Be 'qwen3.8-max-0902'
+        @($manifest.models.candidates) | Should -Be @('qwen3.8-max-0902')
         @($manifest.models.reserved) | Should -Not -Contain 'qwen3.8-max-preview'
         $manifest.flexible | Should -BeFalse
         $manifest.defaultEffort | Should -Be 'max'
         @($manifest.effortLevels) | Should -Be @('low', 'medium', 'high', 'xhigh', 'max')
         $manifest.effortMap.max | Should -Be 'xhigh'
         $manifest.effortMap.high | Should -Be 'xhigh'
-        $manifest.compatibility.modelVersion | Should -Be 'qwen3.8-max'
+        $manifest.compatibility.modelVersion | Should -Be 'qwen3.8-max-0902'
         ($manifest | ConvertTo-Json -Depth 30) | Should -Not -Match '(?i)preview|token[- ]?plan'
 
         $catalog = Get-Content -LiteralPath (
-            Join-Path $script:ExactProfileRepoRoot 'data\model-catalogs\qwen3.8-max-codex.json'
+            Join-Path $script:ExactProfileRepoRoot 'data\model-catalogs\qwen3.8-max-0902-codex.json'
         ) -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100
         @($catalog.models).Count | Should -Be 1
         $model = $catalog.models[0]
-        $model.slug | Should -Be 'qwen3.8-max'
+        $model.slug | Should -Be 'qwen3.8-max-0902'
         $model.context_window | Should -Be 983616
         $model.max_context_window | Should -Be 983616
         $model.effective_context_window_percent | Should -Be 95
@@ -322,18 +322,18 @@ Describe 'Exact third-party Codex Profiles' {
                 }
             }
             Mock Publish-AiCliCodexModelCatalog {
-                Join-Path $Work 'qwen3.8-max-codex.json'
+                Join-Path $Work 'qwen3.8-max-0902-codex.json'
             }
             Mock Get-AiCliSecret { 'test-secret-never-serialize' }
 
             $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work
 
-            $plan.model | Should -Be 'qwen3.8-max'
+            $plan.model | Should -Be 'qwen3.8-max-0902'
             $plan.effort | Should -Be 'max'
             $plan.effectiveEffort | Should -Be 'xhigh'
             $plan.wire | Should -Be 'responses'
             $plan.argumentList | Should -Contain 'model_reasoning_effort="xhigh"'
-            $plan.argumentList | Should -Contain 'model="qwen3.8-max"'
+            $plan.argumentList | Should -Contain 'model="qwen3.8-max-0902"'
             $plan.argumentList | Should -Contain 'model_providers.aicli_qwen38_max_paygo.wire_api="responses"'
             $plan.argumentList | Should -Contain 'model_providers.aicli_qwen38_max_paygo.env_key="AICLI_CODEX_PROVIDER_KEY"'
             $plan.environmentDelta.AICLI_CODEX_PROVIDER_KEY | Should -Be 'test-secret-never-serialize'

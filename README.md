@@ -39,7 +39,7 @@ pwsh -File .\bin\aicli.ps1 doctor
 
 DeepSeek 当前官方 Codex/Responses 目录同时支持 `deepseek-v4-flash` 与 `deepseek-v4-pro`。AICLI 用 `codex-deepseek` 精确绑定 alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，用 `codex-deepseek-v4-pro` 精确绑定 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`；两者都是 1048576 context、Responses、`low/high/max`，默认 `max`，不接受模型或 fallback 覆盖。动态支持状态以 [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 与 [DeepSeek Change Log](https://api-docs.deepseek.com/updates/) 为准。
 
-Qwen 云端使用两个互相隔离的 exact Profile：`codex-qwen3-7-max-paygo` 只固定 `qwen3.7-max-2026-06-08`，`codex-qwen3-8-max-paygo` 只固定 `qwen3.8-max`；两者都只接受北京百炼 Workspace 按量 Responses endpoint，使用 983616 context、95% 有效窗口、262144 token 自动压缩阈值，用户 `max` 映射为原生最高 `xhigh`。通用 alias、05-20、preview、Plus、通用 DashScope、Token Plan、模型覆盖和 fallback 都不进入这两个入口。
+Qwen 云端使用两个互相隔离的 exact Profile：`codex-qwen3-7-max-paygo` 只固定 `qwen3.7-max-2026-06-08`，`codex-qwen3-8-max-paygo` 只固定 `qwen3.8-max-0902`；两者都只接受北京百炼 Workspace 按量 Responses endpoint，使用 983616 context、95% 有效窗口、262144 token 自动压缩阈值，用户 `max` 映射为原生最高 `xhigh`。通用 alias、05-20、preview、Plus、通用 DashScope、Token Plan、模型覆盖和 fallback 都不进入这两个入口。Codex 桌面桥接会在启动时读取原生 OpenAI 模型目录，再合并已配置的 0902 快照与本地模型；不会把官方模型写成静态白名单。
 
 本机新模型使用两个隔离入口：`codex-ollama-qwen3-8-27b` 与 `opencode-ollama-qwen3-8-27b` 都固定同一个 `aicli-qwen3.8-27b-256k:2026-08-14` 运行标签。该标签复用官方 `qwen3.8:27b` Q4_K_M 模型/视觉权重，只增加 `num_ctx 262144` 参数层；运行前执行 `scripts\Setup-Qwen38-27B256K.ps1`，还会把 `Qwen3.8 27B MAX (256K)` 注册到既有 OpenCode Desktop 本机 Provider。Codex 继续使用 Responses、`max`、单候选和 no-fallback；OpenCode 使用同一权重与一次性 pure 配置。运行需要 Ollama 0.32.12 或更高。
 

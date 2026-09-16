@@ -2,8 +2,8 @@
 [CmdletBinding()]
 param(
     [string]$SourceCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\deepseek-v4-flash.json'),
-    [ValidateSet('qwen38', 'qwen37max0608', 'local', 'localQwen38_27b')][string]$CatalogKind = 'qwen38',
-    [string]$OutputCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\qwen3.8-max-codex.json')
+    [ValidateSet('qwen38max0902', 'qwen37max0608', 'local', 'localQwen38_27b')][string]$CatalogKind = 'qwen38max0902',
+    [string]$OutputCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\qwen3.8-max-0902-codex.json')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,13 +37,13 @@ if ($CatalogKind -in @('local', 'localQwen38_27b')) {
         [ordered]@{ effort = 'high'; description = 'Deeper reasoning for complex tasks' },
         [ordered]@{ effort = 'max'; description = 'Maximum supported reasoning depth' }
     )
-} elseif ($CatalogKind -in @('qwen38', 'qwen37max0608')) {
+} elseif ($CatalogKind -in @('qwen38max0902', 'qwen37max0608')) {
     $definitions = @(
         [ordered]@{
-            slug = $(if ($CatalogKind -eq 'qwen38') { 'qwen3.8-max' } else { 'qwen3.7-max-2026-06-08' })
-            display = $(if ($CatalogKind -eq 'qwen38') { 'Qwen3.8 Max' } else { 'Qwen3.7 Max 2026-06-08' })
-            description = $(if ($CatalogKind -eq 'qwen38') {
-                'Exact Qwen3.8 Max paygo Responses model.'
+            slug = $(if ($CatalogKind -eq 'qwen38max0902') { 'qwen3.8-max-0902' } else { 'qwen3.7-max-2026-06-08' })
+            display = $(if ($CatalogKind -eq 'qwen38max0902') { 'Qwen3.8 Max 0902' } else { 'Qwen3.7 Max 2026-06-08' })
+            description = $(if ($CatalogKind -eq 'qwen38max0902') {
+                'Exact Qwen3.8 Max 0902 paygo Responses snapshot.'
             } else {
                 'Exact Qwen3.7 Max 2026-06-08 paygo Responses snapshot.'
             })
@@ -57,8 +57,8 @@ if ($CatalogKind -in @('local', 'localQwen38_27b')) {
         [ordered]@{ effort = 'medium'; description = 'Balanced reasoning depth and latency' },
         [ordered]@{
             effort = 'xhigh'
-            description = $(if ($CatalogKind -eq 'qwen38') {
-                'Maximum native reasoning depth for Qwen3.8 Max'
+            description = $(if ($CatalogKind -eq 'qwen38max0902') {
+                'Maximum native reasoning depth for Qwen3.8 Max 0902'
             } else {
                 'Maximum native reasoning depth for Qwen3.7 Max 2026-06-08'
             })
@@ -91,7 +91,7 @@ for ($index = 0; $index -lt $definitions.Count; $index++) {
         context_window = $contextWindow
         max_context_window = $contextWindow
         effective_context_window_percent = 95
-        auto_compact_token_limit = $(if ($CatalogKind -in @('qwen38', 'qwen37max0608')) { 262144 } else { $null })
+        auto_compact_token_limit = $(if ($CatalogKind -in @('qwen38max0902', 'qwen37max0608')) { 262144 } else { $null })
         comp_hash = '3000'
         reasoning_summary_format = $null
         default_reasoning_summary = 'none'

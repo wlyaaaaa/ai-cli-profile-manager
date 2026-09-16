@@ -58,7 +58,7 @@ $exactProfiles = & $sourceModule {
 }
 $requiredExactProfiles = @(
     [pscustomobject]@{ id = 'codex-qwen3-7-max-paygo'; model = 'qwen3.7-max-2026-06-08'; effectiveEffort = 'xhigh' },
-    [pscustomobject]@{ id = 'codex-qwen3-8-max-paygo'; model = 'qwen3.8-max'; effectiveEffort = 'xhigh' },
+    [pscustomobject]@{ id = 'codex-qwen3-8-max-paygo'; model = 'qwen3.8-max-0902'; effectiveEffort = 'xhigh' },
     [pscustomobject]@{ id = 'codex-deepseek'; model = 'deepseek-v4-flash'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; effectiveEffort = 'max' },
     [pscustomobject]@{ id = 'codex-ollama-main'; model = 'qwen3.8-27b:256k'; effectiveEffort = 'max' },

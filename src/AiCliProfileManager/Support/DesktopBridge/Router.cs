@@ -3,18 +3,19 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 
-// Only model discovery and local thread configuration belong to this adapter.
+// Only model discovery and managed thread configuration belong to this adapter.
 // The original Codex engine owns authentication, history, tools and execution.
 public sealed class ModelRouter
 {
-    private const string ProviderId = "aicli_desktop_local";
+    private const string LocalProviderId = "aicli_desktop_local";
     private readonly Dictionary<string, JsonObject> models = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> modelProviders = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, JsonObject> providers = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, ThreadState> threads = new();
     private readonly ConcurrentDictionary<string, byte> upstreamModels = new();
-    private readonly ConcurrentDictionary<string, byte> localProviders = new();
+    private readonly ConcurrentDictionary<string, byte> managedProviders = new();
     private readonly string catalogPath;
     public string? StartupCatalogPath => models.Count > 0 ? catalogPath : null;
-    private readonly JsonObject? provider;
     private sealed record ThreadState(string Provider, string? Model);
 
     public ModelRouter(JsonObject plan)
@@ -24,7 +25,17 @@ public sealed class ModelRouter
         {
             if (value is not JsonObject entry || Text(entry, "model") is not { } model) continue;
             models.Add(model, (JsonObject)entry.DeepClone());
-            if (Text(entry, "providerId") is { } id) localProviders[id] = 0;
+            var routeProvider = Text(entry, "routeProviderId") ?? Text(entry, "providerId")
+                ?? throw new InvalidOperationException("A managed desktop model has no provider ID.");
+            if (entry["provider"] is not JsonObject definition)
+                throw new InvalidOperationException("A managed desktop model has no provider definition.");
+            modelProviders[model] = routeProvider;
+            managedProviders[routeProvider] = 0;
+            var normalized = (JsonObject)definition.DeepClone();
+            if (routeProvider == LocalProviderId) normalized["name"] = "AICLI local models";
+            if (providers.TryGetValue(routeProvider, out var existing) && !JsonNode.DeepEquals(existing, normalized))
+                throw new InvalidOperationException("Desktop models in one provider group must share one definition.");
+            providers[routeProvider] = normalized;
         }
         foreach (var value in plan["legacyModels"]?.AsArray() ?? [])
         {
@@ -37,14 +48,9 @@ public sealed class ModelRouter
             entry["catalogModel"]!["visibility"] = "hide";
             entry["catalogModel"]!["display_name"] = Text(original["catalogModel"], "display_name") + "（旧配置）";
             models[alias] = entry;
+            modelProviders[alias] = modelProviders[canonical];
         }
         if (models.Count == 0) { catalogPath = ""; return; }
-        var endpoints = models.Values.Select(e => Text(e["provider"], "base_url")).Distinct().ToArray();
-        if (endpoints.Length != 1 || endpoints[0] is null)
-            throw new InvalidOperationException("Desktop local models must share one local endpoint.");
-        provider = (JsonObject)models.Values.First()["provider"]!.DeepClone();
-        provider["name"] = "AICLI local models";
-        localProviders[ProviderId] = 0;
         var combined = new JsonArray();
         foreach (var item in plan["upstreamModels"]?.AsArray() ?? [])
         {
@@ -84,7 +90,8 @@ public sealed class ModelRouter
             if (selected is not null && models.ContainsKey(selected))
             {
                 RejectCollision(selected);
-                ConfigureLocal(parameters, ProviderId, selected);
+                var providerId = modelProviders[selected];
+                ConfigureManaged(parameters, providerId, providerId, selected);
                 parameters["allowProviderModelFallback"] = false;
             }
             return request;
@@ -93,23 +100,21 @@ public sealed class ModelRouter
         var threadId = Text(parameters, "threadId");
         if (threadId is null) return request;
         var state = await ReadThreadAsync(threadId, callUpstream);
-        var isLocal = await IsLocalProviderAsync(state.Provider, callUpstream);
+        var providerGroup = await ResolveManagedProviderAsync(state.Provider, callUpstream);
         if (selected is not null && models.ContainsKey(selected))
         {
             RejectCollision(selected);
-            if (!isLocal) throw CrossProviderError();
+            if (providerGroup is null || modelProviders[selected] != providerGroup) throw CrossProviderError();
         }
-        else if (isLocal && selected is not null && selected != state.Model)
+        else if (providerGroup is not null && selected is not null && selected != state.Model)
         {
-            // Native persisted threads keep their provider, including after
-            // unsubscribe/resume. Never send an official selection to Ollama.
+            // Persisted managed threads keep their provider. Never send an
+            // official or cross-provider selection to the wrong service.
             throw CrossProviderError();
         }
-        if (isLocal && (method is "thread/resume" or "thread/fork"))
+        if (providerGroup is not null && (method is "thread/resume" or "thread/fork"))
         {
-            // Preserve the provider recorded in the original task. The
-            // combined catalog permits both local models without a rebind.
-            ConfigureLocal(parameters, state.Provider, selected ?? state.Model);
+            ConfigureManaged(parameters, state.Provider, providerGroup, selected ?? state.Model);
         }
         return request;
     }
@@ -136,22 +141,23 @@ public sealed class ModelRouter
             throw new RpcException(-32603, "Could not identify the saved task's model provider.");
     }
 
-    private async Task<bool> IsLocalProviderAsync(string id, Func<string, JsonObject, Task<JsonObject>> call)
+    private async Task<string?> ResolveManagedProviderAsync(string id, Func<string, JsonObject, Task<JsonObject>> call)
     {
-        if (localProviders.ContainsKey(id)) return true;
-        if (!id.StartsWith("aicli_ollama_", StringComparison.Ordinal)) return false;
+        if (managedProviders.ContainsKey(id)) return id;
+        if (!id.StartsWith("aicli_ollama_", StringComparison.Ordinal)) return null;
         var response = await call("config/read", new JsonObject { ["includeLayers"] = false, ["cwd"] = null });
         RememberProviders(response["result"]?["config"]);
-        return localProviders.ContainsKey(id);
+        return managedProviders.ContainsKey(id) ? LocalProviderId : null;
     }
 
     private void RememberProviders(JsonNode? configuration)
     {
-        if (provider is null || configuration?["model_providers"] is not JsonObject definitions) return;
+        if (!providers.TryGetValue(LocalProviderId, out var localProvider) ||
+            configuration?["model_providers"] is not JsonObject definitions) return;
         foreach (var (id, definition) in definitions)
             if (id.StartsWith("aicli_ollama_", StringComparison.Ordinal) &&
-                Text(definition, "base_url")?.TrimEnd('/') == Text(provider, "base_url")?.TrimEnd('/'))
-                localProviders[id] = 0;
+                Text(definition, "base_url")?.TrimEnd('/') == Text(localProvider, "base_url")?.TrimEnd('/'))
+                managedProviders[id] = 0;
     }
 
     private void RememberThread(JsonObject result)
@@ -164,20 +170,22 @@ public sealed class ModelRouter
         threads[id] = new ThreadState(providerId, model);
     }
 
-    private void ConfigureLocal(JsonObject parameters, string providerId, string? model)
+    private void ConfigureManaged(JsonObject parameters, string providerId, string providerGroup, string? model)
     {
-        if (provider is null) return;
+        if (!providers.TryGetValue(providerGroup, out var provider)) return;
         parameters["modelProvider"] = providerId;
         var configuration = parameters["config"] as JsonObject;
         if (configuration is null) { configuration = new JsonObject(); parameters["config"] = configuration; }
         configuration["model_provider"] = providerId;
         if (model is not null) configuration["model"] = model;
         configuration[$"model_providers.{providerId}"] = provider.DeepClone();
-        var entry = model is not null && models.TryGetValue(model, out var exact) ? exact : models.Values.First();
+        var entry = model is not null && models.TryGetValue(model, out var exact)
+            ? exact
+            : models.Values.First(value => modelProviders[Text(value, "model")!] == providerGroup);
         var window = entry["contextWindow"]!.GetValue<long>();
         configuration["model_context_window"] = window;
-        // The official user default can be larger than the local context.
-        // Keep the local compaction threshold within its declared capacity.
+        // The official user default can differ from a managed provider.
+        // Keep compaction within the selected model's declared capacity.
         var metadata = entry["catalogModel"]!;
         var percentage = metadata["effective_context_window_percent"]?.GetValue<int>() ?? 95;
         configuration["model_auto_compact_token_limit"] = metadata["auto_compact_token_limit"]?.DeepClone() ?? JsonValue.Create(window * percentage / 100);
@@ -185,10 +193,10 @@ public sealed class ModelRouter
 
     private void RejectCollision(string model)
     {
-        if (upstreamModels.ContainsKey(model)) throw new RpcException(-32602, "Local and upstream catalogs contain the same model ID; select an unambiguous local profile.");
+        if (upstreamModels.ContainsKey(model)) throw new RpcException(-32602, "Managed and upstream catalogs contain the same model ID; select an unambiguous model.");
     }
     private static RpcException CrossProviderError() => new(-32602,
-        "此模型与当前任务使用不同的模型服务。请新建任务后选择它；当前任务和历史保持原连接。两个本地 Qwen 模型可在本地任务中切换。");
+        "此模型与当前任务使用不同的模型服务。请新建任务后选择它；当前任务和历史保持原连接。同一服务内的模型仍可切换。");
     private static string? SelectedModel(JsonObject? parameters) =>
         Text(parameters?["collaborationMode"]?["settings"], "model") ?? Text(parameters, "model");
     private static string? Text(JsonNode? node, string key) => node is JsonObject obj && obj[key] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;

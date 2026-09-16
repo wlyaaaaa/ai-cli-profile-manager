@@ -389,7 +389,7 @@ function Write-AiCliCodexManagedProfile {
             $path = Join-Path $home $fileName
             $marker = Get-AiCliManagedProfileMarker -ProfileSafeId $safeId -ContentHash $hash
             $content = $marker + "`n" + $TomlBody
-        } elseif (-not $oldHash -or -not $actualBodyHash -or $actualBodyHash -ne $oldHash -or ($recorded -and $recorded -ne $oldHash)) {
+        } elseif (-not $oldHash -or -not $actualBodyHash -or $actualBodyHash -ne $oldHash) {
             # user modified managed file — do not overwrite; new id
             Write-AiCliWarn "检测到用户修改过的派生 Profile，将写入新文件而不覆盖。"
             $safeId = "$safeId-$([guid]::NewGuid().ToString('N').Substring(0,8))"
@@ -397,6 +397,11 @@ function Write-AiCliCodexManagedProfile {
             $path = Join-Path $home $fileName
             $marker = Get-AiCliManagedProfileMarker -ProfileSafeId $safeId -ContentHash $hash
             $content = $marker + "`n" + $TomlBody
+        } elseif ($recorded -and $recorded -ne $oldHash) {
+            # The file still authenticates itself through its embedded body
+            # hash. Repair stale derived state instead of multiplying profile
+            # files after a supported model/catalog migration.
+            Write-AiCliWarn "检测到旧的派生状态记录，将按 Profile 自校验结果更新。"
         }
     }
 

@@ -25,7 +25,7 @@ aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 | --- | --- | --- |
 | `codex-spark-xhigh` | Codex CLI（官方登录） | OpenAI / `gpt-5.3-codex-spark` / 默认 `xhigh` |
 | `codex-qwen3-7-max-paygo` | Codex CLI（百炼 Workspace） | Responses / `qwen3.7-max-2026-06-08` / requested `max` → effective `xhigh` |
-| `codex-qwen3-8-max-paygo` | Codex CLI（百炼 Workspace） | Responses / `qwen3.8-max` / requested `max` → effective `xhigh` |
+| `codex-qwen3-8-max-paygo` | Codex CLI（百炼 Workspace） | Responses / `qwen3.8-max-0902` / requested `max` → effective `xhigh` |
 | `codex-deepseek` | Codex CLI | Responses / `deepseek-v4-flash` / Flash 0731 / 1M / `max` |
 | `codex-deepseek-v4-pro` | Codex CLI | Responses / `deepseek-v4-pro` / Pro 0813 / 1M / `max` |
 | `codex-ollama-main` | Codex CLI | `127.0.0.1:32100` / `qwen3.6-35b:256k` / 262144 / `max` |

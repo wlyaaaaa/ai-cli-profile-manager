@@ -58,11 +58,13 @@ function Register-LocalProviders($Plan) {
     $original = [IO.File]::ReadAllText($path)
     $updated = $original
     $definitions = [ordered]@{}
-    foreach ($entry in $Plan.models) { $definitions[$entry.providerId] = $entry.provider }
-    $definitions['aicli_desktop_local'] = $Plan.models[0].provider
+    $localModels = @($Plan.models | Where-Object { $_.kind -eq 'local' })
+    if ($localModels.Count -eq 0) { return }
+    foreach ($entry in $localModels) { $definitions[$entry.providerId] = $entry.provider }
+    $definitions['aicli_desktop_local'] = $localModels[0].provider
     # This legacy provider was recorded in tasks made by the older AICLI entry.
     if ($original -match '(?m)^\[model_providers\.aicli_ollama_qwen38_27b\]') {
-        $definitions['aicli_ollama_qwen38_27b'] = $Plan.models[0].provider
+        $definitions['aicli_ollama_qwen38_27b'] = $localModels[0].provider
     }
     foreach ($id in $definitions.Keys) {
         $definition = $definitions[$id]
@@ -102,6 +104,7 @@ if ($Mode -eq 'Build') {
     & dotnet publish $project -c Release -o $output --self-contained false --artifacts-path $artifacts --nologo
     if ($LASTEXITCODE -ne 0) { throw 'Desktop bridge build failed.' }
     Copy-Item -LiteralPath (Join-Path $repo 'src\AiCliProfileManager\Support\GetDesktopModelPlan.ps1') -Destination (Join-Path $repo 'dist\GetDesktopModelPlan.ps1') -Force
+    Copy-Item -LiteralPath (Join-Path $repo 'src\AiCliProfileManager\Support\GetDesktopProviderToken.ps1') -Destination (Join-Path $repo 'dist\GetDesktopProviderToken.ps1') -Force
     Copy-Item -LiteralPath (Join-Path $repo 'src\AiCliProfileManager\Support\ResolveDesktopEngine.ps1') -Destination (Join-Path $repo 'dist\ResolveDesktopEngine.ps1') -Force
     $result = [ordered]@{ status = 'built'; output = $output; activated = $false }
 } elseif ($Mode -eq 'Enable') {
@@ -109,9 +112,10 @@ if ($Mode -eq 'Build') {
     $binary = Join-Path $output 'AiCli.CodexDesktopBridge.exe'
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'Run this script with -Mode Build first.' }
     $exporter = Join-Path $repo 'src\AiCliProfileManager\Support\GetDesktopModelPlan.ps1'
+    $tokenHelper = Join-Path $repo 'src\AiCliProfileManager\Support\GetDesktopProviderToken.ps1'
     $resolver = Join-Path $repo 'src\AiCliProfileManager\Support\ResolveDesktopEngine.ps1'
     $runtimeFiles = @('AiCli.CodexDesktopBridge.exe', 'AiCli.CodexDesktopBridge.dll', 'AiCli.CodexDesktopBridge.deps.json', 'AiCli.CodexDesktopBridge.runtimeconfig.json')
-    $fingerprintText = (@($runtimeFiles | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $output $_)).Hash }) -join '') + (Get-FileHash -LiteralPath $exporter).Hash + (Get-FileHash -LiteralPath $resolver).Hash
+    $fingerprintText = (@($runtimeFiles | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $output $_)).Hash }) -join '') + (Get-FileHash -LiteralPath $exporter).Hash + (Get-FileHash -LiteralPath $tokenHelper).Hash + (Get-FileHash -LiteralPath $resolver).Hash
     $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($fingerprintText))).ToLowerInvariant().Substring(0, 16)
     $release = Join-Path $InstallRoot "releases\$hash"
     $bridge = Join-Path $release 'bridge'
@@ -126,6 +130,8 @@ if ($Mode -eq 'Build') {
     }
     $installedExporter = Join-Path $release 'GetDesktopModelPlan.ps1'
     if (-not (Test-Path -LiteralPath $installedExporter)) { Copy-Item -LiteralPath $exporter -Destination $installedExporter }
+    $installedTokenHelper = Join-Path $release 'GetDesktopProviderToken.ps1'
+    if (-not (Test-Path -LiteralPath $installedTokenHelper)) { Copy-Item -LiteralPath $tokenHelper -Destination $installedTokenHelper }
     $installedResolver = Join-Path $release 'ResolveDesktopEngine.ps1'
     if (-not (Test-Path -LiteralPath $installedResolver)) { Copy-Item -LiteralPath $resolver -Destination $installedResolver }
     # Validate the installed discovery route before changing the desktop entry.

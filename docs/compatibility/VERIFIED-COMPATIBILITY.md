@@ -20,7 +20,7 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 |----------------|----------|--------------------|----------|
 | `codex-official` | 已实现 | 可用但有限制（本轮按用户要求未做 Live） | 使用上游官方登录；不得由桌面端登录状态推断 CLI 一定可用 |
 | `codex-qwen3-7-max-paygo` | `0.3.12` source/static 已实现 | 当前版本 Live 待验收 | 精确 `qwen3.7-max-2026-06-08`、北京 Workspace paygo Responses、983616/95%、compact 262144；用户 `max` → 原生 `xhigh`；旧 alias/Plus/Profile 与模型覆盖继续失败关闭。 |
-| `codex-qwen3-8-max-paygo` | `0.3.12` source/static 已实现 | 仅由同指纹发布验收回执判定 | 精确 `qwen3.8-max`、Workspace paygo Responses、983616/95%、compact 262144；用户 `max` → 原生 `xhigh`；拒绝 preview/Token Plan/模型覆盖。 |
+| `codex-qwen3-8-max-paygo` | 当前 source/static 已实现 | 仅由同指纹发布验收回执判定 | 精确 `qwen3.8-max-0902`、Workspace paygo Responses、983616/95%、compact 262144；用户 `max` → 原生 `xhigh`；拒绝可变 alias、preview/Token Plan/模型覆盖。 |
 | `codex-deepseek` | `0.3.12` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，1048576 context，Responses，默认/配置/argv `max`。 |
 | `codex-deepseek-v4-pro` | `0.3.12` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`，1048576 context，Responses，默认/配置/argv `max`。 |
 | `codex-ollama-main` | exact source/static 已实现 | 本轮不把旧运行证据晋升为新 Live | `qwen-main-v1`、Responses、max、无 fallback。 |
@@ -90,7 +90,7 @@ aicli test <Codex Profile ID> --live --level agent --yes --json
 
 内置模板当前候选包括：
 
-- Qwen 云端只保留两个隔离 exact Codex Profile：`codex-qwen3-7-max-paygo` → `qwen3.7-max-2026-06-08` 与 `codex-qwen3-8-max-paygo` → `qwen3.8-max`，requested `max` 均映射 effective `xhigh`。其他 Qwen3.7 Max/Plus、兼容 ID、目录与导入入口继续退役；旧用户 Profile/原生模型参数失败关闭。
+- Qwen 云端只保留两个隔离 exact Codex Profile：`codex-qwen3-7-max-paygo` → `qwen3.7-max-2026-06-08` 与 `codex-qwen3-8-max-paygo` → `qwen3.8-max-0902`，requested `max` 均映射 effective `xhigh`。其他 Qwen3.7 Max/Plus、Qwen3.8 可变 alias/preview、兼容 ID、目录与导入入口继续退役；旧用户 Profile/原生模型参数失败关闭。
 - DeepSeek Codex 分别固定 `deepseek-v4-flash` / `DeepSeek-V4-Flash-0731` 与 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`，均为 Responses、1M、默认 `max`；Claude Code 与 Open Interpreter 的 DeepSeek 模板仍保持 Flash-only。
 - Ollama 公共模板只使用默认端口和公开模型名；用户必须确认本机已经存在该模型。
 

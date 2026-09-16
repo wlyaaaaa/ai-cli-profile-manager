@@ -466,7 +466,11 @@ function Resolve-AiCliReusableSecretRef {
             throw "Profile $ProfileId 缺少可验证的模板身份，拒绝复用 SecretRef。"
         }
         $existingTemplate = Get-AiCliProviderManifest -Id $existingTemplateId
-        if ((& $getCredentialDomain $existingTemplate $null $false) -cne $targetDomain) {
+        $existingUsesWorkspaceEndpoint = [bool](Get-AiCliProperty $existingTemplate 'workspaceBaseUrlRequired' $false)
+        $existingEndpoint = if ($existingUsesWorkspaceEndpoint) {
+            [string](Get-AiCliProperty $ExistingProfile 'endpoint')
+        } else { $null }
+        if ((& $getCredentialDomain $existingTemplate $existingEndpoint $existingUsesWorkspaceEndpoint) -cne $targetDomain) {
             throw "Profile $ProfileId 的原 Provider/认证域与目标不一致，拒绝复用 SecretRef。"
         }
         $secretRef = [string](Get-AiCliProperty $ExistingProfile 'secretRef')

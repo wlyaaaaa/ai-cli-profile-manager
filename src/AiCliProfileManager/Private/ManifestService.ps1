@@ -26,6 +26,8 @@ function Get-AiCliRetiredModelIds {
         'qwen3.7-max-preview',
         'qwen3.7-plus',
         'qwen3.7-plus-2026-05-26',
+        'qwen3.8-max',
+        'qwen3.8-max-preview',
         'qwen3.6:27b',
         'qwen-review-v1'
     )
@@ -37,6 +39,9 @@ function Test-AiCliRetiredModelId {
     $normalized = $ModelId.Trim().Trim('"', "'")
     $lower = $normalized.ToLowerInvariant()
     if ($lower -match '^qwen3(?:\.|[-_])?7(?:[-_.])?(?:max|plus)(?:$|[-._:/+@])') {
+        return $true
+    }
+    if ($lower -in @('qwen3.8-max', 'qwen3.8-max-preview')) {
         return $true
     }
     if ($lower -match '^deepseek-v4(?:$|[-._:/+@])') {
@@ -91,7 +96,7 @@ function Assert-AiCliModelIsActive {
         throw "$Context 引用了已退役的 Qwen3.6 27B 模型 $ModelId；备用交叉模型已切换为 qwen3.6-35b:256k（Qwen3.6 35B）。"
     }
     if (Test-AiCliRetiredModelId -ModelId $ModelId) {
-        throw "$Context 引用了已退役或脱离 exact Profile 的 Qwen3.7 云模型 $ModelId；仅 qwen3.7-max-2026-06-08 可通过 codex-qwen3-7-max-paygo 使用，且不会自动改投其他模型。"
+        throw "$Context 引用了已退役或脱离 exact Profile 的 Qwen 云模型 $ModelId；仅 qwen3.7-max-2026-06-08 与 qwen3.8-max-0902 可通过各自 exact Codex Profile 使用，且不会自动改投其他模型。"
     }
 }
 
