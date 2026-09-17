@@ -286,15 +286,15 @@ Describe 'Codex remote Responses machine profile' {
     }
 }
 
-Describe 'Codex DeepSeek V4 Flash catalog' {
+Describe 'Codex DeepSeek Flash catalog' {
     BeforeAll {
         $script:DeepSeekProfile = Get-Content -LiteralPath (
-            Join-Path $script:CodexAdapterRepoRoot 'data\providers\codex-deepseek.json'
+            Join-Path $script:CodexAdapterRepoRoot 'data\providers\codex-deepseek-flash.json'
         ) -Raw -Encoding utf8 | ConvertFrom-Json
     }
 
     It 'publishes an immutable content-addressed catalog without a UTF-8 BOM' {
-        $sourceCatalog = Join-Path $script:CodexAdapterRepoRoot 'data\model-catalogs\deepseek-v4-flash.json'
+        $sourceCatalog = Join-Path $script:CodexAdapterRepoRoot 'data\model-catalogs\deepseek-flash.json'
         InModuleScope AiCliProfileManager -Parameters @{
             Work = $TestDrive
             Profile = $script:DeepSeekProfile
@@ -306,7 +306,7 @@ Describe 'Codex DeepSeek V4 Flash catalog' {
             $second = Publish-AiCliCodexModelCatalog -MergedProfile $Profile
 
             $first | Should -Be $second
-            $first | Should -Match 'aicli-model-catalogs[\\/]+deepseek-v4-flash-[a-f0-9]{12}\.json$'
+            $first | Should -Match 'aicli-model-catalogs[\\/]+deepseek-flash-[a-f0-9]{12}\.json$'
             (Get-FileHash -LiteralPath $first -Algorithm SHA256).Hash |
                 Should -Be (Get-FileHash -LiteralPath $SourceCatalog -Algorithm SHA256).Hash
             $bytes = [IO.File]::ReadAllBytes($first)
@@ -316,7 +316,7 @@ Describe 'Codex DeepSeek V4 Flash catalog' {
 
     It 'adds the catalog to both the managed profile and effective provider overrides' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Profile = $script:DeepSeekProfile } {
-            $catalogPath = Join-Path $Work 'deepseek-v4-flash-0123456789ab.json'
+            $catalogPath = Join-Path $Work 'deepseek-flash-0123456789ab.json'
             Mock Publish-AiCliCodexModelCatalog { $catalogPath }
             Mock Resolve-AiCliCodexLaunchExecutable {
                 [pscustomobject]@{
@@ -334,8 +334,8 @@ Describe 'Codex DeepSeek V4 Flash catalog' {
                 $TomlBody | Should -Match 'env_key\s*=\s*"AICLI_CODEX_PROVIDER_KEY"'
                 $TomlBody | Should -Not -Match 'experimental_bearer_token'
                 [pscustomobject]@{
-                    CliProfileName = 'aicli-codex-deepseek'
-                    FilePath = (Join-Path $Work 'aicli-codex-deepseek.config.toml')
+                    CliProfileName = 'aicli-codex-deepseek-flash'
+                    FilePath = (Join-Path $Work 'aicli-codex-deepseek-flash.config.toml')
                     ContentHash = ('0' * 64)
                 }
             }
@@ -346,9 +346,9 @@ Describe 'Codex DeepSeek V4 Flash catalog' {
             $profile.secretRef = 'test-only'
             $plan = Build-AiCliCodexLaunchPlan -MergedProfile $profile -ProjectPath $Work
 
-            $plan.model | Should -Be 'deepseek-v4-flash'
+            $plan.model | Should -Be 'deepseek-flash'
             $plan.argumentList | Should -Contain ('model_catalog_json=' + (ConvertTo-AiCliTomlString $catalogPath))
-            $plan.argumentList | Should -Contain 'model_providers.aicli_deepseek.wire_api="responses"'
+            $plan.argumentList | Should -Contain 'model_providers.aicli_deepseek_flash.wire_api="responses"'
             $plan.environmentDelta.AICLI_CODEX_PROVIDER_KEY | Should -Be 'test-secret-never-serialize'
             ($plan.argumentList -join "`n") | Should -Not -Match 'test-secret-never-serialize'
         }
