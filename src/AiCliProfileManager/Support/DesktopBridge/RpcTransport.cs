@@ -340,8 +340,10 @@ internal sealed class RpcTransport
                 await WriteClientLineAsync(line, cancellationToken).ConfigureAwait(false);
                 continue;
             }
-            foreach (var notification in normalized)
-                await WriteClientLineAsync(notification.ToJsonString(), cancellationToken).ConfigureAwait(false);
+            // Keep a presentation transition together. Other replies cannot interleave with
+            // its item start and continuation, and stdout is flushed only after the whole group.
+            if (normalized.Count > 0)
+                await WriteClientLineAsync(string.Join("\n", normalized.Select(notification => notification.ToJsonString())), cancellationToken).ConfigureAwait(false);
         }
     }
 

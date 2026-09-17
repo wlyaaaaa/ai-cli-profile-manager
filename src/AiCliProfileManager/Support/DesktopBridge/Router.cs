@@ -23,11 +23,15 @@ public sealed class ModelRouter
     private sealed class DeepSeekTurnState
     {
         public object Gate { get; } = new();
-        public string? PresentationItemId { get; set; }
-        public bool PresentationStarted { get; set; }
-        public long NextSummaryIndex { get; set; }
-        public Dictionary<string, long> SummaryIndexes { get; } = new(StringComparer.Ordinal);
-        public SortedDictionary<long, StringBuilder> SummaryText { get; } = new();
+        public JsonObject? LastReasoningStartedItem { get; set; }
+        public HashSet<string> ActiveReasoningIds { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> OpenedSummaryParts { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> StartedMessageIds { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, SortedDictionary<long, StringBuilder>> StreamedSummaries { get; } = new(StringComparer.Ordinal);
+        public JsonObject? ActiveKeepAliveItem { get; set; }
+        public string? KeepAliveAnchorMessageId { get; set; }
+        public string? LastAssistantMessageId { get; set; }
+        public bool AssistantMessageSeen { get; set; }
     }
 
     public ModelRouter(JsonObject plan)
@@ -183,90 +187,177 @@ public sealed class ModelRouter
             return NormalizeRawReasoningNotification(message, parameters) ? new[] { message } : null;
 
         var turnKey = threadId + "\n" + turnId;
-        if (method == "item/started" &&
-            parameters["item"] is JsonObject startedItem &&
-            Text(startedItem, "type") == "reasoning" &&
-            Text(startedItem, "id") is { } startedItemId)
+        if (method == "item/started" && parameters["item"] is JsonObject startedItem)
         {
-            var turnState = deepSeekTurns.GetOrAdd(turnKey, _ => new DeepSeekTurnState());
-            lock (turnState.Gate)
-            {
-                turnState.PresentationItemId ??= startedItemId;
-                if (turnState.PresentationStarted)
-                    return Array.Empty<JsonObject>();
-
-                turnState.PresentationStarted = true;
-                startedItem["id"] = turnState.PresentationItemId;
-                if (startedItem["summary"] is null) startedItem["summary"] = new JsonArray();
-                if (startedItem["content"] is null) startedItem["content"] = new JsonArray();
-                return new[] { message };
-            }
+            var itemType = Text(startedItem, "type");
+            if (itemType == "reasoning" && Text(startedItem, "id") is { } reasoningItemId)
+                return NormalizeDeepSeekReasoningStarted(message, threadId, turnId, turnKey, startedItem, reasoningItemId);
+            if (IsAgentMessageItem(itemType) && Text(startedItem, "id") is { } messageItemId)
+                return NormalizeDeepSeekAgentMessageStarted(message, threadId, turnId, turnKey, messageItemId);
         }
 
         if (method == "item/reasoning/textDelta" &&
             Text(parameters, "itemId") is { } rawItemId &&
-            Text(parameters, "delta") is { } rawDelta)
+            Text(parameters, "delta") is { })
         {
             return NormalizeDeepSeekReasoningDelta(
                 message, parameters, threadId, turnId, turnKey,
-                rawItemId, Integer(parameters["contentIndex"]), rawDelta,
-                removeContentIndex: true);
+                rawItemId, Integer(parameters["contentIndex"]), removeContentIndex: true);
         }
 
         if (method == "item/reasoning/summaryPartAdded" &&
             Text(parameters, "itemId") is { } summaryPartItemId)
         {
             var turnState = deepSeekTurns.GetOrAdd(turnKey, _ => new DeepSeekTurnState());
-            var output = new List<JsonObject>(2);
             lock (turnState.Gate)
-            {
-                turnState.PresentationItemId ??= summaryPartItemId;
-                EnsureDeepSeekPresentationStarted(message, output, turnState, threadId, turnId);
-                var sourceIndex = Integer(parameters["summaryIndex"]);
-                var mappedIndex = GetOrCreateDeepSeekSummaryIndex(
-                    turnState, summaryPartItemId, sourceIndex, out var created);
-                if (!created) return output;
-                parameters["itemId"] = turnState.PresentationItemId;
-                parameters["summaryIndex"] = mappedIndex;
-                output.Add(message);
-                return output;
-            }
+                turnState.OpenedSummaryParts.Add(DeepSeekSummaryPartKey(summaryPartItemId, Integer(parameters["summaryIndex"])));
+            return null;
         }
 
         if (method == "item/reasoning/summaryTextDelta" &&
             Text(parameters, "itemId") is { } summaryItemId &&
-            Text(parameters, "delta") is { } summaryDelta)
+            Text(parameters, "delta") is { })
         {
             return NormalizeDeepSeekReasoningDelta(
                 message, parameters, threadId, turnId, turnKey,
-                summaryItemId, Integer(parameters["summaryIndex"]), summaryDelta,
-                removeContentIndex: false);
+                summaryItemId, Integer(parameters["summaryIndex"]), removeContentIndex: false);
         }
 
-        if (method == "item/completed" &&
-            parameters["item"] is JsonObject completedItem &&
-            Text(completedItem, "type") == "reasoning")
+        if (method == "item/agentMessage/delta" && Text(parameters, "itemId") is { } deltaMessageId)
+            return NormalizeDeepSeekAgentMessageDelta(message, threadId, turnId, turnKey, deltaMessageId);
+
+        if (method == "item/completed" && parameters["item"] is JsonObject completedItem)
         {
-            return NormalizeDeepSeekReasoningCompletion(
-                message, threadId, turnId, turnKey, completedItem);
+            var itemType = Text(completedItem, "type");
+            if (itemType == "reasoning" && Text(completedItem, "id") is { } completedReasoningId)
+                return NormalizeDeepSeekReasoningCompletion(message, threadId, turnId, turnKey, completedItem, completedReasoningId);
+            if (IsAgentMessageItem(itemType) && Text(completedItem, "id") is { } completedMessageId)
+                return NormalizeDeepSeekAgentMessageCompletion(message, threadId, turnId, turnKey, completedMessageId);
         }
 
-        if (method == "turn/completed")
-        {
-            if (!deepSeekTurns.TryRemove(turnKey, out var turnState)) return null;
-            lock (turnState.Gate)
-            {
-                if (!turnState.PresentationStarted || turnState.PresentationItemId is null)
-                    return null;
-                return new[]
-                {
-                    CreateDeepSeekReasoningCompletion(message, threadId, turnId, turnState),
-                    message
-                };
-            }
-        }
+        if (method is "turn/completed" or "turn/failed" or "turn/cancelled")
+            return NormalizeDeepSeekTurnTerminal(message, threadId, turnId, turnKey);
 
         return NormalizeRawReasoningNotification(message, parameters) ? new[] { message } : null;
+    }
+
+    private IReadOnlyList<JsonObject> NormalizeDeepSeekReasoningStarted(
+        JsonObject message,
+        string threadId,
+        string turnId,
+        string turnKey,
+        JsonObject startedItem,
+        string reasoningItemId)
+    {
+        var turnState = deepSeekTurns.GetOrAdd(turnKey, _ => new DeepSeekTurnState());
+        var output = new List<JsonObject> { message };
+        lock (turnState.Gate)
+        {
+            turnState.LastReasoningStartedItem = (JsonObject)startedItem.DeepClone();
+            turnState.ActiveReasoningIds.Add(reasoningItemId);
+
+            // A real reasoning item always takes over before the structural keep-alive closes.
+            // This ordering guarantees that the Desktop never sees a frame with no active reasoning.
+            if (turnState.ActiveKeepAliveItem is not null)
+            {
+                output.Add(CreateDeepSeekKeepAliveCompletion(
+                    message, threadId, turnId, turnState.ActiveKeepAliveItem));
+                turnState.ActiveKeepAliveItem = null;
+                turnState.KeepAliveAnchorMessageId = null;
+            }
+        }
+        return output;
+    }
+
+    private IReadOnlyList<JsonObject>? NormalizeDeepSeekAgentMessageStarted(
+        JsonObject message,
+        string threadId,
+        string turnId,
+        string turnKey,
+        string messageItemId)
+    {
+        var turnState = deepSeekTurns.GetOrAdd(turnKey, _ => new DeepSeekTurnState());
+        lock (turnState.Gate)
+        {
+            turnState.AssistantMessageSeen = true;
+            turnState.LastAssistantMessageId = messageItemId;
+            turnState.StartedMessageIds.Add(messageItemId);
+            if (turnState.LastReasoningStartedItem is null) return null;
+
+            // Desktop selects the last item by position, not by outstanding completion count.
+            // A resumed/pre-filled start must not expose text before its continuation exists.
+            var initialText = Text(message["params"]?["item"], "text") ?? "";
+            var start = initialText.Length == 0 ? message : (JsonObject)message.DeepClone();
+            if (initialText.Length != 0) start["params"]!["item"]!["text"] = "";
+            var output = new List<JsonObject> { start };
+            RotateDeepSeekKeepAlive(message, output, turnState, threadId, turnId, messageItemId);
+            if (initialText.Length != 0)
+                output.Add(CreateDeepSeekNotification(message, "item/agentMessage/delta", new JsonObject
+                {
+                    ["threadId"] = threadId, ["turnId"] = turnId,
+                    ["itemId"] = messageItemId, ["delta"] = initialText
+                }));
+            return output;
+        }
+    }
+
+    private IReadOnlyList<JsonObject>? NormalizeDeepSeekAgentMessageDelta(
+        JsonObject message,
+        string threadId,
+        string turnId,
+        string turnKey,
+        string messageItemId)
+    {
+        if (!deepSeekTurns.TryGetValue(turnKey, out var turnState)) return null;
+        lock (turnState.Gate)
+        {
+            turnState.AssistantMessageSeen = true;
+            turnState.LastAssistantMessageId = messageItemId;
+            if (turnState.LastReasoningStartedItem is null)
+                return null;
+            if (turnState.ActiveKeepAliveItem is not null &&
+                turnState.KeepAliveAnchorMessageId == messageItemId)
+                return null;
+
+            var output = new List<JsonObject>();
+            RotateDeepSeekKeepAlive(message, output, turnState, threadId, turnId, messageItemId);
+            output.Add(message);
+            return output;
+        }
+    }
+
+    private IReadOnlyList<JsonObject>? NormalizeDeepSeekAgentMessageCompletion(
+        JsonObject message,
+        string threadId,
+        string turnId,
+        string turnKey,
+        string messageItemId)
+    {
+        if (!deepSeekTurns.TryGetValue(turnKey, out var turnState)) return null;
+        lock (turnState.Gate)
+        {
+            turnState.AssistantMessageSeen = true;
+            turnState.LastAssistantMessageId = messageItemId;
+            if (turnState.LastReasoningStartedItem is null ||
+                (turnState.ActiveKeepAliveItem is not null && turnState.KeepAliveAnchorMessageId == messageItemId))
+                return null;
+
+            var output = new List<JsonObject>();
+            if (turnState.StartedMessageIds.Add(messageItemId))
+            {
+                // Completion-only messages still need their real position established while empty.
+                // Insert the continuation before non-empty output can be promoted to a final answer.
+                var started = (JsonObject)message["params"]!["item"]!.DeepClone();
+                started["text"] = "";
+                output.Add(CreateDeepSeekNotification(message, "item/started", new JsonObject
+                {
+                    ["threadId"] = threadId, ["turnId"] = turnId, ["item"] = started
+                }));
+            }
+            RotateDeepSeekKeepAlive(message, output, turnState, threadId, turnId, messageItemId);
+            output.Add(message);
+            return output;
+        }
     }
 
     private IReadOnlyList<JsonObject> NormalizeDeepSeekReasoningDelta(
@@ -277,20 +368,18 @@ public sealed class ModelRouter
         string turnKey,
         string sourceItemId,
         long sourceIndex,
-        string delta,
         bool removeContentIndex)
     {
         var turnState = deepSeekTurns.GetOrAdd(turnKey, _ => new DeepSeekTurnState());
-        var output = new List<JsonObject>(3);
+        var output = new List<JsonObject>(2);
         lock (turnState.Gate)
         {
-            turnState.PresentationItemId ??= sourceItemId;
-            EnsureDeepSeekPresentationStarted(message, output, turnState, threadId, turnId);
-            var mappedIndex = GetOrCreateDeepSeekSummaryIndex(
-                turnState, sourceItemId, sourceIndex, out var created);
-            turnState.SummaryText[mappedIndex].Append(delta);
-
-            if (created)
+            if (!turnState.StreamedSummaries.TryGetValue(sourceItemId, out var parts))
+                turnState.StreamedSummaries[sourceItemId] = parts = new();
+            if (!parts.TryGetValue(sourceIndex, out var text)) parts[sourceIndex] = text = new();
+            text.Append(Text(parameters, "delta"));
+            var partKey = DeepSeekSummaryPartKey(sourceItemId, sourceIndex);
+            if (turnState.OpenedSummaryParts.Add(partKey))
             {
                 output.Add(CreateDeepSeekNotification(
                     message,
@@ -299,88 +388,114 @@ public sealed class ModelRouter
                     {
                         ["threadId"] = threadId,
                         ["turnId"] = turnId,
-                        ["itemId"] = turnState.PresentationItemId,
-                        ["summaryIndex"] = mappedIndex
+                        ["itemId"] = sourceItemId,
+                        ["summaryIndex"] = sourceIndex
                     }));
             }
 
-            message["method"] = "item/reasoning/summaryTextDelta";
-            parameters["itemId"] = turnState.PresentationItemId;
-            parameters["summaryIndex"] = mappedIndex;
-            if (removeContentIndex) parameters.Remove("contentIndex");
+            if (removeContentIndex)
+            {
+                message["method"] = "item/reasoning/summaryTextDelta";
+                parameters["summaryIndex"] = sourceIndex;
+                parameters.Remove("contentIndex");
+            }
             output.Add(message);
             return output;
         }
     }
 
     private IReadOnlyList<JsonObject> NormalizeDeepSeekReasoningCompletion(
-        JsonObject source,
+        JsonObject message,
         string threadId,
         string turnId,
         string turnKey,
-        JsonObject completedItem)
+        JsonObject completedItem,
+        string reasoningItemId)
     {
-        if (Text(completedItem, "id") is not { } sourceItemId)
-            return Array.Empty<JsonObject>();
-
         var turnState = deepSeekTurns.GetOrAdd(turnKey, _ => new DeepSeekTurnState());
-        var output = new List<JsonObject>();
+        var output = new List<JsonObject>(2);
         lock (turnState.Gate)
         {
-            turnState.PresentationItemId ??= sourceItemId;
-            EnsureDeepSeekPresentationStarted(source, output, turnState, threadId, turnId);
-
-            var sourceParts = completedItem["content"] as JsonArray;
-            if (sourceParts is null || sourceParts.Count == 0)
-                sourceParts = completedItem["summary"] as JsonArray;
-            if (sourceParts is not null)
+            turnState.ActiveReasoningIds.Remove(reasoningItemId);
+            PromoteRawReasoning(completedItem);
+            if (turnState.StreamedSummaries.TryGetValue(reasoningItemId, out var streamed) &&
+                (completedItem["summary"] is not JsonArray summary || !HasReasoningText(summary)))
             {
-                for (var index = 0; index < sourceParts.Count; index++)
-                {
-                    if (sourceParts[index] is not JsonValue textValue || !textValue.TryGetValue<string>(out var text) || string.IsNullOrEmpty(text)) continue;
-                    var mappedIndex = GetOrCreateDeepSeekSummaryIndex(
-                        turnState, sourceItemId, index, out var created);
-                    if (!created) continue;
-                    turnState.SummaryText[mappedIndex].Append(text);
-                    output.Add(CreateDeepSeekNotification(
-                        source,
-                        "item/reasoning/summaryPartAdded",
-                        new JsonObject
-                        {
-                            ["threadId"] = threadId,
-                            ["turnId"] = turnId,
-                            ["itemId"] = turnState.PresentationItemId,
-                            ["summaryIndex"] = mappedIndex
-                        }));
-                    output.Add(CreateDeepSeekNotification(
-                        source,
-                        "item/reasoning/summaryTextDelta",
-                        new JsonObject
-                        {
-                            ["threadId"] = threadId,
-                            ["turnId"] = turnId,
-                            ["itemId"] = turnState.PresentationItemId,
-                            ["summaryIndex"] = mappedIndex,
-                            ["delta"] = text
-                        }));
-                }
+                // An encrypted/empty terminal projection must not erase public streamed text.
+                var recovered = new JsonArray();
+                foreach (var part in streamed.OrderBy(pair => pair.Key)) recovered.Add(part.Value.ToString());
+                completedItem["summary"] = recovered;
             }
 
-            // Keep one reasoning presentation alive across agent messages and tools.
-            // The single synthetic completion is emitted only at the real turn terminal.
+            // If assistant output is already on screen, insert an empty structural reasoning
+            // item before completing the real reasoning item. It carries no invented text; it
+            // only preserves the same "reasoning is still present while output streams" shape
+            // that Codex Desktop already renders stably for GLM.
+            if (turnState.ActiveReasoningIds.Count == 0 &&
+                turnState.AssistantMessageSeen &&
+                turnState.LastReasoningStartedItem is not null &&
+                turnState.ActiveKeepAliveItem is null)
+            {
+                var anchor = turnState.LastAssistantMessageId ?? "";
+                StartDeepSeekKeepAlive(message, output, turnState, threadId, turnId, anchor);
+            }
+
+            output.Add(message);
             return output;
         }
     }
 
-    private static void EnsureDeepSeekPresentationStarted(
+    private IReadOnlyList<JsonObject>? NormalizeDeepSeekTurnTerminal(
+        JsonObject message,
+        string threadId,
+        string turnId,
+        string turnKey)
+    {
+        if (!deepSeekTurns.TryRemove(turnKey, out var turnState)) return null;
+        lock (turnState.Gate)
+        {
+            if (turnState.ActiveKeepAliveItem is null) return null;
+            return new[]
+            {
+                CreateDeepSeekKeepAliveCompletion(message, threadId, turnId, turnState.ActiveKeepAliveItem),
+                message
+            };
+        }
+    }
+
+    private static void RotateDeepSeekKeepAlive(
         JsonObject source,
         List<JsonObject> output,
         DeepSeekTurnState turnState,
         string threadId,
-        string turnId)
+        string turnId,
+        string anchorMessageId)
     {
-        if (turnState.PresentationStarted || turnState.PresentationItemId is null) return;
-        turnState.PresentationStarted = true;
+        var previous = turnState.ActiveKeepAliveItem;
+        StartDeepSeekKeepAlive(source, output, turnState, threadId, turnId, anchorMessageId);
+        if (previous is not null)
+            output.Add(CreateDeepSeekKeepAliveCompletion(source, threadId, turnId, previous));
+    }
+
+    private static void StartDeepSeekKeepAlive(
+        JsonObject source,
+        List<JsonObject> output,
+        DeepSeekTurnState turnState,
+        string threadId,
+        string turnId,
+        string anchorMessageId)
+    {
+        if (turnState.LastReasoningStartedItem is null) return;
+        var keepAliveItem = (JsonObject)turnState.LastReasoningStartedItem.DeepClone();
+        keepAliveItem["id"] = "__aicli_deepseek_keepalive_" + Guid.NewGuid().ToString("N");
+        keepAliveItem["type"] = "reasoning";
+        keepAliveItem["summary"] = new JsonArray();
+        keepAliveItem["content"] = new JsonArray();
+        keepAliveItem.Remove("encrypted_content");
+        keepAliveItem.Remove("encryptedContent");
+
+        turnState.ActiveKeepAliveItem = keepAliveItem;
+        turnState.KeepAliveAnchorMessageId = anchorMessageId;
         output.Add(CreateDeepSeekNotification(
             source,
             "item/started",
@@ -388,62 +503,30 @@ public sealed class ModelRouter
             {
                 ["threadId"] = threadId,
                 ["turnId"] = turnId,
-                ["item"] = new JsonObject
-                {
-                    ["id"] = turnState.PresentationItemId,
-                    ["type"] = "reasoning",
-                    ["summary"] = new JsonArray(),
-                    ["content"] = new JsonArray()
-                }
+                ["item"] = keepAliveItem.DeepClone()
             }));
     }
 
-    private static long GetOrCreateDeepSeekSummaryIndex(
-        DeepSeekTurnState turnState,
-        string sourceItemId,
-        long sourceIndex,
-        out bool created)
-    {
-        var key = sourceItemId + "\n" + sourceIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (turnState.SummaryIndexes.TryGetValue(key, out var existing))
-        {
-            created = false;
-            return existing;
-        }
-
-        var mapped = turnState.NextSummaryIndex++;
-        turnState.SummaryIndexes.Add(key, mapped);
-        turnState.SummaryText.Add(mapped, new StringBuilder());
-        created = true;
-        return mapped;
-    }
-
-    private static JsonObject CreateDeepSeekReasoningCompletion(
+    private static JsonObject CreateDeepSeekKeepAliveCompletion(
         JsonObject source,
         string threadId,
         string turnId,
-        DeepSeekTurnState turnState)
-    {
-        var summary = new JsonArray();
-        foreach (var part in turnState.SummaryText.OrderBy(pair => pair.Key))
-            summary.Add(part.Value.ToString());
-
-        return CreateDeepSeekNotification(
+        JsonObject keepAliveItem) =>
+        CreateDeepSeekNotification(
             source,
             "item/completed",
             new JsonObject
             {
                 ["threadId"] = threadId,
                 ["turnId"] = turnId,
-                ["item"] = new JsonObject
-                {
-                    ["id"] = turnState.PresentationItemId,
-                    ["type"] = "reasoning",
-                    ["summary"] = summary,
-                    ["content"] = new JsonArray()
-                }
+                ["item"] = keepAliveItem.DeepClone()
             });
-    }
+
+    private static string DeepSeekSummaryPartKey(string itemId, long summaryIndex) =>
+        itemId + "\n" + summaryIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private static bool IsAgentMessageItem(string? itemType) =>
+        itemType is "agentMessage" or "assistantMessage" or "assistant-message";
 
     private static JsonObject CreateDeepSeekNotification(
         JsonObject source,

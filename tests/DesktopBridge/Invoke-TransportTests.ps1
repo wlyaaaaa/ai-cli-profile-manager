@@ -254,7 +254,7 @@ $testContainer = {
             finally { Stop-BridgeProcess $process }
         }
 
-        It 'keeps one DeepSeek reasoning presentation alive across visible output' {
+        It 'keeps real DeepSeek summaries visible while structural reasoning bridges output gaps' {
             $root = New-TestRoot
             $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-app-server' -ModelState DeepSeek
             $process = $null
@@ -268,45 +268,74 @@ $testContainer = {
                 $started.result.thread.id | Should -Be 'deep-thread'
 
                 Write-BridgeLine $process '{"jsonrpc":"2.0","id":"deep-events","method":"test/deepseek-events","params":{}}'
-                $events = @(1..13 | ForEach-Object { (Read-BridgeLine $process) | ConvertFrom-Json })
+                $events = @(1..22 | ForEach-Object { (Read-BridgeLine $process) | ConvertFrom-Json })
 
                 $events[0].method | Should -Be 'item/started'
                 $events[0].params.item.id | Should -Be 'reason-a'
                 $events[1].method | Should -Be 'item/reasoning/summaryPartAdded'
                 $events[1].params.itemId | Should -Be 'reason-a'
-                $events[1].params.summaryIndex | Should -Be 0
                 $events[2].method | Should -Be 'item/reasoning/summaryTextDelta'
                 $events[2].params.itemId | Should -Be 'reason-a'
                 $events[2].params.delta | Should -Be '第一段思考'
                 $events[3].method | Should -Be 'item/reasoning/summaryTextDelta'
                 $events[3].params.itemId | Should -Be 'reason-a'
-                $events[3].params.delta | Should -Be '继续思考'
 
-                $events[4].method | Should -Be 'item/started'
-                $events[4].params.item.type | Should -Be 'agentMessage'
-                $events[5].method | Should -Be 'item/agentMessage/delta'
-                $events[6].method | Should -Be 'item/completed'
-                $events[6].params.item.type | Should -Be 'agentMessage'
-                @($events[0..6] | Where-Object { $_.method -eq 'item/completed' -and $_.params.item.type -eq 'reasoning' }).Count | Should -Be 0
+                $events[4].method | Should -Be 'item/completed'
+                $events[4].params.item.id | Should -Be 'reason-a'
+                $events[4].params.item.summary[0] | Should -Be '第一段完整思考'
 
-                $events[7].method | Should -Be 'item/reasoning/summaryPartAdded'
-                $events[7].params.itemId | Should -Be 'reason-a'
-                $events[7].params.summaryIndex | Should -Be 1
-                $events[8].method | Should -Be 'item/reasoning/summaryTextDelta'
-                $events[8].params.itemId | Should -Be 'reason-a'
-                $events[8].params.delta | Should -Be '第二段思考'
-                @($events | Where-Object { $_.method -eq 'item/started' -and $_.params.item.type -eq 'reasoning' }).Count | Should -Be 1
+                $events[5].method | Should -Be 'item/started'
+                $events[5].params.item.id | Should -Be 'progress-a'
+                $events[5].params.item.type | Should -Be 'agentMessage'
+                $events[6].method | Should -Be 'item/started'
+                $events[6].params.item.type | Should -Be 'reasoning'
+                $keepAlive1 = [string]$events[6].params.item.id
+                $keepAlive1 | Should -Match '^__aicli_deepseek_keepalive_'
+                @($events[6].params.item.summary).Count | Should -Be 0
+                @($events[6].params.item.content).Count | Should -Be 0
+                $events[7].method | Should -Be 'item/agentMessage/delta'
+                $events[8].method | Should -Be 'item/completed'
+                $events[8].params.item.type | Should -Be 'agentMessage'
 
-                $events[9].method | Should -Be 'item/completed'
-                $events[9].params.item.type | Should -Be 'agentMessage'
+                $events[9].method | Should -Be 'item/started'
+                $events[9].params.item.id | Should -Be 'reason-b'
                 $events[10].method | Should -Be 'item/completed'
-                $events[10].params.item.type | Should -Be 'reasoning'
-                $events[10].params.item.id | Should -Be 'reason-a'
-                @($events[10].params.item.summary).Count | Should -Be 2
-                $events[10].params.item.summary[1] | Should -Be '第二段思考'
-                $events[11].method | Should -Be 'turn/completed'
-                $events[12].id | Should -Be 'deep-events'
-                $events[12].result.ok | Should -BeTrue
+                $events[10].params.item.id | Should -Be $keepAlive1
+
+                $events[11].method | Should -Be 'item/reasoning/summaryPartAdded'
+                $events[11].params.itemId | Should -Be 'reason-b'
+                $events[12].method | Should -Be 'item/reasoning/summaryTextDelta'
+                $events[12].params.itemId | Should -Be 'reason-b'
+                $events[12].params.delta | Should -Be '第二段思考'
+
+                $events[13].method | Should -Be 'item/started'
+                $events[13].params.item.type | Should -Be 'reasoning'
+                $keepAlive2 = [string]$events[13].params.item.id
+                $keepAlive2 | Should -Match '^__aicli_deepseek_keepalive_'
+                $keepAlive2 | Should -Not -Be $keepAlive1
+                $events[14].method | Should -Be 'item/completed'
+                $events[14].params.item.id | Should -Be 'reason-b'
+                $events[14].params.item.summary[0] | Should -Be '第二段思考'
+
+                $events[15].method | Should -Be 'item/started'
+                $events[15].params.item.id | Should -Be 'message-final'
+                $events[15].params.item.text | Should -Be ''
+                $events[16].method | Should -Be 'item/started'
+                $events[16].params.item.type | Should -Be 'reasoning'
+                $keepAlive3 = [string]$events[16].params.item.id
+                $keepAlive3 | Should -Match '^__aicli_deepseek_keepalive_'
+                $events[17].method | Should -Be 'item/completed'
+                $events[17].params.item.id | Should -Be $keepAlive2
+                $events[18].method | Should -Be 'item/completed'
+                $events[18].params.item.id | Should -Be 'message-final'
+                $events[18].params.item.text | Should -Be 'FINAL'
+                $events[19].method | Should -Be 'item/completed'
+                $events[19].params.item.id | Should -Be $keepAlive3
+                $events[20].method | Should -Be 'turn/completed'
+                $events[21].id | Should -Be 'deep-events'
+                $events[21].result.ok | Should -BeTrue
+
+                @($events | Where-Object { $_.method -eq 'item/reasoning/summaryTextDelta' -and $_.params.itemId -like '__aicli_deepseek_keepalive_*' }).Count | Should -Be 0
 
                 $process.StandardInput.Close()
                 $process.WaitForExit(10000) | Should -BeTrue
