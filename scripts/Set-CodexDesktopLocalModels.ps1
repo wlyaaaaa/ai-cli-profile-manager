@@ -35,6 +35,51 @@ function Set-UserDesktopEntry([AllowNull()][string]$Value) {
     } finally { $key.Dispose() }
 }
 
+function Invoke-Utf8JsonPowerShellFile {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $pwsh = Get-Command pwsh -ErrorAction Stop
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $pwsh.Source
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    # PowerShell-to-PowerShell native pipes still pass through the parent
+    # process decoder. Pin both redirected streams to UTF-8 so Chinese model
+    # instructions cannot be decoded with the Windows ACP and consume JSON
+    # delimiter bytes.
+    $start.StandardOutputEncoding = $utf8
+    $start.StandardErrorEncoding = $utf8
+    foreach ($arg in @('-NoProfile', '-NonInteractive', '-File', [IO.Path]::GetFullPath($Path))) {
+        [void]$start.ArgumentList.Add([string]$arg)
+    }
+    $process = [Diagnostics.Process]::Start($start)
+    try {
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(60000)) {
+            $process.Kill($true)
+            throw 'Desktop discovery process timed out.'
+        }
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        if ($process.ExitCode -ne 0) {
+            throw ('Desktop discovery failed: ' + $stderr.Trim())
+        }
+        if (-not [string]::IsNullOrWhiteSpace($stderr)) {
+            throw ('Desktop discovery wrote unexpected stderr: ' + $stderr.Trim())
+        }
+        try {
+            return $stdout | ConvertFrom-Json -Depth 100
+        }
+        catch {
+            throw ('Desktop discovery returned invalid UTF-8 JSON: ' + $_.Exception.Message)
+        }
+    }
+    finally { $process.Dispose() }
+}
+
 function Notify-EnvironmentChange {
     if (-not ('AiCliDesktopEnvironmentNotice' -as [type])) {
         Add-Type @'
@@ -135,8 +180,8 @@ if ($Mode -eq 'Build') {
     $installedResolver = Join-Path $release 'ResolveDesktopEngine.ps1'
     if (-not (Test-Path -LiteralPath $installedResolver)) { Copy-Item -LiteralPath $resolver -Destination $installedResolver }
     # Validate the installed discovery route before changing the desktop entry.
-    $plan = & pwsh -NoProfile -File $installedExporter | ConvertFrom-Json -Depth 100
-    if ($LASTEXITCODE -ne 0 -or @($plan.models).Count -eq 0) { throw 'Installed local model discovery did not return the configured models.' }
+    $plan = Invoke-Utf8JsonPowerShellFile -Path $installedExporter
+    if (@($plan.models).Count -eq 0) { throw 'Installed local model discovery did not return the configured models.' }
     Register-LocalProviders $plan
     $previous = if ($null -ne $state -and $current -eq $state.executable) { $state.previousUserValue } else { $current }
     $newState = [ordered]@{

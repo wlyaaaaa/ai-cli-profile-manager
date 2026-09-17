@@ -29,10 +29,17 @@ Describe 'Resolve-AiCliDesktopEngine' {
 
         Mock Get-AiCliKnownFolder { $script:OfficialCache } -ParameterFilter { $Name -eq 'LocalAppData' }
         Mock Get-AiCliAppPaths { [ordered]@{ LocalRoot = $script:AiCliLocal } }
+        Mock Test-AiCliOpenAICodexSignature { $true }
+        Mock Get-AiCliCodexCliVersion {
+            $content = Get-Content -LiteralPath $Path -Raw
+            if ($content -eq 'engine-a') { return [version]'1.0.0' }
+            if ($content -eq 'engine-newer') { return [version]'3.0.0' }
+            return [version]'2.0.0'
+        }
     }
 
     It 'selects the current registered package instead of a stale official cache after an update' {
-        $old = Join-Path $script:OfficialCache 'OpenAI\Codex\bin\old-a'
+        $old = Join-Path $script:OfficialCache 'OpenAI\Codex\bin\1111111111111111'
         New-Item -ItemType Directory -Path $old -Force | Out-Null
         Copy-Item (Join-Path $script:PackageA 'app\resources\codex.exe') (Join-Path $old 'codex.exe')
 
@@ -56,7 +63,7 @@ Describe 'Resolve-AiCliDesktopEngine' {
     }
 
     It 'reuses only the official cache entry whose hash matches the current package' {
-        $current = Join-Path $script:OfficialCache 'OpenAI\Codex\bin\current-b'
+        $current = Join-Path $script:OfficialCache 'OpenAI\Codex\bin\2222222222222222'
         New-Item -ItemType Directory -Path $current -Force | Out-Null
         Copy-Item (Join-Path $script:PackageB 'app\resources\codex.exe') (Join-Path $current 'codex.exe')
 
@@ -69,6 +76,39 @@ Describe 'Resolve-AiCliDesktopEngine' {
         $resolved.FileName | Should -Be (Join-Path $current 'codex.exe')
         $resolved.Resolution | Should -Be 'official-cache'
         Test-Path -LiteralPath (Join-Path $script:AiCliLocal 'desktop\upstream') | Should -BeFalse
+    }
+
+    It 'prefers a newer valid OpenAI-signed official cache even when Store resource bytes differ' {
+        $current = Join-Path $script:OfficialCache 'OpenAI\Codex\bin\3333333333333333'
+        New-Item -ItemType Directory -Path $current -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $current 'codex.exe'), 'engine-newer')
+
+        Mock Get-AppxPackage {
+            [pscustomobject]@{ Version = [version]'2.0.0.0'; InstallLocation = $script:PackageB; PackageFullName = 'OpenAI.Codex_2' }
+        } -ParameterFilter { $Name -eq 'OpenAI.Codex' }
+
+        $resolved = Resolve-AiCliDesktopEngine
+
+        $resolved.FileName | Should -Be (Join-Path $current 'codex.exe')
+        $resolved.Resolution | Should -Be 'official-cache-self-updated'
+        $resolved.ContentHash | Should -Be (Get-FileHash (Join-Path $current 'codex.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+        Test-Path -LiteralPath (Join-Path $script:AiCliLocal 'desktop\upstream') | Should -BeFalse
+    }
+
+    It 'ignores an older signed cache and stages the newer Store resource' {
+        $old = Join-Path $script:OfficialCache 'OpenAI\Codex\bin\4444444444444444'
+        New-Item -ItemType Directory -Path $old -Force | Out-Null
+        Copy-Item (Join-Path $script:PackageA 'app\resources\codex.exe') (Join-Path $old 'codex.exe')
+
+        Mock Get-AppxPackage {
+            [pscustomobject]@{ Version = [version]'2.0.0.0'; InstallLocation = $script:PackageB; PackageFullName = 'OpenAI.Codex_2' }
+        } -ParameterFilter { $Name -eq 'OpenAI.Codex' }
+        Mock Resolve-AiCliLaunchExecutable { throw 'fallback must not be used' }
+
+        $resolved = Resolve-AiCliDesktopEngine
+
+        $resolved.Resolution | Should -Be 'aicli-upstream-cache'
+        (Get-Content -LiteralPath $resolved.FileName -Raw) | Should -Be 'engine-b'
     }
 
     It 'returns a marked existing resolver fallback when no registered AppX package is available' {
