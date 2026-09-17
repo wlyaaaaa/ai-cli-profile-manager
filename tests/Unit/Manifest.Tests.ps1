@@ -1,4 +1,4 @@
-﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 Describe 'Manifest' {
     BeforeAll {
         function Assert-CanonicalCatalogBytes {
@@ -33,64 +33,53 @@ Describe 'Manifest' {
         $all.Keys.Count | Should -BeGreaterOrEqual 16
         $all.Contains('codex-official') | Should -BeTrue
         $all.Contains('codex-spark-xhigh') | Should -BeTrue
-        $all.Contains('claude-deepseek') | Should -BeTrue
+        $all.Contains('claude-deepseek') | Should -BeFalse
         $all.Contains('oi-qwen-paygo') | Should -BeFalse
         $all.Contains('oi-ollama') | Should -BeTrue
-        $all.Contains('oi-deepseek') | Should -BeTrue
+        $all.Contains('oi-deepseek') | Should -BeFalse
         $all.Contains('qwen-code-ollama-main') | Should -BeTrue
         $all.Contains('opencode-ollama-main') | Should -BeTrue
         $all.Contains('opencode-ollama-qwen3-8-27b') | Should -BeTrue
         $all.Contains('codex-ollama-main') | Should -BeTrue
         $all.Contains('codex-ollama-qwen3-8-27b') | Should -BeTrue
         $all.Contains('claude-ollama-main') | Should -BeTrue
-        $all.Contains('codex-deepseek') | Should -BeTrue
+        $all.Contains('codex-deepseek-flash') | Should -BeTrue
     }
 
     It 'exposes the exact supported DeepSeek Flash model through its isolated catalog' {
         $all = Import-AiCliProviderManifests
-        $manifest = $all['codex-deepseek']
+        $manifest = $all['codex-deepseek-flash']
 
         $manifest.engine | Should -Be 'codex'
         $manifest.provider | Should -Be 'deepseek'
         $manifest.transport | Should -Be 'responses'
         $manifest.endpoint | Should -Be 'https://api.deepseek.com'
-        $manifest.models.primary | Should -Be 'deepseek-v4-flash'
-        @($manifest.models.candidates) | Should -Be @('deepseek-v4-flash')
+        $manifest.models.primary | Should -Be 'deepseek-flash'
+        @($manifest.models.candidates) | Should -Be @('deepseek-flash')
         @($manifest.models.reserved) | Should -BeNullOrEmpty
-        $manifest.codexModelCatalog | Should -Be 'deepseek-v4-flash.json'
+        $manifest.codexModelCatalog | Should -Be 'deepseek-flash.json'
 
-        $catalogPath = Join-Path $root 'data\model-catalogs\deepseek-v4-flash.json'
+        $catalogPath = Join-Path $root 'data\model-catalogs\deepseek-flash.json'
         $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json
         @($catalog.models).Count | Should -Be 1
-        $catalog.models[0].slug | Should -Be 'deepseek-v4-flash'
+        $catalog.models[0].slug | Should -Be 'deepseek-flash'
         $catalog.models[0].context_window | Should -Be 1048576
         $catalog.models[0].max_context_window | Should -Be 1048576
         $catalog.models[0].minimal_client_version | Should -Be '0.144.0'
         @($catalog.models[0].supported_reasoning_levels.effort) | Should -Be @('low', 'high', 'max')
         (Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8) | Should -Not -Match 'deepseek-v4-pro'
         $manifest.defaultEffort | Should -Be 'max'
-        $manifest.compatibility.modelVersion | Should -Be 'DeepSeek-V4-Flash-0731'
+        $manifest.compatibility.modelVersion | Should -Be 'DeepSeek-V4.1-Flash'
     }
 
-    It 'keeps non-Codex DeepSeek templates Flash-only while Codex Pro stays isolated' {
-        $all = Import-AiCliProviderManifests
-        foreach ($id in @('claude-deepseek', 'oi-deepseek')) {
-            $manifest = $all[$id]
-            $manifest.models.primary | Should -Be 'deepseek-v4-flash' -Because $id
-            $manifest.models.small | Should -Be 'deepseek-v4-flash' -Because $id
-            @($manifest.models.candidates) | Should -Be @('deepseek-v4-flash') -Because $id
-            @($manifest.models.reserved) | Should -BeNullOrEmpty -Because $id
-        }
-        $all['codex-deepseek-v4-pro'].models.primary | Should -Be 'deepseek-v4-pro'
-        @($all['codex-deepseek-v4-pro'].models.candidates) | Should -Be @('deepseek-v4-pro')
-    }
+    It 'keeps DeepSeek in Codex only while retaining the legal Pro CLI profile' {`n        $all = Import-AiCliProviderManifests`n        $all.Contains('claude-deepseek') | Should -BeFalse`n        $all.Contains('oi-deepseek') | Should -BeFalse`n        $all['codex-deepseek-v4-pro'].models.primary | Should -Be 'deepseek-v4-pro'`n    }
 
     It 'binds third-party Claude and OpenCode profiles to exact model context metadata' {
         $all = Import-AiCliProviderManifests
         $runtimeTag = 'qwen3.8-27b:256k'
         $all['claude-deepseek'].compatibility.minCliVersion | Should -Be '2.1.193'
-        $all['claude-deepseek'].modelMetadata.'deepseek-v4-flash'.contextWindowTokens | Should -Be 1000000
-        $all['claude-deepseek'].modelMetadata.'deepseek-v4-flash'.autoCompactWindowTokens | Should -Be 1000000
+        $all['claude-deepseek'].modelMetadata.'deepseek-flash'.contextWindowTokens | Should -Be 1000000
+        $all['claude-deepseek'].modelMetadata.'deepseek-flash'.autoCompactWindowTokens | Should -Be 1000000
         $all['claude-ollama-main'].compatibility.minCliVersion | Should -Be '2.1.193'
         $all['claude-ollama-main'].modelMetadata.$runtimeTag.contextWindowTokens | Should -Be 262144
         $all['claude-ollama-main'].modelMetadata.$runtimeTag.outputWindowTokens | Should -Be 32768
@@ -195,7 +184,7 @@ Describe 'Manifest' {
 
     It 'rejects a native model override for a locked DeepSeek profile' {
         InModuleScope AiCliProfileManager {
-            $profile = Get-AiCliProviderManifest -Id 'claude-deepseek'
+            $profile = Get-AiCliProviderManifest -Id 'codex-deepseek-flash'
             $cases = [System.Collections.Generic.List[object]]::new()
             $cases.Add([string[]]@('--model', 'deepseek-v4-pro'))
             $cases.Add([string[]]@('--model=deepseek-v4-pro'))

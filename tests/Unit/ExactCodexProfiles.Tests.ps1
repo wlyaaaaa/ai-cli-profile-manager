@@ -40,7 +40,7 @@ Describe 'Exact third-party Codex Profiles' {
         foreach ($id in @(
             'codex-qwen3-7-max-paygo',
             'codex-qwen3-8-max-paygo',
-            'codex-deepseek',
+            'codex-deepseek-flash',
             'codex-deepseek-v4-pro',
             'codex-ollama-main',
             'codex-ollama-qwen3-8-27b',
@@ -155,10 +155,10 @@ Describe 'Exact third-party Codex Profiles' {
 
     It 'publishes exact DeepSeek Flash and Pro Profiles at the vendor maximum effort' {
         $expected = [ordered]@{
-            'codex-deepseek' = [ordered]@{
-                Alias = 'deepseek-v4-flash'
-                Version = 'DeepSeek-V4-Flash-0731'
-                Catalog = 'deepseek-v4-flash.json'
+            'codex-deepseek-flash' = [ordered]@{
+                Alias = 'deepseek-flash'
+                Version = 'DeepSeek-V4.1-Flash'
+                Catalog = 'deepseek-flash.json'
             }
             'codex-deepseek-v4-pro' = [ordered]@{
                 Alias = 'deepseek-v4-pro'
@@ -225,7 +225,7 @@ Describe 'Exact third-party Codex Profiles' {
             foreach ($profileId in @(
                 'codex-qwen3-7-max-paygo',
                 'codex-qwen3-8-max-paygo',
-                'codex-deepseek',
+                'codex-deepseek-flash',
                 'codex-deepseek-v4-pro',
                 'codex-ollama-main',
                 'codex-ollama-qwen3-8-27b',
@@ -252,7 +252,7 @@ Describe 'Exact third-party Codex Profiles' {
         InModuleScope AiCliProfileManager {
             $qwen = Get-AiCliProviderManifest -Id 'codex-qwen3-8-max-paygo'
             $qwen37 = Get-AiCliProviderManifest -Id 'codex-qwen3-7-max-paygo'
-            $deepSeek = Get-AiCliProviderManifest -Id 'codex-deepseek'
+            $deepSeek = Get-AiCliProviderManifest -Id 'codex-deepseek-flash'
             $local = Get-AiCliProviderManifest -Id 'codex-ollama-main'
             $localQwen38 = Get-AiCliProviderManifest -Id 'codex-ollama-qwen3-8-27b'
 
@@ -307,7 +307,7 @@ Describe 'Exact third-party Codex Profiles' {
             $expectedProfiles = @(
                 'codex-qwen3-7-max-paygo',
                 'codex-qwen3-8-max-paygo',
-                'codex-deepseek',
+                'codex-deepseek-flash',
                 'codex-deepseek-v4-pro',
                 'codex-ollama-main',
                 'codex-ollama-qwen3-8-27b',
@@ -447,16 +447,16 @@ Describe 'Exact third-party Codex Profiles' {
     It 'closes both DeepSeek Codex Profiles over exact identity, Responses and max in argv and managed TOML' {
         $expected = @(
             [ordered]@{
-                ProfileId = 'codex-deepseek'
-                Model = 'deepseek-v4-flash'
-                ProviderId = 'aicli_deepseek'
+                ProfileId = 'codex-deepseek-flash'
+                Model = 'deepseek-flash'
+                ProviderId = 'aicli_deepseek_flash'
                 OtherModel = 'deepseek-v4-pro'
             },
             [ordered]@{
                 ProfileId = 'codex-deepseek-v4-pro'
                 Model = 'deepseek-v4-pro'
                 ProviderId = 'aicli_deepseek_v4_pro'
-                OtherModel = 'deepseek-v4-flash'
+                OtherModel = 'deepseek-flash'
             }
         )
 
