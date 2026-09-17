@@ -12,7 +12,7 @@ public sealed class RpcException : Exception
     public int Code { get; }
 }
 
-internal sealed class RpcTransport
+internal sealed partial class RpcTransport
 {
     private static readonly TimeSpan EofGrace = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan KillGrace = TimeSpan.FromSeconds(2);
@@ -245,6 +245,8 @@ internal sealed class RpcTransport
         if (routed is null)
             return;
 
+        InjectOpenAiChildTool(routed);
+
         if (IsLocalResponse(routed))
         {
             EnsureResponseIdentity(routed, externalId);
@@ -261,7 +263,10 @@ internal sealed class RpcTransport
 
         if (externalId is not null)
         {
-            var context = new ClientRequestContext(externalId.DeepClone(), method, originalParams);
+            var routedParams = routed["params"] is JsonObject routedParameters
+                ? (JsonObject)routedParameters.DeepClone()
+                : null;
+            var context = new ClientRequestContext(externalId.DeepClone(), method, originalParams, routedParams);
             if (!clientRequests.TryAdd(idKey, context))
             {
                 await WriteClientLineAsync(CreateErrorResponse(externalId, -32600, "A request with this id is already pending."), cancellationToken).ConfigureAwait(false);
@@ -301,6 +306,14 @@ internal sealed class RpcTransport
                 return;
 
             var message = ParseObject(line);
+            if (message is not null && IsOpenAiChildServerRequest(message))
+            {
+                DispatchOpenAiChildServerRequest(message);
+                continue;
+            }
+            if (message is not null && TryHandleOpenAiChildNotification(message))
+                continue;
+
             if (message is not null && IsResponse(message) && TryGetIdKey(message["id"], out var responseId))
             {
                 if (responseId.StartsWith("s:" + InternalIdPrefix + sessionId + "_", StringComparison.Ordinal) &&
@@ -318,6 +331,7 @@ internal sealed class RpcTransport
                     try
                     {
                         router.AfterResponse(context.Method, context.OriginalParams, message);
+                        RememberManagedParentThread(context, message);
                     }
                     catch (Exception ex)
                     {
@@ -529,7 +543,7 @@ internal sealed class RpcTransport
         return false;
     }
 
-    private sealed record ClientRequestContext(JsonNode? ExternalId, string Method, JsonObject? OriginalParams);
+    private sealed record ClientRequestContext(JsonNode? ExternalId, string Method, JsonObject? OriginalParams, JsonObject? RoutedParams);
 
     private sealed class ConsoleCancellation : IDisposable
     {

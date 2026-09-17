@@ -42,6 +42,17 @@ if ($mode -eq '--fake-app-server-stuck') {
 if ($mode -ne '--fake-app-server') { exit 30 }
 
 $script:clientReplyRaw = $null
+$script:openAiChild = [ordered]@{
+    threadId = ''
+    sessionId = ''
+    model = ''
+    effort = ''
+    cwd = ''
+    turnId = ''
+    ephemeral = $true
+    finalText = 'CHILD_OK'
+    finalMessageId = 'openai-child-final'
+}
 
 function Write-FakeRpcLine {
     param([Parameter(Mandatory)][System.Collections.IDictionary]$Message)
@@ -53,6 +64,15 @@ function Write-FakeRpcLine {
 
 while ($null -ne ($requestLine = [Console]::In.ReadLine())) {
     $request = $requestLine | ConvertFrom-Json -AsHashtable
+    if (-not $request.Contains('method') -and [string]$request.id -eq 'server-openai-child') {
+        if ($env:AICLI_TEST_OPENAI_CHILD_RESULT_FILE) {
+            [IO.File]::WriteAllText(
+                $env:AICLI_TEST_OPENAI_CHILD_RESULT_FILE,
+                ($request | ConvertTo-Json -Depth 100 -Compress),
+                $utf8NoBom)
+        }
+        continue
+    }
     switch ([string]$request.method) {
         'test/startup' {
             $catalogArg = @($forwardedArgs | Where-Object { $_ -like 'model_catalog_json=*' } | Select-Object -Last 1)
@@ -66,48 +86,156 @@ while ($null -ne ($requestLine = [Console]::In.ReadLine())) {
         'thread/start' {
             $provider = [string]$request.params.modelProvider
             $model = [string]$request.params.model
-            $threadId = if ($provider -eq 'aicli_deepseek_flash') { 'deep-thread' } else { 'thread-started' }
+            $cwd = [string]$request.params.cwd
+            $openAiToolPresent = @($request.params.dynamicTools | Where-Object { [string]$_.name -eq 'openai_child' }).Count -eq 1
+            if ($provider -eq 'openai') {
+                $script:openAiChild.threadId = if ($model -eq 'gpt-6-astra') { 'astra-child-thread' } else { 'openai-child-thread' }
+                $script:openAiChild.sessionId = if ($model -eq 'gpt-6-astra') { 'astra-child-session' } else { 'openai-child-session' }
+                $script:openAiChild.model = $model
+                $script:openAiChild.cwd = $cwd
+                $script:openAiChild.ephemeral = [bool]$request.params.ephemeral
+                $null = Write-FakeRpcLine ([ordered]@{
+                    method = 'thread/started'
+                    params = @{ thread = @{
+                        id = $script:openAiChild.threadId
+                        sessionId = $script:openAiChild.sessionId
+                        modelProvider = 'openai'
+                        model = $model
+                        cwd = $cwd
+                        ephemeral = $script:openAiChild.ephemeral
+                    } }
+                })
+                $threadId = $script:openAiChild.threadId
+                $sessionId = $script:openAiChild.sessionId
+            }
+            else {
+                $threadId = if ($provider -eq 'aicli_deepseek_flash') { 'deep-thread' } else { 'thread-started' }
+                $sessionId = $threadId
+            }
             $null = Write-FakeRpcLine ([ordered]@{
                 jsonrpc = '2.0'
                 id = $request.id
                 result = @{
                     modelProvider = $provider
                     model = $model
+                    openAiChildToolPresent = $openAiToolPresent
                     thread = @{
                         id = $threadId
+                        sessionId = $sessionId
                         modelProvider = $provider
                         model = $model
+                        cwd = $cwd
+                        ephemeral = if ($provider -eq 'openai') { $script:openAiChild.ephemeral } else { $false }
                     }
                 }
             })
+            if ($provider -ne 'openai' -and $openAiToolPresent -and $env:AICLI_TEST_OPENAI_CHILD_RESULT_FILE) {
+                $agentType = if ($env:AICLI_TEST_OPENAI_CHILD_AGENT_TYPE) { $env:AICLI_TEST_OPENAI_CHILD_AGENT_TYPE } else { 'openai_child' }
+                $childModel = if ($env:AICLI_TEST_OPENAI_CHILD_MODEL) { $env:AICLI_TEST_OPENAI_CHILD_MODEL } else { 'gpt-5.6-luna' }
+                $childEffort = if ($env:AICLI_TEST_OPENAI_CHILD_EFFORT) { $env:AICLI_TEST_OPENAI_CHILD_EFFORT } else { 'high' }
+                $null = Write-FakeRpcLine ([ordered]@{
+                    jsonrpc = '2.0'
+                    id = 'server-openai-child'
+                    method = 'item/tool/call'
+                    params = @{
+                        callId = 'call-openai-child'
+                        threadId = $threadId
+                        turnId = 'parent-turn'
+                        tool = 'openai_child'
+                        namespace = $null
+                        arguments = @{
+                            agent_type = $agentType
+                            model = $childModel
+                            reasoning_effort = $childEffort
+                            task_name = 'provider_route_probe'
+                            message = 'Return CHILD_OK.'
+                        }
+                    }
+                })
+            }
+        }
+        'turn/start' {
+            if ([string]$request.params.threadId -eq [string]$script:openAiChild.threadId -and $script:openAiChild.threadId) {
+                $script:openAiChild.turnId = 'openai-child-turn'
+                $script:openAiChild.effort = [string]$request.params.effort
+                $null = Write-FakeRpcLine ([ordered]@{
+                    jsonrpc = '2.0'
+                    id = $request.id
+                    result = @{ turn = @{ id = $script:openAiChild.turnId; status = 'inProgress' } }
+                })
+                $null = Write-FakeRpcLine ([ordered]@{
+                    method = 'item/completed'
+                    params = @{
+                        threadId = $script:openAiChild.threadId
+                        turnId = $script:openAiChild.turnId
+                        item = @{ id = $script:openAiChild.finalMessageId; type = 'agentMessage'; text = $script:openAiChild.finalText; phase = 'final_answer' }
+                    }
+                })
+                $null = Write-FakeRpcLine ([ordered]@{
+                    method = 'turn/completed'
+                    params = @{ threadId = $script:openAiChild.threadId; turn = @{ id = $script:openAiChild.turnId; status = 'completed' } }
+                })
+            }
+            else {
+                $null = Write-FakeRpcLine ([ordered]@{ jsonrpc='2.0'; id=$request.id; result=@{ turn=@{ id='turn-started'; status='inProgress' } } })
+            }
         }
         'thread/read' {
-            $null = Write-FakeRpcLine ([ordered]@{
-                jsonrpc = '2.0'
-                id = 'server-need-client'
-                method = 'server/need_input'
-                params = @{ prompt = 'reply' }
-            })
-            $replyLine = [Console]::In.ReadLine()
-            if ($null -eq $replyLine) { exit 41 }
-            $reply = $replyLine | ConvertFrom-Json -AsHashtable
-            if ($reply.id -ne 'server-need-client') { exit 42 }
-            $script:clientReplyRaw = $replyLine
+            if ([string]$request.params.threadId -eq [string]$script:openAiChild.threadId -and $script:openAiChild.threadId) {
+                $path = if ($script:openAiChild.ephemeral) { $null } else { 'E:\fixture\rollout-protected.jsonl' }
+                $null = Write-FakeRpcLine ([ordered]@{
+                    jsonrpc = '2.0'
+                    id = $request.id
+                    result = @{ thread = @{
+                        id = $script:openAiChild.threadId
+                        sessionId = $script:openAiChild.sessionId
+                        modelProvider = 'openai'
+                        model = $script:openAiChild.model
+                        reasoningEffort = $script:openAiChild.effort
+                        cwd = $script:openAiChild.cwd
+                        ephemeral = $script:openAiChild.ephemeral
+                        path = $path
+                        turns = @(@{
+                            id = $script:openAiChild.turnId
+                            status = 'completed'
+                            items = @(@{
+                                id = $script:openAiChild.finalMessageId
+                                type = 'agentMessage'
+                                text = $script:openAiChild.finalText
+                                phase = 'final_answer'
+                            })
+                        })
+                    } }
+                })
+            }
+            else {
+                $null = Write-FakeRpcLine ([ordered]@{
+                    jsonrpc = '2.0'
+                    id = 'server-need-client'
+                    method = 'server/need_input'
+                    params = @{ prompt = 'reply' }
+                })
+                $replyLine = [Console]::In.ReadLine()
+                if ($null -eq $replyLine) { exit 41 }
+                $reply = $replyLine | ConvertFrom-Json -AsHashtable
+                if ($reply.id -ne 'server-need-client') { exit 42 }
+                $script:clientReplyRaw = $replyLine
 
-            $null = Write-FakeRpcLine ([ordered]@{
-                jsonrpc = '2.0'
-                id = $request.id
-                result = @{
-                    modelProvider = 'aicli_desktop_local'
-                    model = 'local-model'
-                    clientReplyRaw = $script:clientReplyRaw
-                    thread = @{
-                        id = 'thread-1'
+                $null = Write-FakeRpcLine ([ordered]@{
+                    jsonrpc = '2.0'
+                    id = $request.id
+                    result = @{
                         modelProvider = 'aicli_desktop_local'
                         model = 'local-model'
+                        clientReplyRaw = $script:clientReplyRaw
+                        thread = @{
+                            id = 'thread-1'
+                            modelProvider = 'aicli_desktop_local'
+                            model = 'local-model'
+                        }
                     }
-                }
-            })
+                })
+            }
         }
         'thread/resume' {
             if ($request.params.modelProvider -ne 'aicli_desktop_local') {

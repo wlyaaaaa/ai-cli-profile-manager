@@ -344,6 +344,84 @@ $testContainer = {
             finally { Stop-BridgeProcess $process }
         }
 
+
+        It 'routes an authorized OpenAI child through the OpenAI provider without leaking hidden child notifications' {
+            $root = New-TestRoot
+            $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-app-server' -ModelState DeepSeek
+            $resultPath = Join-Path $root 'openai-child-result.json'
+            $process = $null
+            try {
+                $process = New-BridgeProcess -Executable $script:BridgePath -PlanPath $plan.Path -Arguments @('app-server', '--stdio') -Environment @{
+                    AICLI_TEST_OPENAI_CHILD_RESULT_FILE = $resultPath
+                    AICLI_TEST_OPENAI_CHILD_AGENT_TYPE = 'openai_child'
+                    AICLI_TEST_OPENAI_CHILD_MODEL = 'gpt-5.6-luna'
+                    AICLI_TEST_OPENAI_CHILD_EFFORT = 'high'
+                }
+
+                Write-BridgeLine $process '{"jsonrpc":"2.0","id":"openai-parent","method":"thread/start","params":{"model":"deepseek-flash","config":{}}}'
+                $started = (Read-BridgeLine $process) | ConvertFrom-Json
+                $started.id | Should -Be 'openai-parent'
+                $started.result.modelProvider | Should -Be 'aicli_deepseek_flash'
+                $started.result.openAiChildToolPresent | Should -BeTrue
+
+                for ($attempt = 0; $attempt -lt 100 -and -not (Test-Path -LiteralPath $resultPath); $attempt++) {
+                    Start-Sleep -Milliseconds 50
+                }
+                Test-Path -LiteralPath $resultPath | Should -BeTrue
+                $toolReply = Get-Content -LiteralPath $resultPath -Raw -Encoding utf8 | ConvertFrom-Json
+                $toolReply.id | Should -Be 'server-openai-child'
+                $toolReply.result.success | Should -BeTrue
+                $payload = $toolReply.result.contentItems[0].text | ConvertFrom-Json
+                $payload.agent_type | Should -Be 'openai_child'
+                $payload.model_provider | Should -Be 'openai'
+                $payload.model | Should -Be 'gpt-5.6-luna'
+                $payload.reasoning_effort | Should -Be 'high'
+                $payload.final_text | Should -Be 'CHILD_OK'
+                $payload.persistent | Should -BeFalse
+
+                Write-BridgeLine $process '{"jsonrpc":"2.0","id":"after-child","method":"ping","params":{}}'
+                $next = (Read-BridgeLine $process) | ConvertFrom-Json
+                $next.id | Should -Be 'after-child'
+                $next.result.echo | Should -Be 'pong'
+            }
+            finally { Stop-BridgeProcess $process }
+        }
+
+        It 'keeps a protected Astra OpenAI child durable and returns real host evidence fields' {
+            $root = New-TestRoot
+            $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-app-server' -ModelState DeepSeek
+            $resultPath = Join-Path $root 'astra-child-result.json'
+            $process = $null
+            try {
+                $process = New-BridgeProcess -Executable $script:BridgePath -PlanPath $plan.Path -Arguments @('app-server', '--stdio') -Environment @{
+                    AICLI_TEST_OPENAI_CHILD_RESULT_FILE = $resultPath
+                    AICLI_TEST_OPENAI_CHILD_AGENT_TYPE = 'gpt6_astra_high_protected_judgment'
+                    AICLI_TEST_OPENAI_CHILD_MODEL = 'gpt-6-astra'
+                    AICLI_TEST_OPENAI_CHILD_EFFORT = 'high'
+                }
+
+                Write-BridgeLine $process '{"jsonrpc":"2.0","id":"astra-parent","method":"thread/start","params":{"model":"deepseek-flash","config":{}}}'
+                $started = (Read-BridgeLine $process) | ConvertFrom-Json
+                $started.result.openAiChildToolPresent | Should -BeTrue
+
+                for ($attempt = 0; $attempt -lt 100 -and -not (Test-Path -LiteralPath $resultPath); $attempt++) {
+                    Start-Sleep -Milliseconds 50
+                }
+                Test-Path -LiteralPath $resultPath | Should -BeTrue
+                $toolReply = Get-Content -LiteralPath $resultPath -Raw -Encoding utf8 | ConvertFrom-Json
+                $toolReply.result.success | Should -BeTrue
+                $payload = $toolReply.result.contentItems[0].text | ConvertFrom-Json
+                $payload.agent_type | Should -Be 'gpt6_astra_high_protected_judgment'
+                $payload.model_provider | Should -Be 'openai'
+                $payload.model | Should -Be 'gpt-6-astra'
+                $payload.reasoning_effort | Should -Be 'high'
+                $payload.persistent | Should -BeTrue
+                $payload.transcript_path | Should -Be 'E:\fixture\rollout-protected.jsonl'
+                $payload.host_event.turn_id | Should -Be 'openai-child-turn'
+                $payload.host_event.transcript_path | Should -Be 'E:\fixture\rollout-protected.jsonl'
+            }
+            finally { Stop-BridgeProcess $process }
+        }
         It 'passes non-app-server bytes and the upstream exit code without text decoding' {
             $root = New-TestRoot
             $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-passthrough'
