@@ -99,10 +99,10 @@ async function verifyPublicSummary(){
  const summary=views.at(-1).reasoning.map(r=>r.text).join('');
  assert.equal(early.length,0,'Public summary progress must not flash in the final slot');
  assert(summary.includes('四个文件'),'Public summary text missing from actual renderer');
- assert(!summary.includes('RAW_PRIVATE_CANARY'),'Raw reasoning leaked into public summary');
+ assert(views.some(v=>v.reasoning.some(r=>r.text.includes('RAW_PRIVATE_CANARY'))),'Pre-existing transient live reasoning must remain visible while the turn is running');
  assert.equal(views.at(-1).assistant,'最终答案保留原样。','Public-summary mode must preserve final answer');
  assert.equal(views.at(-1).active.length,0,'Public-summary mode must not remain thinking');
- return {case:'public-summary',events:events.length,early_final_frames:0,summary_visible:true,final_preserved:true};
+ return {case:'public-summary',events:events.length,early_final_frames:0,transient_reasoning_visible:true,summary_visible:true,final_preserved:true};
 }
 (async()=>{
  const scenarios=[];

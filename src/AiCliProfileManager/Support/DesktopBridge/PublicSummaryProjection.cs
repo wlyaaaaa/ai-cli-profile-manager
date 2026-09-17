@@ -62,17 +62,13 @@ public sealed class PublicSummaryProjection
                 turns.TryRemove(key, out _);
             return new[] { message };
         }
-        // Preserve the real lifecycle as an empty structural thinking indicator.
-        // It prevents the first progress message from flashing in the final slot.
-        // Original reasoning items are never mutated in the upstream transcript.
+        // The public-summary feature is additive. Preserve the pre-existing live reasoning
+        // stream exactly; Router keeps handling it with the established transient display path.
+        // ProjectHistory below still omits native reasoning, so it never becomes persistent history.
         if ((method is "item/started" or "item/completed") && Text(parameters["item"], "type") == "reasoning")
-        {
-            var structural = (JsonObject)message.DeepClone();
-            structural["params"]!["item"]!["summary"] = new JsonArray();
-            structural["params"]!["item"]!["content"] = new JsonArray();
-            return new[] { structural };
-        }
-        if (method.StartsWith("item/reasoning/", StringComparison.Ordinal)) return Array.Empty<JsonObject>();
+            return new[] { message };
+        if (method.StartsWith("item/reasoning/", StringComparison.Ordinal))
+            return new[] { message };
         if (turnId is null) return new[] { message };
         var keyForTurn = threadId + "\n" + turnId;
         var state = turns.GetOrAdd(keyForTurn, _ => new TurnState());

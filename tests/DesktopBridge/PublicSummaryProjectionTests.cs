@@ -20,15 +20,16 @@ internal static class PublicSummaryProjectionTests
         raw["params"]!["itemId"] = "raw-1";
         raw["params"]!["delta"] = "PRIVATE_REASONING_CANARY";
         var originalRaw = raw.ToJsonString();
-        check(projector.Normalize(raw, "t").Count == 0, "Raw reasoning must not masquerade as a public summary.");
+        var liveRaw = projector.Normalize(raw, "t");
+        check(liveRaw.Count == 1 && ReferenceEquals(liveRaw[0], raw), "Public summaries must not suppress or rewrite the pre-existing transient live reasoning stream.");
         check(raw.ToJsonString() == originalRaw, "Display filtering must not mutate upstream reasoning data.");
 
         var nativeStart = Note("item/started", new JsonObject
         { ["type"] = "reasoning", ["id"] = "native-start", ["summary"] = new JsonArray("RAW_CANARY"), ["content"] = new JsonArray("RAW_CANARY") });
         var originalStart = nativeStart.ToJsonString();
-        var structural = projector.Normalize(nativeStart, "t").Single();
-        check(structural["params"]!["item"]!["id"]!.GetValue<string>() == "native-start", "Keep real lifecycle identity for continuity.");
-        check(!structural.ToJsonString().Contains("RAW_CANARY") && nativeStart.ToJsonString() == originalStart, "Strip content only in the UI clone, never the upstream item.");
+        var liveStart = projector.Normalize(nativeStart, "t").Single();
+        check(ReferenceEquals(liveStart, nativeStart), "Keep the native live reasoning lifecycle on the original transient display path.");
+        check(liveStart.ToJsonString().Contains("RAW_CANARY") && nativeStart.ToJsonString() == originalStart, "Do not change pre-existing live reasoning visibility while adding public summaries.");
         var progress = Note("item/completed", Message("m1", "查到四个文件尚未备份，先不能删除原件。", "commentary"));
         var originalProgress = progress.ToJsonString();
         var output = projector.Normalize(progress, "t");
