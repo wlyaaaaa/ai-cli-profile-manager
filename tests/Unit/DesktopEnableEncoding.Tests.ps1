@@ -160,3 +160,18 @@ Describe 'Desktop bridge protected approval gate' {
         $entryMutation | Should -BeGreaterThan $approval
     }
 }
+
+Describe 'Desktop bridge exact protected release activation' {
+    It 'can enable a protected preinstalled release without recomputing its release id' {
+        $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+        $text = Get-Content -LiteralPath (
+            Join-Path $repoRoot 'scripts\Set-CodexDesktopLocalModels.ps1'
+        ) -Raw
+        $text | Should -Match '\[ValidatePattern\(''\^\[a-f0-9\]\{16\}\$''\)\]\[string\]\$ReleaseId'
+        $text.Contains('if (-not [string]::IsNullOrWhiteSpace($ReleaseId))') | Should -BeTrue
+        $text.Contains('    $release = Join-Path $InstallRoot (''releases\'' + $ReleaseId)') | Should -BeTrue
+        $text.Contains('Test-ProtectedBridgeApproval -ReleaseDirectory $release') | Should -BeTrue
+        $text.Contains('releaseId = (Split-Path $release -Leaf)') | Should -BeTrue
+        $text.Contains('        $output = Join-Path $repo ''dist\desktop-bridge''') | Should -BeTrue
+    }
+}

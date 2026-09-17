@@ -3,6 +3,7 @@
 param(
     [ValidateSet('Status', 'Build', 'Enable', 'Disable')][string]$Mode = 'Status',
     [string]$InstallRoot,
+    [ValidatePattern('^[a-f0-9]{16}$')][string]$ReleaseId = '',
     [switch]$Json
 )
 $ErrorActionPreference = 'Stop'
@@ -260,37 +261,50 @@ if ($Mode -eq 'Build') {
     Copy-Item -LiteralPath (Join-Path $repo 'src\AiCliProfileManager\Support\ResolveDesktopEngine.ps1') -Destination (Join-Path $repo 'dist\ResolveDesktopEngine.ps1') -Force
     $result = [ordered]@{ status = 'built'; output = $output; activated = $false }
 } elseif ($Mode -eq 'Enable') {
-    $output = Join-Path $repo 'dist\desktop-bridge'
-    $binary = Join-Path $output 'AiCli.CodexDesktopBridge.exe'
-    if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'Run this script with -Mode Build first.' }
-    $exporter = Join-Path $repo 'src\AiCliProfileManager\Support\GetDesktopModelPlan.ps1'
-    $tokenHelper = Join-Path $repo 'src\AiCliProfileManager\Support\GetDesktopProviderToken.ps1'
-    $resolver = Join-Path $repo 'src\AiCliProfileManager\Support\ResolveDesktopEngine.ps1'
-    $runtimeFiles = @('AiCli.CodexDesktopBridge.exe', 'AiCli.CodexDesktopBridge.dll', 'AiCli.CodexDesktopBridge.deps.json', 'AiCli.CodexDesktopBridge.runtimeconfig.json')
-    $fingerprintText = (@($runtimeFiles | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $output $_)).Hash }) -join '') + (Get-FileHash -LiteralPath $exporter).Hash + (Get-FileHash -LiteralPath $tokenHelper).Hash + (Get-FileHash -LiteralPath $resolver).Hash
-    $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($fingerprintText))).ToLowerInvariant().Substring(0, 16)
-    $release = Join-Path $InstallRoot "releases\$hash"
-    $bridge = Join-Path $release 'bridge'
-    $installedExe = Join-Path $bridge 'AiCli.CodexDesktopBridge.exe'
-    [IO.Directory]::CreateDirectory($bridge) | Out-Null
-    foreach ($name in $runtimeFiles) {
-        $source = Join-Path $output $name
-        $destination = Join-Path $bridge $name
-        if (Test-Path -LiteralPath $destination) {
-            if ((Get-FileHash -LiteralPath $source).Hash -ne (Get-FileHash -LiteralPath $destination).Hash) { throw 'Installed bridge version differs from the build.' }
-        } else { Copy-Item -LiteralPath $source -Destination $destination }
+    if (-not [string]::IsNullOrWhiteSpace($ReleaseId)) {
+        $release = Join-Path $InstallRoot ('releases\' + $ReleaseId)
+        $bridge = Join-Path $release 'bridge'
+        $installedExe = Join-Path $bridge 'AiCli.CodexDesktopBridge.exe'
+        $installedExporter = Join-Path $release 'GetDesktopModelPlan.ps1'
+        $installedTokenHelper = Join-Path $release 'GetDesktopProviderToken.ps1'
+        $installedResolver = Join-Path $release 'ResolveDesktopEngine.ps1'
+        if (-not (Test-ProtectedBridgeApproval -ReleaseDirectory $release)) {
+            throw 'Desktop bridge release is not approved by the protected PCConfig allowlist. Register and install the exact release before enabling it.'
+        }
     }
-    $installedExporter = Join-Path $release 'GetDesktopModelPlan.ps1'
-    if (-not (Test-Path -LiteralPath $installedExporter)) { Copy-Item -LiteralPath $exporter -Destination $installedExporter }
-    $installedTokenHelper = Join-Path $release 'GetDesktopProviderToken.ps1'
-    if (-not (Test-Path -LiteralPath $installedTokenHelper)) { Copy-Item -LiteralPath $tokenHelper -Destination $installedTokenHelper }
-    $installedResolver = Join-Path $release 'ResolveDesktopEngine.ps1'
-    if (-not (Test-Path -LiteralPath $installedResolver)) { Copy-Item -LiteralPath $resolver -Destination $installedResolver }
-    # The protected PCConfig allowlist is the trust source for a desktop bridge.
-    # Do not switch CODEX_CLI_PATH or mutate Codex config until this exact
-    # content-addressed release is registered and installed there.
-    if (-not (Test-ProtectedBridgeApproval -ReleaseDirectory $release)) {
-        throw 'Desktop bridge release is not approved by the protected PCConfig allowlist. Register and install the exact release before enabling it.'
+    else {
+        $output = Join-Path $repo 'dist\desktop-bridge'
+        $binary = Join-Path $output 'AiCli.CodexDesktopBridge.exe'
+        if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'Run this script with -Mode Build first.' }
+        $exporter = Join-Path $repo 'src\AiCliProfileManager\Support\GetDesktopModelPlan.ps1'
+        $tokenHelper = Join-Path $repo 'src\AiCliProfileManager\Support\GetDesktopProviderToken.ps1'
+        $resolver = Join-Path $repo 'src\AiCliProfileManager\Support\ResolveDesktopEngine.ps1'
+        $runtimeFiles = @('AiCli.CodexDesktopBridge.exe', 'AiCli.CodexDesktopBridge.dll', 'AiCli.CodexDesktopBridge.deps.json', 'AiCli.CodexDesktopBridge.runtimeconfig.json')
+        $fingerprintText = (@($runtimeFiles | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $output $_)).Hash }) -join '') + (Get-FileHash -LiteralPath $exporter).Hash + (Get-FileHash -LiteralPath $tokenHelper).Hash + (Get-FileHash -LiteralPath $resolver).Hash
+        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($fingerprintText))).ToLowerInvariant().Substring(0, 16)
+        $release = Join-Path $InstallRoot ('releases\' + $hash)
+        $bridge = Join-Path $release 'bridge'
+        $installedExe = Join-Path $bridge 'AiCli.CodexDesktopBridge.exe'
+        [IO.Directory]::CreateDirectory($bridge) | Out-Null
+        foreach ($name in $runtimeFiles) {
+            $source = Join-Path $output $name
+            $destination = Join-Path $bridge $name
+            if (Test-Path -LiteralPath $destination) {
+                if ((Get-FileHash -LiteralPath $source).Hash -ne (Get-FileHash -LiteralPath $destination).Hash) { throw 'Installed bridge version differs from the build.' }
+            } else { Copy-Item -LiteralPath $source -Destination $destination }
+        }
+        $installedExporter = Join-Path $release 'GetDesktopModelPlan.ps1'
+        if (-not (Test-Path -LiteralPath $installedExporter)) { Copy-Item -LiteralPath $exporter -Destination $installedExporter }
+        $installedTokenHelper = Join-Path $release 'GetDesktopProviderToken.ps1'
+        if (-not (Test-Path -LiteralPath $installedTokenHelper)) { Copy-Item -LiteralPath $tokenHelper -Destination $installedTokenHelper }
+        $installedResolver = Join-Path $release 'ResolveDesktopEngine.ps1'
+        if (-not (Test-Path -LiteralPath $installedResolver)) { Copy-Item -LiteralPath $resolver -Destination $installedResolver }
+        # The protected PCConfig allowlist is the trust source for a desktop bridge.
+        # Do not switch CODEX_CLI_PATH or mutate Codex config until this exact
+        # content-addressed release is registered and installed there.
+        if (-not (Test-ProtectedBridgeApproval -ReleaseDirectory $release)) {
+            throw 'Desktop bridge release is not approved by the protected PCConfig allowlist. Register and install the exact release before enabling it.'
+        }
     }
     # Validate the installed discovery route before changing the desktop entry.
     $plan = Invoke-Utf8JsonPowerShellFile -Path $installedExporter
@@ -346,7 +360,7 @@ if ($Mode -eq 'Build') {
     Set-UserDesktopEntry $installedExe
     if ([Environment]::GetEnvironmentVariable('CODEX_CLI_PATH', 'User') -ne $installedExe) { throw 'Desktop entry readback failed.' }
     Notify-EnvironmentChange
-    $result = [ordered]@{ status = 'enabled'; executable = $installedExe; restartRequired = $true; models = @($plan.models | ForEach-Object { $_.catalogModel.display_name }) }
+    $result = [ordered]@{ status = 'enabled'; releaseId = (Split-Path $release -Leaf); executable = $installedExe; restartRequired = $true; models = @($plan.models | ForEach-Object { $_.catalogModel.display_name }) }
 } elseif ($Mode -eq 'Disable') {
     if ($null -eq $state -or -not $state.enabled) {
         $result = [ordered]@{ status = 'already_disabled'; changed = $false }
