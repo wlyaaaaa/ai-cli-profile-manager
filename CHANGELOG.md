@@ -12,6 +12,7 @@
 
 ### 修复
 
+- DeepSeek Codex 入口更新为官方自动升级的 `deepseek-flash`（DeepSeek V4.1 Flash）；桌面菜单只显示“DeepSeek Flash”，支持文本和图像输入。旧 `deepseek-v4-flash` 入口、旧 Claude/Open Interpreter V4 Flash 入口均已退役。合法的 `deepseek-v4-pro` 保留为独立 CLI Profile，但不进入桌面菜单。
 - 所有 AICLI 自行接入的非 OpenAI Codex 模型统一在各自最大上下文的 90% 自动压缩；GLM 桌面目录启用延迟工具搜索，避免首轮加载完整插件工具定义，并把 GLM 的 raw reasoning 内容兼容映射到桌面思考摘要展示。
 - GLM-5.3 与 GLM-5.3-Flash 的根任务和子代理默认使用简体中文；思考摘要、进度和最终答复面向用户解释发现、原因与影响，按问题需要展开，取消固定一句话模板。修复风格指令缺少主动发送条件的缺口：明确在首次工具前及重要发现、阶段进展或方向变化处发送用户可见助手进度，内部操作转译成用户相关目的，避免省略细节时连进度也被省略。
 - 已验收的用户可见沟通策略推广至全部受管、非 OpenAI Codex 目录：本地 Qwen、云端 Qwen 与 DeepSeek 现在和 GLM 一样，在多步工作前及重要阶段主动解释目标、原因和影响，并用更完整的人话组织最终答复。策略由单一脚本维护；DeepSeek 的官方条目哈希仍在剥离 AICLI 策略后严格验证，OpenAI 原生动态模型目录未改动。

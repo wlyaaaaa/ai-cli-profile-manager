@@ -48,8 +48,7 @@ $name — 命令帮助
   $cmd start codex-qwen3-8-max-paygo --project <trusted-workspace>
   $cmd start codex-glm-5-3 --project <trusted-workspace>
   $cmd start codex-glm-5-3-flash --project <trusted-workspace>
-  $cmd start codex-deepseek --project <trusted-workspace>
-  $cmd start codex-deepseek-v4-pro --project <trusted-workspace>
+  $cmd start codex-deepseek-flash --project <trusted-workspace>
   $cmd start codex-ollama-main --project <trusted-workspace>
   $cmd start codex-ollama-qwen3-8-27b --project <trusted-workspace>
   $cmd start codex-ollama-review --project <trusted-workspace>

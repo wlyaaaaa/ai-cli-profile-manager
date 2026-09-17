@@ -231,6 +231,8 @@ aicli profile remove qwen-work
 
 配置过 `codex-qwen3-8-max-paygo` 后，Codex 桌面桥接会在每次启动时请求原生引擎刷新在线模型目录，并只接受带 `etag`、抓取时间和客户端版本的原生在线缓存，再把 `Qwen3.8 Max 0902` 合并进模型选择器。刷新会做三次有界重试；仍不可验证时交还原生 Codex。`debug models` 内部即使静默退回可能含旧模型的内置目录，其输出也不会进入菜单。密钥由受管 Profile 的加密副本按需交给 Codex 的 command-backed auth（命令取令牌认证）通道，不写入基础 `config.toml`、模型目录或全局环境变量。上游官方模型仍动态刷新；关闭或移除这条云 Profile 不会固定、过滤或覆盖 OpenAI 模型。
 
+`codex-deepseek-flash` 使用 DeepSeek 官方 Responses 端点 `https://api.deepseek.com` 和模型 ID `deepseek-flash`。桌面菜单显示“DeepSeek Flash”，不写死 V4.1 版本号；官方会把这个 Flash ID 指向当前 Flash 版本。它支持文本、图像、工具调用和 1M 上下文。旧 `deepseek-v4-flash` 已退役并拒绝启动；`deepseek-v4-pro` 仍是官方合法 ID，仅保留在独立 CLI Profile，不显示在桌面菜单。
+
 `codex-glm-5-3` 与 `codex-glm-5-3-flash` 使用智谱中国区 `https://open.bigmodel.cn/api/v1` Responses 端点，分别固定模型 ID `glm-5.3` 与 `glm-5.3-flash`，不使用 alias（动态别名）或 fallback（后备模型）。两者均声明 1048576 token 上下文、95% 有效窗口、943718 token（最大上下文 90%）自动压缩线和 `low` / `high` / `max` 推理档位；Flash 在 Codex 桌面目录中声明文本与图像输入。根任务和子代理默认使用简体中文，思考摘要与进度重点解释与你的目标有关的发现、原因和影响；需要调查或分步处理时，开始前会主动说明准备解决的问题，过程中在重要发现、阶段进展或调整方向时继续解释，不把说明全部留到结束。不固定行数，用你关心的目的和影响解释内部操作，也不为增加篇幅凑话。最终答复按问题需要展开，让必要细节足够清楚。两项 GLM 模型使用 Codex 的延迟工具搜索，插件工具按需加载；智谱 Responses 返回原始 reasoning content 时，桌面桥会把同一内容映射为可见思考。两个 Profile 共享 Password Center 的 `zhipu-glm-api` 凭据来源，但各自保留独立 Provider 与模型目录，切换不同服务的历史任务时仍需新建任务。
 
 同一套“开始前说明、多步过程中讲清重要发现和影响、最终答复保留必要解释”的表达方式也用于 AICLI 受管的本地 Qwen、云端 Qwen 和 DeepSeek Codex 模型。它不会改变你在菜单中选择的模型、模型速度、上下文长度或 OpenAI 官方模型；OpenAI 模型仍由 Codex 自己动态更新。其他模型的实际表达效果会随模型本身而不同，当前已由实际使用验收的是 GLM。

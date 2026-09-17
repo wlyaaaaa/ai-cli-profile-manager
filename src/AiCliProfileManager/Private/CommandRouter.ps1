@@ -791,20 +791,16 @@ function Invoke-AiCliSetup {
     Write-Host '  5) 可选 Live:   aicli test <id> --live --yes'
     $idx = Show-AiCliMenu -Title '选择要配置的方向' -Choices @(
         '仅查看说明（稍后手动）',
-        '配置 Codex DeepSeek V4 Flash 0731',
-        '配置 Codex DeepSeek V4 Pro 0813',
+        '配置 Codex DeepSeek V4.1 Flash',
         '配置 Codex Qwen3.7 Max 06-08 Workspace 按量',
         '配置 Codex Qwen3.8 Max Workspace 按量',
-        '配置 Claude DeepSeek',
         '查看全部模板'
     )
     switch ($idx) {
-        1 { Invoke-AiCliProfileConfigure -TemplateId 'codex-deepseek' | Out-Null }
-        2 { Invoke-AiCliProfileConfigure -TemplateId 'codex-deepseek-v4-pro' | Out-Null }
-        3 { Invoke-AiCliProfileConfigure -TemplateId 'codex-qwen3-7-max-paygo' | Out-Null }
-        4 { Invoke-AiCliProfileConfigure -TemplateId 'codex-qwen3-8-max-paygo' | Out-Null }
-        5 { Invoke-AiCliProfileConfigure -TemplateId 'claude-deepseek' | Out-Null }
-        6 { Invoke-AiCliRouter -Tokens @('profile','list','--available') | Out-Null }
+        1 { Invoke-AiCliProfileConfigure -TemplateId 'codex-deepseek-flash' | Out-Null }
+        2 { Invoke-AiCliProfileConfigure -TemplateId 'codex-qwen3-7-max-paygo' | Out-Null }
+        3 { Invoke-AiCliProfileConfigure -TemplateId 'codex-qwen3-8-max-paygo' | Out-Null }
+        4 { Invoke-AiCliRouter -Tokens @('profile','list','--available') | Out-Null }
         default { Write-AiCliInfo '已结束 setup。' }
     }
     return (Get-AiCliExitCode Success)

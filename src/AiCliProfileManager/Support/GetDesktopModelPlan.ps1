@@ -5,7 +5,8 @@ param(
     [string[]]$CloudProfileId = @(
         'codex-qwen3-8-max-paygo',
         'codex-glm-5-3',
-        'codex-glm-5-3-flash'
+        'codex-glm-5-3-flash',
+        'codex-deepseek-flash'
     ),
     [string]$ModulePath = (Join-Path $PSScriptRoot '..\AiCliProfileManager.psd1'),
     [switch]$UpstreamOnly
@@ -88,7 +89,7 @@ $plan = & $module {
         if (-not [bool](Get-AiCliProperty $profile 'configured' $false) -and
             -not $blindProvision) { continue }
         if ((Get-AiCliProperty $profile 'engine') -ne 'codex' -or
-            $cloudProvider -notin @('qwen','glm') -or
+            $cloudProvider -notin @('qwen','glm','deepseek') -or
             (Get-AiCliProperty $profile 'transport') -ne 'responses') {
             throw "Desktop cloud model profile must use an approved Codex Responses provider: $id"
         }
@@ -100,7 +101,7 @@ $plan = & $module {
         $endpoint = [string](Get-AiCliProperty $profile 'endpoint')
         if ($cloudProvider -eq 'qwen') {
             $endpoint = Resolve-AiCliQwenWorkspaceResponsesEndpoint -Endpoint $endpoint
-        } else {
+        } elseif ($cloudProvider -eq 'glm') {
             Assert-AiCliEndpointSafe -Url $endpoint
             $uri = [Uri]$endpoint
             if ($uri.Scheme -cne 'https' -or $uri.Port -ne 443 -or
@@ -110,6 +111,16 @@ $plan = & $module {
                 throw "Desktop GLM profile must use the official China Responses endpoint: $id"
             }
             $endpoint = 'https://open.bigmodel.cn/api/v1'
+        } else {
+            Assert-AiCliEndpointSafe -Url $endpoint
+            $uri = [Uri]$endpoint
+            if ($uri.Scheme -cne 'https' -or $uri.Port -ne 443 -or
+                $uri.Host -cne 'api.deepseek.com' -or
+                $uri.AbsolutePath.TrimEnd('/') -ne '' -or
+                $uri.Query -or $uri.Fragment -or $uri.UserInfo) {
+                throw "Desktop DeepSeek profile must use the official Responses endpoint: $id"
+            }
+            $endpoint = 'https://api.deepseek.com'
         }
         $model = [string](Get-AiCliProperty (Get-AiCliProperty $profile 'models') 'primary')
         if (-not $seen.Add($model)) { continue }

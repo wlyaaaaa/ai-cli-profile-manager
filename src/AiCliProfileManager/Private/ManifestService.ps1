@@ -45,7 +45,7 @@ function Test-AiCliRetiredModelId {
         return $true
     }
     if ($lower -match '^deepseek-v4(?:$|[-._:/+@])') {
-        return $normalized -cnotin @('deepseek-v4-flash', 'deepseek-v4-pro')
+        return $normalized -cne 'deepseek-v4-pro'
     }
     if ($lower -match '^qwen3\.6(?::|[-_])27b(?:$|[-._:/+@])' -or
         $lower -match '^qwen-review-v1(?:$|[-._:/+@])') {
@@ -87,7 +87,7 @@ function Assert-AiCliModelIsActive {
     )
     if ($ModelId -and $ModelId.Trim().Trim('"', "'") -match '^deepseek-v4(?:$|[-._:/+@])' -and
         (Test-AiCliRetiredModelId -ModelId $ModelId)) {
-        throw "$Context 引用了已退役或未登记的 DeepSeek V4 模型 $ModelId；AICLI 只保留 API alias deepseek-v4-flash（DeepSeek-V4-Flash-0731）与 deepseek-v4-pro（DeepSeek-V4-Pro-0813）。"
+        throw "$Context 引用了已退役的 DeepSeek V4 Flash 模型 $ModelId；AICLI 使用 deepseek-flash（官方自动升级的 Flash ID）。deepseek-v4-pro 仅保留为独立的 CLI Profile，不进入桌面模型列表。"
     }
     $normalized = if ($ModelId) { $ModelId.Trim().Trim('"', "'") } else { '' }
     if ($normalized -and (Test-AiCliRetiredModelId -ModelId $normalized) -and

@@ -1,8 +1,7 @@
 #Requires -Version 7.0
 [CmdletBinding()]
 param(
-    [ValidateSet('flash', 'pro')][string]$Model = 'flash',
-    [string]$SourceCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\deepseek-v4-flash.json'),
+    [string]$SourceCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\deepseek-flash.json'),
     [string]$OutputCatalog
 )
 
@@ -10,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'CodexUserCommunicationPolicy.ps1')
 if ([string]::IsNullOrWhiteSpace($OutputCatalog)) {
-    $OutputCatalog = Join-Path $repoRoot ("data\model-catalogs\deepseek-v4-{0}.json" -f $Model)
+    $OutputCatalog = Join-Path $repoRoot 'data\model-catalogs\deepseek-flash.json'
 }
 
 $source = Get-Content -LiteralPath $SourceCatalog -Raw -Encoding utf8 |
@@ -21,22 +20,12 @@ if (@($source.models).Count -ne 1) {
 $entry = $source.models[0] | ConvertTo-Json -Depth 100 |
     ConvertFrom-Json -AsHashtable -Depth 100
 
-$definition = if ($Model -eq 'pro') {
-    [ordered]@{
-        slug = 'deepseek-v4-pro'
-        display = 'DeepSeek-V4-Pro'
-        description = 'Most capable frontier agentic coding model.'
-        priority = 2
-        officialCanonicalEntrySha256 = '16e8716359c27ade5f748e586e2b25886f5a7257ab4e9795436e11f9c4fdeedf'
-    }
-} else {
-    [ordered]@{
-        slug = 'deepseek-v4-flash'
-        display = 'DeepSeek-V4-Flash'
-        description = 'Latest frontier agentic coding model.'
-        priority = 1
-        officialCanonicalEntrySha256 = '8065e17700fe1a88bed911114c10f3e792eac48601aa765e067bec13eb0ae1d4'
-    }
+$definition = [ordered]@{
+    slug = 'deepseek-flash'
+    display = 'DeepSeek-Flash'
+    description = 'Latest frontier agentic coding model with image input.'
+    priority = 1
+    officialCanonicalEntrySha256 = 'd8c36e252d43d474bd776bc0d47ef99b8ca72fa579d62ca03cfa5c7b6179877a'
 }
 
 $entry.slug = $definition.slug
@@ -45,6 +34,8 @@ $entry.description = $definition.description
 $entry.context_window = 1048576
 $entry.max_context_window = 1048576
 $entry.effective_context_window_percent = 95
+$entry.input_modalities = @('text','image')
+$entry.supports_image_detail_original = $true
 $entry.default_reasoning_level = 'high'
 $entry.supported_reasoning_levels = @(
     [ordered]@{ effort = 'low'; description = 'Fast responses with lighter reasoning' },
@@ -55,10 +46,10 @@ $entry.minimal_client_version = '0.144.0'
 $entry.priority = $definition.priority
 $entry.base_instructions = Remove-AiCliCodexUserCommunicationPolicy -BaseInstructions ([string]$entry.base_instructions)
 
-# Bind every non-policy field to the current official dual-model catalog from
-# codex-deepseek-setup-en.ps1 (SHA-256 239c5e7e...54a36). AICLI's only
-# deliberate catalog override is the default effort below: users chose max to
-# mean the highest level that this model declares.
+# Bind non-policy fields to the current official deepseek-flash catalog from
+# codex-deepseek-setup-en.ps1 (SHA-256 b49dd413...2c3fa08b). AICLI applies
+# its selected max effort and presentation/compaction policy only after this
+# exact vendor entry is verified.
 $officialEntryForHash = $entry | ConvertTo-Json -Depth 100 |
     ConvertFrom-Json -AsHashtable -Depth 100
 # These fields are AICLI's Codex client policy, added after validating the
@@ -77,7 +68,7 @@ try {
     $sha.Dispose()
 }
 if ($canonicalHash -cne $definition.officialCanonicalEntrySha256) {
-    throw "DeepSeek official catalog baseline mismatch for $($definition.slug): $canonicalHash"
+    throw "DeepSeek V4.1 Flash official catalog baseline mismatch: $canonicalHash"
 }
 $entry.default_reasoning_level = 'max'
 $entry.include_plugin_usage_instructions = $false

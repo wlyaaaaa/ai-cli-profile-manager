@@ -1,7 +1,7 @@
 ﻿#Requires -Version 7.0
 [CmdletBinding()]
 param(
-    [string]$SourceCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\deepseek-v4-flash.json'),
+    [string]$SourceCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\deepseek-flash.json'),
     [ValidateSet('qwen38max0902', 'qwen37max0608', 'local', 'localQwen38_27b')][string]$CatalogKind = 'qwen38max0902',
     [string]$OutputCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\qwen3.8-max-0902-codex.json')
 )
