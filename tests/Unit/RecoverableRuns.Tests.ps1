@@ -562,6 +562,42 @@ Describe 'Recoverable Codex runs' {
         }
     }
 
+    It 'reports the exact public broker owner failure without weakening identity checks' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work=$TestDrive } {
+            $script:AiCliDataRootOverride=Join-Path $Work 'data'
+            try {
+                Mock Build-AiCliLaunchPlan {
+                    [pscustomobject]@{
+                        engine='codex';profileId='future'
+                        profileFingerprint=('6'*64);workingDirectory=$Work
+                        model='future-model';modelProvider='future_provider'
+                        wire='responses';effort='max';effectiveEffort='max'
+                    }
+                }
+                Mock Invoke-AiCliProfileCapture {
+                    throw 'LocalGpuBroker management request failed: owner_process_unavailable'
+                }
+                $created=New-AiCliRecoverableRun -ProfileId future `
+                    -ProjectPath $Work -TaskText TASK
+                $result=Invoke-AiCliRecoverableRun $created.runId `
+                    -InitialTaskText TASK
+                $result.receipt.errorCode | Should -BeExactly 'aicli.local_gpu_broker.owner_process_unavailable'
+                $result.status | Should -BeExactly 'failed_closed'
+                $result.resumeSupported | Should -BeFalse
+                $result.resumeReason |
+                    Should -BeExactly 'capture_exception_before_verified_receipt'
+                $result.receipt.stderr |
+                    Should -BeExactly 'Recoverable capture failed before a verified receipt.'
+                ($result|ConvertTo-Json -Depth 30 -Compress) |
+                    Should -Not -Match 'PRIVATE_CAPTURE_EXCEPTION_CANARY'
+                $segment=Join-Path (
+                    Get-AiCliRecoverableRunRoot $created.runId
+                ) 'segments\0001.receipt.json'
+                Test-Path $segment -PathType Leaf | Should -BeTrue
+            } finally {$script:AiCliDataRootOverride=$null}
+        }
+    }
+
     It 'chains public terminal events written before a capture exception' {
         InModuleScope AiCliProfileManager -Parameters @{ Work=$TestDrive } {
             $script:AiCliDataRootOverride=Join-Path $Work 'data-event-catch'

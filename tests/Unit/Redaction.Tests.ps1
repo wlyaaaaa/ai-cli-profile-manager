@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 Describe 'Redaction' {
     BeforeAll {
         $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -54,5 +54,49 @@ Describe 'Redaction' {
 
         $safe | Should -Not -Match ([regex]::Escape($workspaceId))
         $safe | Should -Be 'https://ws-***.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
+    }
+
+    It 'recursively redacts PSCustomObject and dictionaries alike' {
+        $object = [pscustomobject]@{
+            nested = [pscustomobject]@{ apiKey = 'PUBLIC_TEST_CREDENTIAL_SENTINEL' }
+            rows = @([pscustomobject]@{ authorization = 'PUBLIC_TEST_AUTH_SENTINEL' })
+        }
+        $result = Protect-AiCliObject $object
+        $result.nested.apiKey | Should -Be '***REDACTED***'
+        $result.rows[0].authorization | Should -Be '***REDACTED***'
+        ($result | ConvertTo-Json -Depth 10) | Should -Not -Match 'PUBLIC_TEST_'
+    }
+
+    It 'preserves typed numeric usage and context metadata but not credential strings' {
+        $usage = [ordered]@{}
+        foreach ($name in @('input_tokens','cached_input_tokens','output_tokens',
+            'reasoning_output_tokens','total_tokens','current_context_tokens',
+            'context_window_tokens','contextWindowTokens','outputWindowTokens')) {
+            $usage[$name] = 123
+        }
+        $usage['access_token'] = 'PUBLIC_TEST_CREDENTIAL_SENTINEL'
+        $usage['input_tokens_details'] = 'PUBLIC_TEST_CREDENTIAL_SENTINEL'
+        $result = Protect-AiCliObject ([pscustomobject]$usage)
+        foreach ($key in $usage.Keys) {
+            if ($usage[$key] -is [int]) { $result[$key] | Should -Be 123 }
+            else { $result[$key] | Should -Be '***REDACTED***' }
+        }
+        Protect-AiCliSecretText 'input_tokens=123 output_tokens=45 access_token=PUBLIC_TEST_CREDENTIAL_SENTINEL' |
+            Should -Be 'input_tokens=123 output_tokens=45 access_token=***REDACTED***'
+    }
+
+    It 'preserves empty and singleton arrays without flattening nested shapes' {
+        $result = Protect-AiCliObject @{ empty = @(); one = @('public'); nested = @(@('a','b')) }
+        ($result.empty -is [object[]]) | Should -BeTrue
+        $result.empty.Count | Should -Be 0
+        ($result.one -is [object[]]) | Should -BeTrue
+        $result.one.Count | Should -Be 1
+        $result.one[0] | Should -Be 'public'
+    }
+
+    It 'does not mistake string-valued presence fields for public booleans' {
+        $result = Protect-AiCliObject @{ requiresSecret = 'PUBLIC_TEST_CREDENTIAL_SENTINEL'; secretConfigured = $true }
+        $result.requiresSecret | Should -Be '***REDACTED***'
+        $result.secretConfigured | Should -BeTrue
     }
 }

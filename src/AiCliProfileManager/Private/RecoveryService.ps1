@@ -1320,6 +1320,11 @@ function Invoke-AiCliRecoverableRunCore {
             $captureFailureReason = `
                 'capture_exception_before_verified_receipt'
             $captureErrorCode = 'aicli.recovery.capture_exception'
+            # Preserve only this exact public diagnosis. Unknown exceptions
+            # remain generic and never expose their potentially private text.
+            if ($_.Exception.Message -ceq 'LocalGpuBroker management request failed: owner_process_unavailable') {
+                $captureErrorCode = 'aicli.local_gpu_broker.owner_process_unavailable'
+            }
             $captureSequenceStart = [int]$state.turnContext.eventCursor
             $captureSequenceEnd = $captureSequenceStart
             # Invoke-AiCliProfileCapture can fail its parent identity gate after

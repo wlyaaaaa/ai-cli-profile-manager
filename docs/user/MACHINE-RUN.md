@@ -1,5 +1,15 @@
 # Codex harness 与 machine run
 
+## 不启动模型的参数预检
+
+```powershell
+aicli run <profile-id> --project <existing-workspace> --stdin --json --watchdog-only --timeout-seconds 900 --dry-run
+```
+
+`--dry-run` 不等待或读取 stdin，不创建运行目录、恢复任务或事件文件，也不调用模型。返回 `aicli.machine-run-preflight.v1`，明确实际模型、Profile、模块版本/位置、策略与预算。它验证的是配置和接口，`authenticationChecked=false`、`liveAcceptance=not_checked`，不是凭据可用性或能力实测证明。
+
+当前 Codex machine 接口使用 `danger-full-access`，拒绝其他策略。非 Codex runner 按其支持的 `workspace-write` / `read-only` 工作，不支持 Codex 恢复专用 `--event-file`。工具调用者应传结构化参数，不再拼接 `exec --disable plugins` 或原生 `--image`。原生图片当前不属于该机器入口支持能力。
+
 `aicli run` 是供上层 AI/程序调用原生智能体的底层入口，不是新的 Agent，也不负责选择模型或自动 fallback。
 
 ```powershell

@@ -1,6 +1,6 @@
 ﻿@{
     RootModule        = 'AiCliProfileManager.psm1'
-    ModuleVersion     = '0.3.15'
+    ModuleVersion     = '0.3.16'
     GUID              = 'a1c11c11-0a11-4c11-b111-a1c110110011'
     Author            = 'AI CLI Profile Manager Contributors'
     CompanyName       = 'Independent'
@@ -16,7 +16,7 @@
             Tags         = @('Codex', 'Claude', 'QwenCode', 'OpenCode', 'OpenInterpreter', 'Ollama', 'Qwen', 'DeepSeek', 'CLI', 'Windows', 'Profile', 'Sandbox')
             LicenseUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager'
-            ReleaseNotes = '0.3.15：固定 Qwen3.8 Max 0902，并将已配置云模型安全合并到 Codex Desktop 动态模型目录。'
+            ReleaseNotes = '0.3.16：新增无模型 machine-run 预检与结构化 Toolkit 调用契约，修复嵌套对象脱敏并回读实际安装来源。'
         }
     }
 }

@@ -140,6 +140,10 @@ function Invoke-AiCliRouter {
                         command = (Get-AiCliCommandName)
                         version = (Get-AiCliVersion)
                         capabilities = [ordered]@{
+                            machineRunPreflight = 'aicli.machine-run-preflight.v1'
+                            machineRunArguments = 'structured'
+                            machineRunNativeImages = $false
+                            machineRunBudgetModes = @('watchdog_only','bounded')
                             machineEventProjection = 'aicli.machine-event.v1'
                             managedPublicWebSearch = 'public_web_search/bing-rss-v1'
                             recoverableRuns = 'aicli.recoverable-run.v1'
@@ -413,7 +417,7 @@ function Invoke-AiCliRunCommand {
         }
         $split = Split-AiCliArgs -Tokens $tokenList
         $pos = Assert-AiCliTokenShape -Tokens $split.Before -MinPositionals 1 -MaxPositionals 1 `
-            -Switches @('--stdin','--json','--watchdog-only','--authority-prelude-stdout','--no-web-search','--background') `
+            -Switches @('--stdin','--json','--watchdog-only','--authority-prelude-stdout','--no-web-search','--background','--dry-run') `
             -ValueOptions @('--project','--sandbox-policy','--timeout-seconds','--max-steps','--max-tool-calls','--max-output-chars','--event-file','--max-resume-attempts')
         if (-not (Test-AiCliHasFlag $split.Before '--stdin')) {
             throw '参数 --stdin 是 machine run 的必需项；任务正文不得放入命令行参数。'
@@ -494,6 +498,38 @@ function Invoke-AiCliRunCommand {
                 @($native | Where-Object { $_ -notin $allowedNative }).Count -gt 0) {
                 throw 'Recoverable Codex run only accepts the canonical exec --json ... - native shape.'
             }
+        }
+        if (Test-AiCliHasFlag $split.Before '--dry-run') {
+            # Stop the real run parser before stdin or runtime creation.
+            $checkedProject = Resolve-AiCliProjectPath (
+                Get-AiCliFlagValue -Tokens $split.Before -Name '--project'
+            )
+            $watchdog = Test-AiCliHasFlag $split.Before '--watchdog-only'
+            Write-AiCliJson (New-AiCliResult -Command 'run.preflight' -OverallStatus '通过' -Extra @{
+                preflight = [ordered]@{
+                    schema = 'aicli.machine-run-preflight.v1'
+                    modelInvoked = $false
+                    authenticationChecked = $false
+                    runtimeCreated = $false
+                    version = Get-AiCliVersion
+                    moduleRoot = $ExecutionContext.SessionState.Module.ModuleBase
+                    profileId = $profileId
+                    engine = [string](Get-AiCliProperty $resolvedForHarness 'engine')
+                    model = [string](Get-AiCliProperty (Get-AiCliProperty $resolvedForHarness 'models') 'primary')
+                    profileFingerprint = Get-AiCliProperty $resolvedForHarness 'profileFingerprint'
+                    configured = [bool](Get-AiCliProperty $resolvedForHarness 'configured' $false)
+                    workspace = $checkedProject
+                    policy = $sandboxPolicy
+                    budgetMode = if ($watchdog) { 'watchdog_only' } else { 'bounded' }
+                    timeoutSeconds = $timeoutSeconds
+                    maxSteps = if ($watchdog) { $null } else { $maxSteps }
+                    maxToolCalls = if ($watchdog) { $null } else { $maxToolCalls }
+                    nativeImages = $false
+                    arguments = 'structured'
+                    liveAcceptance = 'not_checked'
+                }
+            })
+            return (Get-AiCliExitCode Success)
         }
         $requestedEventFile = Get-AiCliFlagValue -Tokens $split.Before `
             -Name '--event-file'

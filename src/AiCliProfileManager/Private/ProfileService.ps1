@@ -1,7 +1,8 @@
 ﻿# User profiles: virtual templates, multi-instance, merge, default, remove.
 
 function Get-AiCliSettings {
-    $paths = Initialize-AiCliDirectories
+    # A read must not initialize application directories.
+    $paths = Get-AiCliAppPaths
     $default = [ordered]@{
         schemaVersion     = 1
         defaultProfileId  = $null

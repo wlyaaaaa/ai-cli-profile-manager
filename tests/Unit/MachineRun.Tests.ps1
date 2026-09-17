@@ -2090,7 +2090,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         }
     }
 
-    It 'fails closed when the bridge cannot confirm app-server tree cleanup' {
+    It 'confirms owned app-server descendants even when the original root exits first' {
         InModuleScope AiCliProfileManager -Parameters @{
             Work = $TestDrive
             RepoRoot = $root
@@ -2142,9 +2142,10 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 -WorkingDirectory $Work -StdInText 'TASK' -EventProtocol codex-app-server `
                 -MaxSteps 8 -MaxToolCalls 4 -TimeoutMs 8000
 
-            $result.ExitCode | Should -Not -Be 0
-            $result.LimitsHard | Should -BeFalse
-            $result.StdErr | Should -Match 'cleanup could not be confirmed'
+            $result.ExitCode | Should -Be 0
+            $result.CleanupConfirmed | Should -BeTrue
+            $result.StdOut | Should -Match 'PUBLIC_DONE'
+            $result.StdErr | Should -BeNullOrEmpty
         }
     }
 
@@ -2401,14 +2402,17 @@ Start-Sleep -Seconds 5
             @"
 [Console]::Out.WriteLine('{"type":"turn.started","turn_id":"turn-1"}')
 [Console]::Out.WriteLine('{"type":"item.started","item":{"id":"tool-1","type":"command_execution"}}')
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 20
 [IO.File]::WriteAllText('$($marker.Replace("'", "''"))', 'escaped')
 "@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
 
             $result = Invoke-AiCliChildCapture -FileName (Get-Command pwsh.exe).Source `
                 -ArgumentList @('-NoProfile','-File',$scriptPath) -WorkingDirectory $Work `
-                -EventProtocol codex-jsonl -MaxSteps 4 -MaxToolCalls 4 -TimeoutMs 1000
+                -EventProtocol codex-jsonl -MaxSteps 4 -MaxToolCalls 4 -TimeoutMs 5000
 
+            # Allow cold interpreter startup; this still checks an actual killed tree.
+            # The next test independently enforces the short absolute wall deadline.
+            $result.DurationMs | Should -BeLessThan 10000
             $result.TimedOut | Should -BeTrue
             $result.LimitHit | Should -Be 'timeout'
             $result.LimitsHard | Should -BeTrue
@@ -3208,6 +3212,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
             Copy-Item -LiteralPath (
                 Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexAppServerBridge.ps1'
             ) -Destination (Join-Path $supportRoot 'CodexAppServerBridge.ps1')
+            Copy-Item -LiteralPath (Join-Path $RepoRoot 'src\AiCliProfileManager\Support\CodexProcessJob.cs') -Destination (Join-Path $supportRoot 'CodexProcessJob.cs')
             @'
 function Get-BridgePublicWebSearchToolSpec {
     [pscustomobject][ordered]@{

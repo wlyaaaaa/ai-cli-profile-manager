@@ -1,5 +1,15 @@
 # 变更日志
 
+## 0.3.16
+
+- Own each native Codex app-server process group with a Windows job, confirm descendant cleanup after root exit, and preserve actionable GPU-owner errors without exposing private exception text.
+
+- 新增 `aicli run <profile> --stdin --json --dry-run`：复用真实参数解析器，只返回实际模型、Profile、模块来源和预算，不读取 stdin、消费模型凭据、创建运行目录或启动模型。
+- 机器能力声明区分结构化参数、权限、预算模式与原生图片支持。Toolkit 消费者采用结构化接口，预检不冒充真实任务验收。
+- 脱敏递归覆盖 PowerShell 对象与字典，保留数组形状和数值型 token 用量/上下文指标；凭据字段与错误类型的“存在性”字段仍脱敏。
+- 读取 settings 不再初始化应用目录，支持无副作用的调用预检。
+- 新增可执行预检及对象序列化回归；既有恢复控制器与安装事务保持独立。
+
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
 ## [Unreleased]

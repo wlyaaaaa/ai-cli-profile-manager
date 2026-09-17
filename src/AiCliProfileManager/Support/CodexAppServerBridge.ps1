@@ -1504,6 +1504,8 @@ $script:RuntimeIdentityVerified = $false
 $script:WebSearchEnabled = $false
 $script:WebSearchCallIds = @{}
 $serverErrorTask = $null
+$serverJob = $null
+$serverJobAttached = $false
 $serverStarted = $false
 $bridgeExitCode = 1
 
@@ -1659,12 +1661,20 @@ try {
         [void]$startInfo.ArgumentList.Add([string]$argument)
     }
 
+    if (-not ('AiCliRuntime.CodexProcessJob' -as [type])) {
+        Add-Type -Path (Join-Path $PSScriptRoot 'CodexProcessJob.cs') -ErrorAction Stop
+    }
+    $serverJob = [AiCliRuntime.CodexProcessJob]::new()
     $script:ServerProcess = [Diagnostics.Process]::new()
     $script:ServerProcess.StartInfo = $startInfo
     if (-not $script:ServerProcess.Start()) {
         throw 'Codex app-server process did not start.'
     }
     $serverStarted = $true
+    # Own the server before it receives initialize, thread or tool requests.
+    # A native job keeps ownership after a parent exits and on controller crash.
+    $serverJob.Attach($script:ServerProcess)
+    $serverJobAttached = $true
     $serverErrorTask = $script:ServerProcess.StandardError.ReadToEndAsync()
 
     $script:BridgeStage = 'initialize'
@@ -1675,7 +1685,7 @@ try {
             clientInfo = [ordered]@{
                 name = 'ai-cli-profile-manager'
                 title = 'AI CLI Profile Manager'
-                version = '0.3.15'
+                version = '0.3.16'
             }
             capabilities = [ordered]@{
                 # Codex 0.145 materializes the :workspace profile only when
@@ -1902,20 +1912,22 @@ try {
 } finally {
     $serverCleanupConfirmed = -not $serverStarted
     if ($serverStarted -and $null -ne $script:ServerProcess) {
-        # Give an already-terminating server one short scheduling window. If it
-        # exits on its own, no live root remains from which descendants can be
-        # authoritatively killed, so cleanup must fail closed. MachineRuntime
-        # supplies the native codex.exe as this root rather than a short-lived
-        # Node launcher.
-        if ($script:TurnTerminal) {
-            try { [Threading.Thread]::Sleep(100) } catch {}
-        }
         try {
-            if ($script:ServerProcess.HasExited) {
-                $serverCleanupConfirmed = $false
+            if ($serverJobAttached) {
+                # Checking the job's active process count proves the whole
+                # owned group has ended, not merely that its original PID left.
+                $serverCleanupConfirmed = $serverJob.StopAndWait(5000)
+                if (-not $script:ServerProcess.WaitForExit(3000)) {
+                    $serverCleanupConfirmed = $false
+                }
             } else {
-                $script:ServerProcess.Kill($true)
-                $serverCleanupConfirmed = $script:ServerProcess.WaitForExit(3000)
+                # A job assignment failure is not a successful boundary. Make
+                # a best-effort stop, but do not promote it to verified cleanup.
+                if (-not $script:ServerProcess.HasExited) {
+                    $script:ServerProcess.Kill($true)
+                    [void]$script:ServerProcess.WaitForExit(3000)
+                }
+                $serverCleanupConfirmed = $false
             }
         } catch {
             $serverCleanupConfirmed = $false
@@ -1932,6 +1944,9 @@ try {
             }
         }
         try { $script:ServerProcess.Dispose() } catch {}
+    }
+    if ($serverJob) {
+        try { $serverJob.Dispose() } catch { $serverCleanupConfirmed = $false }
     }
     if (-not $serverCleanupConfirmed) {
         $bridgeExitCode = 76

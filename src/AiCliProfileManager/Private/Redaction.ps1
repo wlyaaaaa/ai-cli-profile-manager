@@ -10,6 +10,24 @@ $script:AiCliRedactionPatterns = @(
     '(?i)eyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]*={0,2}'
 )
 
+function Test-AiCliUsageMetric {
+    param([string]$Name, $Value)
+    $metricName = $Name.ToLowerInvariant() -replace '[_-]', ''
+    if ($metricName -notin @(
+        'inputtokens','outputtokens','prompttokens','completiontokens','totaltokens',
+        'cachedtokens','reasoningtokens','cachedinputtokens','reasoningoutputtokens',
+        'cachereadtokens','cachecreationtokens','cachereadinputtokens','cachecreationinputtokens',
+        'currentcontexttokens','contextwindowtokens','inputwindowtokens','outputwindowtokens',
+        'autocompactwindowtokens','codexautocompacttokenlimit','maxtokens','maxoutputtokens',
+        'maxcompletiontokens'
+    )) { return $false }
+    if ($Value -is [bool] -or $null -eq $Value) { return $false }
+    $number = 0.0
+    return [double]::TryParse([string]$Value, [Globalization.NumberStyles]::Float,
+        [Globalization.CultureInfo]::InvariantCulture, [ref]$number) -and
+        -not [double]::IsNaN($number) -and -not [double]::IsInfinity($number)
+}
+
 function Protect-AiCliSecretText {
     [CmdletBinding()]
     param(
@@ -26,6 +44,9 @@ function Protect-AiCliSecretText {
         $result = [regex]::Replace($result, $pat, {
             param($m)
             if ($m.Groups.Count -ge 3 -and $m.Groups[2].Success) {
+                if (Test-AiCliUsageMetric -Name $m.Groups[1].Value -Value $m.Groups[2].Value) {
+                    return $m.Value
+                }
                 return ($m.Groups[1].Value + '=***REDACTED***')
             }
             return '***REDACTED***'
@@ -43,14 +64,24 @@ function Protect-AiCliObject {
     )
     if ($null -eq $InputObject) { return $null }
     if ($InputObject -is [string]) { return (Protect-AiCliSecretText -Text $InputObject) }
+    if ($InputObject -is [pscustomobject]) {
+        $properties = [ordered]@{}
+        foreach ($property in $InputObject.PSObject.Properties) {
+            $properties[$property.Name] = $property.Value
+        }
+        $InputObject = $properties
+    }
     if ($InputObject -is [System.Collections.IDictionary]) {
         $out = [ordered]@{}
         foreach ($k in $InputObject.Keys) {
             $keyStr = [string]$k
             # Conservative key-name detection: custom provider variables such as
             # AICLI_OI_PROVIDER_KEY must be redacted too. Boolean presence flags stay booleans.
-            $isPresenceMetadata = $keyStr -in @('secretPresence','secretConfigured','requiresSecret','localClientKeyPresent')
-            $isSecretField = (-not $isPresenceMetadata) -and (
+            $isPresenceMetadata = $InputObject[$k] -is [bool] -and $keyStr -in @('secretPresence','secretConfigured','requiresSecret','localClientKeyPresent')
+            # Preserve only the closed public display enum emitted by Format-AiCliSecretPresence.
+            $isPresenceMetadata = $isPresenceMetadata -or ($keyStr -eq 'secretPresence' -and $InputObject[$k] -is [string] -and $InputObject[$k] -cin @('已配置','未配置'))
+            $isUsageMetadata = Test-AiCliUsageMetric -Name $keyStr -Value $InputObject[$k]
+            $isSecretField = (-not $isPresenceMetadata) -and (-not $isUsageMetadata) -and (
                 ($SecretKeys -contains $keyStr) -or
                 ($keyStr -match '(?i)(api.?key|key$|token|secret|password|authorization|credential|cipherBase64)')
             )
@@ -74,7 +105,7 @@ function Protect-AiCliObject {
         foreach ($item in $InputObject) {
             $list += ,(Protect-AiCliObject -InputObject $item -SecretKeys $SecretKeys)
         }
-        return $list
+        return ,$list
     }
     return $InputObject
 }
