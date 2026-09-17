@@ -254,7 +254,7 @@ $testContainer = {
             finally { Stop-BridgeProcess $process }
         }
 
-        It 'keeps DeepSeek reasoning summaries visible without intermediate completion flicker' {
+        It 'keeps one DeepSeek reasoning presentation alive across visible output' {
             $root = New-TestRoot
             $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-app-server' -ModelState DeepSeek
             $process = $null
@@ -268,28 +268,45 @@ $testContainer = {
                 $started.result.thread.id | Should -Be 'deep-thread'
 
                 Write-BridgeLine $process '{"jsonrpc":"2.0","id":"deep-events","method":"test/deepseek-events","params":{}}'
-                $events = @(1..9 | ForEach-Object { (Read-BridgeLine $process) | ConvertFrom-Json })
+                $events = @(1..13 | ForEach-Object { (Read-BridgeLine $process) | ConvertFrom-Json })
 
                 $events[0].method | Should -Be 'item/started'
-                $events[1].method | Should -Be 'item/reasoning/summaryTextDelta'
-                $events[1].params.delta | Should -Be '第一段思考'
-                $events[2].method | Should -Be 'item/started'
+                $events[0].params.item.id | Should -Be 'reason-a'
+                $events[1].method | Should -Be 'item/reasoning/summaryPartAdded'
+                $events[1].params.itemId | Should -Be 'reason-a'
+                $events[1].params.summaryIndex | Should -Be 0
+                $events[2].method | Should -Be 'item/reasoning/summaryTextDelta'
+                $events[2].params.itemId | Should -Be 'reason-a'
+                $events[2].params.delta | Should -Be '第一段思考'
                 $events[3].method | Should -Be 'item/reasoning/summaryTextDelta'
-                $events[3].params.delta | Should -Be '第二段思考'
-                $events[4].method | Should -Be 'item/completed'
-                $events[4].params.item.type | Should -Be 'agentMessage'
-                @($events[0..4] | Where-Object { $_.method -eq 'item/completed' -and $_.params.item.type -eq 'reasoning' }).Count | Should -Be 0
+                $events[3].params.itemId | Should -Be 'reason-a'
+                $events[3].params.delta | Should -Be '继续思考'
 
-                $events[5].method | Should -Be 'item/completed'
-                $events[5].params.item.id | Should -Be 'reason-a'
-                $events[5].params.item.summary[0] | Should -Be '第一段完整思考'
+                $events[4].method | Should -Be 'item/started'
+                $events[4].params.item.type | Should -Be 'agentMessage'
+                $events[5].method | Should -Be 'item/agentMessage/delta'
                 $events[6].method | Should -Be 'item/completed'
-                $events[6].params.item.id | Should -Be 'reason-b'
-                $events[6].params.item.summary[0] | Should -Be '第二段完整思考'
-                $events[7].method | Should -Be 'turn/completed'
-                $events[7].params.turn.id | Should -Be 'deep-turn'
-                $events[8].id | Should -Be 'deep-events'
-                $events[8].result.ok | Should -BeTrue
+                $events[6].params.item.type | Should -Be 'agentMessage'
+                @($events[0..6] | Where-Object { $_.method -eq 'item/completed' -and $_.params.item.type -eq 'reasoning' }).Count | Should -Be 0
+
+                $events[7].method | Should -Be 'item/reasoning/summaryPartAdded'
+                $events[7].params.itemId | Should -Be 'reason-a'
+                $events[7].params.summaryIndex | Should -Be 1
+                $events[8].method | Should -Be 'item/reasoning/summaryTextDelta'
+                $events[8].params.itemId | Should -Be 'reason-a'
+                $events[8].params.delta | Should -Be '第二段思考'
+                @($events | Where-Object { $_.method -eq 'item/started' -and $_.params.item.type -eq 'reasoning' }).Count | Should -Be 1
+
+                $events[9].method | Should -Be 'item/completed'
+                $events[9].params.item.type | Should -Be 'agentMessage'
+                $events[10].method | Should -Be 'item/completed'
+                $events[10].params.item.type | Should -Be 'reasoning'
+                $events[10].params.item.id | Should -Be 'reason-a'
+                @($events[10].params.item.summary).Count | Should -Be 2
+                $events[10].params.item.summary[1] | Should -Be '第二段思考'
+                $events[11].method | Should -Be 'turn/completed'
+                $events[12].id | Should -Be 'deep-events'
+                $events[12].result.ok | Should -BeTrue
 
                 $process.StandardInput.Close()
                 $process.WaitForExit(10000) | Should -BeTrue

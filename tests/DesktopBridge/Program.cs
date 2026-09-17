@@ -128,24 +128,62 @@ try
         ["models"] = new JsonArray(DeepSeekModel())
     });
     deepSeekRouter.AfterResponse("thread/start", null, Parse("{\"result\":{\"modelProvider\":\"aicli_deepseek_flash\",\"model\":\"deepseek-flash\",\"thread\":{\"id\":\"deep-task\",\"modelProvider\":\"aicli_deepseek_flash\"}}}"));
+
+    var deepStarted1 = Parse("{\"method\":\"item/started\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"reason-a\",\"type\":\"reasoning\",\"summary\":[],\"content\":[]}}}");
+    var deepEvents = deepSeekRouter.NormalizeNotifications(deepStarted1);
+    Check(deepEvents is { Count: 1 } && deepEvents[0]["params"]!["item"]!["id"]!.GetValue<string>() == "reason-a", "DeepSeek first reasoning item must become the one turn-level presentation item.");
+
     var deepDelta1 = Parse("{\"method\":\"item/reasoning/textDelta\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"itemId\":\"reason-a\",\"contentIndex\":0,\"delta\":\"第一段思考\"}}");
-    var deepEvents = deepSeekRouter.NormalizeNotifications(deepDelta1);
-    Check(deepEvents is { Count: 1 } && deepEvents[0]["method"]!.GetValue<string>() == "item/reasoning/summaryTextDelta" && deepEvents[0]["params"]!["delta"]!.GetValue<string>() == "第一段思考", "DeepSeek raw reasoning must remain visible as a desktop summary delta.");
-    var deepCompleted1 = Parse("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"reason-a\",\"type\":\"reasoning\",\"summary\":[],\"content\":[\"第一段完整思考\"]}}}");
+    deepEvents = deepSeekRouter.NormalizeNotifications(deepDelta1);
+    Check(deepEvents is { Count: 2 } && deepEvents[0]["method"]!.GetValue<string>() == "item/reasoning/summaryPartAdded" && deepEvents[1]["method"]!.GetValue<string>() == "item/reasoning/summaryTextDelta", "DeepSeek first raw reasoning delta must open a summary part before streaming text.");
+    Check(deepEvents![0]["params"]!["itemId"]!.GetValue<string>() == "reason-a" && deepEvents[1]["params"]!["itemId"]!.GetValue<string>() == "reason-a" && deepEvents[0]["params"]!["summaryIndex"]!.GetValue<long>() == 0, "DeepSeek first summary part must target the stable turn presentation item.");
+
+    var deepDelta1b = Parse("{\"method\":\"item/reasoning/textDelta\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"itemId\":\"reason-a\",\"contentIndex\":0,\"delta\":\"继续思考\"}}");
+    deepEvents = deepSeekRouter.NormalizeNotifications(deepDelta1b);
+    Check(deepEvents is { Count: 1 } && deepEvents[0]["method"]!.GetValue<string>() == "item/reasoning/summaryTextDelta" && deepEvents[0]["params"]!["itemId"]!.GetValue<string>() == "reason-a", "DeepSeek later deltas in the same part must append to the same presentation item.");
+
+    var deepBurstStable = true;
+    for (var i = 0; i < 512; i++)
+    {
+        var burst = Parse($"{{\"method\":\"item/reasoning/textDelta\",\"params\":{{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"itemId\":\"reason-a\",\"contentIndex\":0,\"delta\":\"chunk-{i}\"}}}}");
+        var burstEvents = deepSeekRouter.NormalizeNotifications(burst);
+        deepBurstStable &= burstEvents is { Count: 1 } && burstEvents[0]["method"]!.GetValue<string>() == "item/reasoning/summaryTextDelta" && burstEvents[0]["params"]!["itemId"]!.GetValue<string>() == "reason-a";
+    }
+    Check(deepBurstStable, "DeepSeek high-frequency raw reasoning must keep one stable presentation item.");
+
+    var deepDeltaSecondPart = Parse("{\"method\":\"item/reasoning/textDelta\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"itemId\":\"reason-a\",\"contentIndex\":1,\"delta\":\"第二摘要段\"}}");
+    deepEvents = deepSeekRouter.NormalizeNotifications(deepDeltaSecondPart);
+    Check(deepEvents is { Count: 2 } && deepEvents[0]["params"]!["summaryIndex"]!.GetValue<long>() == 1 && deepEvents[1]["params"]!["itemId"]!.GetValue<string>() == "reason-a", "DeepSeek extra content in the first reasoning item must remain inside the stable presentation.");
+
+    var deepCompleted1 = Parse("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"reason-a\",\"type\":\"reasoning\",\"summary\":[],\"content\":[\"第一段完整思考\",\"第二摘要段\"]}}}");
     deepEvents = deepSeekRouter.NormalizeNotifications(deepCompleted1);
-    Check(deepEvents is { Count: 0 }, "DeepSeek intermediate reasoning completion must be buffered so the desktop does not collapse thinking early.");
-    var deepDelta2 = Parse("{\"method\":\"item/reasoning/textDelta\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"itemId\":\"reason-b\",\"contentIndex\":0,\"delta\":\"第二段思考\"}}");
+    Check(deepEvents is { Count: 0 }, "DeepSeek source reasoning completion must not close the turn-level presentation while the turn continues.");
+
+    var deepProgressStarted = Parse("{\"method\":\"item/started\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"progress-a\",\"type\":\"agentMessage\",\"text\":\"\"}}}");
+    Check(deepSeekRouter.NormalizeNotifications(deepProgressStarted) is null, "DeepSeek agent message start must pass through while the reasoning presentation remains alive.");
+    var deepProgressCompleted = Parse("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"progress-a\",\"type\":\"agentMessage\",\"text\":\"进度\"}}}");
+    Check(deepSeekRouter.NormalizeNotifications(deepProgressCompleted) is null, "DeepSeek agent message completion must not close or replace the reasoning presentation.");
+
+    var deepStarted2 = Parse("{\"method\":\"item/started\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"reason-b\",\"type\":\"reasoning\",\"summary\":[],\"content\":[]}}}");
+    deepEvents = deepSeekRouter.NormalizeNotifications(deepStarted2);
+    Check(deepEvents is { Count: 0 }, "DeepSeek later reasoning item starts must be hidden so Desktop never replaces the stable reasoning card.");
+    var deepDelta2 = Parse("{\"method\":\"item/reasoning/textDelta\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"itemId\":\"reason-b\",\"contentIndex\":0,\"delta\":\"下一轮思考\"}}");
     deepEvents = deepSeekRouter.NormalizeNotifications(deepDelta2);
-    Check(deepEvents is { Count: 1 } && deepEvents[0]["method"]!.GetValue<string>() == "item/reasoning/summaryTextDelta" && deepEvents[0]["params"]!["delta"]!.GetValue<string>() == "第二段思考", "DeepSeek later reasoning must keep streaming after an intermediate completion.");
-    var deepCompleted2 = Parse("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"reason-b\",\"type\":\"reasoning\",\"summary\":[],\"content\":[\"第二段完整思考\"]}}}");
+    Check(deepEvents is { Count: 2 } && deepEvents[0]["method"]!.GetValue<string>() == "item/reasoning/summaryPartAdded" && deepEvents[0]["params"]!["summaryIndex"]!.GetValue<long>() == 2 && deepEvents[0]["params"]!["itemId"]!.GetValue<string>() == "reason-a" && deepEvents[1]["params"]!["itemId"]!.GetValue<string>() == "reason-a", "DeepSeek later reasoning must append as a new summary part on the original presentation item.");
+    var deepCompleted2 = Parse("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"reason-b\",\"type\":\"reasoning\",\"summary\":[],\"content\":[\"下一轮思考\"]}}}");
     deepEvents = deepSeekRouter.NormalizeNotifications(deepCompleted2);
-    Check(deepEvents is { Count: 0 }, "DeepSeek repeated reasoning completion must stay buffered until the turn really ends.");
+    Check(deepEvents is { Count: 0 }, "DeepSeek later source reasoning completion must stay hidden until the real turn terminal.");
+
     var deepFinal = Parse("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"message-final\",\"type\":\"agentMessage\",\"text\":\"FINAL\"}}}");
-    Check(deepSeekRouter.NormalizeNotifications(deepFinal) is null, "DeepSeek final message must pass through without prematurely ending the reasoning display.");
+    Check(deepSeekRouter.NormalizeNotifications(deepFinal) is null, "DeepSeek final message must pass through while the reasoning presentation stays visible.");
     var deepTurnCompleted = Parse("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"deep-task\",\"turn\":{\"id\":\"deep-turn\",\"status\":\"completed\"}}}");
     deepEvents = deepSeekRouter.NormalizeNotifications(deepTurnCompleted);
-    Check(deepEvents is { Count: 3 } && deepEvents[0]["method"]!.GetValue<string>() == "item/completed" && deepEvents[1]["method"]!.GetValue<string>() == "item/completed" && deepEvents[2]["method"]!.GetValue<string>() == "turn/completed", "DeepSeek buffered reasoning completions must flush in order immediately before the real turn terminal.");
-    Check(deepEvents![0]["params"]!["item"]!["summary"]![0]!.GetValue<string>() == "第一段完整思考" && deepEvents[1]["params"]!["item"]!["summary"]![0]!.GetValue<string>() == "第二段完整思考", "DeepSeek completed raw reasoning must still be promoted into visible summaries when the lifecycle closes.");
+    Check(deepEvents is { Count: 2 } && deepEvents[0]["method"]!.GetValue<string>() == "item/completed" && deepEvents[0]["params"]!["item"]!["id"]!.GetValue<string>() == "reason-a" && deepEvents[0]["params"]!["item"]!["type"]!.GetValue<string>() == "reasoning" && deepEvents[1]["method"]!.GetValue<string>() == "turn/completed", "DeepSeek must close exactly one stable reasoning presentation immediately before the real turn terminal.");
+    Check(deepEvents![0]["params"]!["item"]!["summary"]!.AsArray().Count == 3 && deepEvents[0]["params"]!["item"]!["summary"]![2]!.GetValue<string>() == "下一轮思考", "DeepSeek synthetic completion must preserve every streamed reasoning segment on the stable presentation.");
+
+    var nextTurnDelta = Parse("{\"method\":\"item/reasoning/textDelta\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn-2\",\"itemId\":\"reason-c\",\"contentIndex\":0,\"delta\":\"新一轮\"}}");
+    deepEvents = deepSeekRouter.NormalizeNotifications(nextTurnDelta);
+    Check(deepEvents is { Count: 3 } && deepEvents[0]["method"]!.GetValue<string>() == "item/started" && deepEvents[0]["params"]!["item"]!["id"]!.GetValue<string>() == "reason-c" && deepEvents[2]["params"]!["itemId"]!.GetValue<string>() == "reason-c", "DeepSeek turn terminal must clear presentation state so a new turn gets a fresh stable item.");
 
     var qwenReasoning = Parse("{\"method\":\"item/reasoning/textDelta\",\"params\":{\"threadId\":\"cloud-task\",\"itemId\":\"reason-2\",\"contentIndex\":0,\"delta\":\"raw\"}}");
     router.AfterResponse("thread/start", null, Parse("{\"result\":{\"modelProvider\":\"aicli_qwen38_max_paygo\",\"model\":\"qwen3.8-max-0902\",\"thread\":{\"id\":\"cloud-task\",\"modelProvider\":\"aicli_qwen38_max_paygo\"}}}"));

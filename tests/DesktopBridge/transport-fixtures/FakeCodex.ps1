@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 
 $ErrorActionPreference = 'Stop'
 $utf8NoBom = [Text.UTF8Encoding]::new($false)
@@ -137,12 +137,16 @@ while ($null -ne ($requestLine = [Console]::In.ReadLine())) {
         'test/deepseek-events' {
             $threadId = 'deep-thread'
             $turnId = 'deep-turn'
-            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/started'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'reason-a'; type = 'reasoning'; summary = @() } } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/started'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'reason-a'; type = 'reasoning'; summary = @(); content = @() } } })
             $null = Write-FakeRpcLine ([ordered]@{ method = 'item/reasoning/textDelta'; params = @{ threadId = $threadId; turnId = $turnId; itemId = 'reason-a'; contentIndex = 0; delta = '第一段思考' } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/reasoning/textDelta'; params = @{ threadId = $threadId; turnId = $turnId; itemId = 'reason-a'; contentIndex = 0; delta = '继续思考' } })
             $null = Write-FakeRpcLine ([ordered]@{ method = 'item/completed'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'reason-a'; type = 'reasoning'; summary = @(); content = @('第一段完整思考') } } })
-            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/started'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'reason-b'; type = 'reasoning'; summary = @() } } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/started'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'progress-a'; type = 'agentMessage'; text = '' } } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/agentMessage/delta'; params = @{ threadId = $threadId; turnId = $turnId; itemId = 'progress-a'; delta = '进度输出' } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/completed'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'progress-a'; type = 'agentMessage'; text = '进度输出' } } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/started'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'reason-b'; type = 'reasoning'; summary = @(); content = @() } } })
             $null = Write-FakeRpcLine ([ordered]@{ method = 'item/reasoning/textDelta'; params = @{ threadId = $threadId; turnId = $turnId; itemId = 'reason-b'; contentIndex = 0; delta = '第二段思考' } })
-            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/completed'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'reason-b'; type = 'reasoning'; summary = @(); content = @('第二段完整思考') } } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/completed'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'reason-b'; type = 'reasoning'; summary = @(); content = @('第二段思考') } } })
             $null = Write-FakeRpcLine ([ordered]@{ method = 'item/completed'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'message-final'; type = 'agentMessage'; text = 'FINAL' } } })
             $null = Write-FakeRpcLine ([ordered]@{ method = 'turn/completed'; params = @{ threadId = $threadId; turn = @{ id = $turnId; status = 'completed' } } })
             $null = Write-FakeRpcLine ([ordered]@{ jsonrpc = '2.0'; id = $request.id; result = @{ ok = $true } })
