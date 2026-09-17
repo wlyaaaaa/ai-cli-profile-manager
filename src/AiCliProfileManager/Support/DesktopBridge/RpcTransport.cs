@@ -331,10 +331,17 @@ internal sealed class RpcTransport
                 }
             }
 
-            // Provider-specific presentation compatibility is bounded to
-            // managed notifications; every other message stays byte-for-byte unchanged.
-            var normalized = message is not null && router.NormalizeNotification(message);
-            await WriteClientLineAsync(normalized ? message!.ToJsonString() : line, cancellationToken).ConfigureAwait(false);
+            // Provider-specific presentation compatibility is bounded to managed notifications.
+            // null preserves the original bytes, an empty list buffers this notification,
+            // and multiple entries let a provider flush delayed lifecycle events in order.
+            var normalized = message is null ? null : router.NormalizeNotifications(message);
+            if (normalized is null)
+            {
+                await WriteClientLineAsync(line, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+            foreach (var notification in normalized)
+                await WriteClientLineAsync(notification.ToJsonString(), cancellationToken).ConfigureAwait(false);
         }
     }
 

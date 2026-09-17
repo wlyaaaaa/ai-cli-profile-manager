@@ -66,6 +66,25 @@ JsonObject GlmModel() => new()
         ["supported_reasoning_levels"] = new JsonArray(new JsonObject { ["effort"] = "max", ["description"] = "Max" })
     }
 };
+JsonObject DeepSeekModel() => new()
+{
+    ["profileId"] = "codex-deepseek-flash", ["model"] = "deepseek-flash",
+    ["providerId"] = "aicli_deepseek_flash", ["routeProviderId"] = "aicli_deepseek_flash", ["kind"] = "cloud",
+    ["provider"] = new JsonObject
+    {
+        ["name"] = "DeepSeek Flash", ["base_url"] = "https://api.deepseek.com/v1",
+        ["wire_api"] = "responses", ["requires_openai_auth"] = false,
+        ["auth"] = new JsonObject { ["command"] = "pwsh", ["args"] = new JsonArray("-File", "token.ps1") }
+    },
+    ["contextWindow"] = 1048576L,
+    ["catalogModel"] = new JsonObject
+    {
+        ["slug"] = "deepseek-flash", ["display_name"] = "DeepSeek Flash",
+        ["context_window"] = 1048576, ["auto_compact_token_limit"] = 943718,
+        ["default_reasoning_level"] = "max", ["input_modalities"] = new JsonArray("text"),
+        ["supported_reasoning_levels"] = new JsonArray(new JsonObject { ["effort"] = "max", ["description"] = "Max" })
+    }
+};
 var plan = new JsonObject { ["codexHome"] = root, ["models"] = new JsonArray(Model("local-a", "Named local A"), Model("local-b", "Named local B"), CloudModel(), GlmModel()) };
 Task<JsonObject> NoCall(string method, JsonObject args) => throw new Exception("Unexpected upstream call: " + method);
 try
@@ -100,6 +119,34 @@ try
     Check(reasoningDelta["method"]!.GetValue<string>() == "item/reasoning/summaryTextDelta" && reasoningDelta["params"]!["summaryIndex"]!.GetValue<int>() == 0 && reasoningDelta["params"]!["contentIndex"] is null, "GLM reasoning delta must use the summary protocol shape.");
     var reasoningCompleted = Parse("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"glm-task\",\"turnId\":\"turn-1\",\"item\":{\"id\":\"reason-1\",\"type\":\"reasoning\",\"summary\":[],\"content\":[\"完整分析\"]}}}");
     Check(router.NormalizeNotification(reasoningCompleted) && reasoningCompleted["params"]!["item"]!["summary"]![0]!.GetValue<string>() == "完整分析", "GLM completed raw reasoning must remain visible as a desktop summary.");
+
+    var deepSeekRoot = Path.Combine(root, "deepseek");
+    Directory.CreateDirectory(deepSeekRoot);
+    var deepSeekRouter = new ModelRouter(new JsonObject
+    {
+        ["codexHome"] = deepSeekRoot,
+        ["models"] = new JsonArray(DeepSeekModel())
+    });
+    deepSeekRouter.AfterResponse("thread/start", null, Parse("{\"result\":{\"modelProvider\":\"aicli_deepseek_flash\",\"model\":\"deepseek-flash\",\"thread\":{\"id\":\"deep-task\",\"modelProvider\":\"aicli_deepseek_flash\"}}}"));
+    var deepDelta1 = Parse("{\"method\":\"item/reasoning/textDelta\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"itemId\":\"reason-a\",\"contentIndex\":0,\"delta\":\"第一段思考\"}}");
+    var deepEvents = deepSeekRouter.NormalizeNotifications(deepDelta1);
+    Check(deepEvents is { Count: 1 } && deepEvents[0]["method"]!.GetValue<string>() == "item/reasoning/summaryTextDelta" && deepEvents[0]["params"]!["delta"]!.GetValue<string>() == "第一段思考", "DeepSeek raw reasoning must remain visible as a desktop summary delta.");
+    var deepCompleted1 = Parse("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"reason-a\",\"type\":\"reasoning\",\"summary\":[],\"content\":[\"第一段完整思考\"]}}}");
+    deepEvents = deepSeekRouter.NormalizeNotifications(deepCompleted1);
+    Check(deepEvents is { Count: 0 }, "DeepSeek intermediate reasoning completion must be buffered so the desktop does not collapse thinking early.");
+    var deepDelta2 = Parse("{\"method\":\"item/reasoning/textDelta\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"itemId\":\"reason-b\",\"contentIndex\":0,\"delta\":\"第二段思考\"}}");
+    deepEvents = deepSeekRouter.NormalizeNotifications(deepDelta2);
+    Check(deepEvents is { Count: 1 } && deepEvents[0]["method"]!.GetValue<string>() == "item/reasoning/summaryTextDelta" && deepEvents[0]["params"]!["delta"]!.GetValue<string>() == "第二段思考", "DeepSeek later reasoning must keep streaming after an intermediate completion.");
+    var deepCompleted2 = Parse("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"reason-b\",\"type\":\"reasoning\",\"summary\":[],\"content\":[\"第二段完整思考\"]}}}");
+    deepEvents = deepSeekRouter.NormalizeNotifications(deepCompleted2);
+    Check(deepEvents is { Count: 0 }, "DeepSeek repeated reasoning completion must stay buffered until the turn really ends.");
+    var deepFinal = Parse("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"deep-task\",\"turnId\":\"deep-turn\",\"item\":{\"id\":\"message-final\",\"type\":\"agentMessage\",\"text\":\"FINAL\"}}}");
+    Check(deepSeekRouter.NormalizeNotifications(deepFinal) is null, "DeepSeek final message must pass through without prematurely ending the reasoning display.");
+    var deepTurnCompleted = Parse("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"deep-task\",\"turn\":{\"id\":\"deep-turn\",\"status\":\"completed\"}}}");
+    deepEvents = deepSeekRouter.NormalizeNotifications(deepTurnCompleted);
+    Check(deepEvents is { Count: 3 } && deepEvents[0]["method"]!.GetValue<string>() == "item/completed" && deepEvents[1]["method"]!.GetValue<string>() == "item/completed" && deepEvents[2]["method"]!.GetValue<string>() == "turn/completed", "DeepSeek buffered reasoning completions must flush in order immediately before the real turn terminal.");
+    Check(deepEvents![0]["params"]!["item"]!["summary"]![0]!.GetValue<string>() == "第一段完整思考" && deepEvents[1]["params"]!["item"]!["summary"]![0]!.GetValue<string>() == "第二段完整思考", "DeepSeek completed raw reasoning must still be promoted into visible summaries when the lifecycle closes.");
+
     var qwenReasoning = Parse("{\"method\":\"item/reasoning/textDelta\",\"params\":{\"threadId\":\"cloud-task\",\"itemId\":\"reason-2\",\"contentIndex\":0,\"delta\":\"raw\"}}");
     router.AfterResponse("thread/start", null, Parse("{\"result\":{\"modelProvider\":\"aicli_qwen38_max_paygo\",\"model\":\"qwen3.8-max-0902\",\"thread\":{\"id\":\"cloud-task\",\"modelProvider\":\"aicli_qwen38_max_paygo\"}}}"));
     Check(!router.NormalizeNotification(qwenReasoning), "Native Qwen reasoning summaries must pass through unchanged.");

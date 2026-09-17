@@ -26,7 +26,7 @@ $testContainer = {
             param(
                 [Parameter(Mandatory)][string]$Root,
                 [Parameter(Mandatory)][ValidateSet('--fake-app-server', '--fake-passthrough', '--fake-app-server-stuck')][string]$Mode,
-                [ValidateSet('None', 'Valid', 'Invalid')][string]$ModelState = 'None'
+                [ValidateSet('None', 'Valid', 'DeepSeek', 'Invalid')][string]$ModelState = 'None'
             )
 
             $codexHome = Join-Path $Root 'codex-home'
@@ -60,6 +60,36 @@ $testContainer = {
                     catalogPath = Join-Path $codexHome 'catalog.json'
                     contextWindow = 4096
                     defaultEffort = 'high'
+                })
+            }
+            elseif ($ModelState -eq 'DeepSeek') {
+                $models = @([ordered]@{
+                    profileId = 'codex-deepseek-flash'
+                    model = 'deepseek-flash'
+                    providerId = 'aicli_deepseek_flash'
+                    routeProviderId = 'aicli_deepseek_flash'
+                    kind = 'cloud'
+                    provider = [ordered]@{
+                        name = 'DeepSeek Flash'
+                        base_url = 'https://api.deepseek.com/v1'
+                        wire_api = 'responses'
+                        requires_openai_auth = $false
+                    }
+                    catalogModel = [ordered]@{
+                        slug = 'deepseek-flash'
+                        display_name = 'DeepSeek Flash'
+                        description = 'DeepSeek transport fixture'
+                        base_instructions = 'Keep public reasoning summaries visible.'
+                        context_window = 1048576
+                        effective_context_window_percent = 95
+                        default_reasoning_level = 'max'
+                        supported_reasoning_levels = @([ordered]@{ effort = 'max'; description = 'Max' })
+                        input_modalities = @('text')
+                        supports_personality = $false
+                    }
+                    catalogPath = Join-Path $codexHome 'deepseek-catalog.json'
+                    contextWindow = 1048576
+                    defaultEffort = 'max'
                 })
             }
             elseif ($ModelState -eq 'Invalid') {
@@ -220,6 +250,50 @@ $testContainer = {
                 $process.WaitForExit(10000) | Should -BeTrue
                 $process.ExitCode | Should -Be 0
                 $process.StandardError.ReadToEnd() | Should -Not -Match '__aicli_desktop_internal_'
+            }
+            finally { Stop-BridgeProcess $process }
+        }
+
+        It 'keeps DeepSeek reasoning summaries visible without intermediate completion flicker' {
+            $root = New-TestRoot
+            $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-app-server' -ModelState DeepSeek
+            $process = $null
+            try {
+                $process = New-BridgeProcess -Executable $script:BridgePath -PlanPath $plan.Path -Arguments @('app-server', '--stdio')
+
+                Write-BridgeLine $process '{"jsonrpc":"2.0","id":"deep-start","method":"thread/start","params":{"model":"deepseek-flash","config":{}}}'
+                $started = (Read-BridgeLine $process) | ConvertFrom-Json
+                $started.id | Should -Be 'deep-start'
+                $started.result.modelProvider | Should -Be 'aicli_deepseek_flash'
+                $started.result.thread.id | Should -Be 'deep-thread'
+
+                Write-BridgeLine $process '{"jsonrpc":"2.0","id":"deep-events","method":"test/deepseek-events","params":{}}'
+                $events = @(1..9 | ForEach-Object { (Read-BridgeLine $process) | ConvertFrom-Json })
+
+                $events[0].method | Should -Be 'item/started'
+                $events[1].method | Should -Be 'item/reasoning/summaryTextDelta'
+                $events[1].params.delta | Should -Be '第一段思考'
+                $events[2].method | Should -Be 'item/started'
+                $events[3].method | Should -Be 'item/reasoning/summaryTextDelta'
+                $events[3].params.delta | Should -Be '第二段思考'
+                $events[4].method | Should -Be 'item/completed'
+                $events[4].params.item.type | Should -Be 'agentMessage'
+                @($events[0..4] | Where-Object { $_.method -eq 'item/completed' -and $_.params.item.type -eq 'reasoning' }).Count | Should -Be 0
+
+                $events[5].method | Should -Be 'item/completed'
+                $events[5].params.item.id | Should -Be 'reason-a'
+                $events[5].params.item.summary[0] | Should -Be '第一段完整思考'
+                $events[6].method | Should -Be 'item/completed'
+                $events[6].params.item.id | Should -Be 'reason-b'
+                $events[6].params.item.summary[0] | Should -Be '第二段完整思考'
+                $events[7].method | Should -Be 'turn/completed'
+                $events[7].params.turn.id | Should -Be 'deep-turn'
+                $events[8].id | Should -Be 'deep-events'
+                $events[8].result.ok | Should -BeTrue
+
+                $process.StandardInput.Close()
+                $process.WaitForExit(10000) | Should -BeTrue
+                $process.ExitCode | Should -Be 0
             }
             finally { Stop-BridgeProcess $process }
         }

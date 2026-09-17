@@ -63,6 +63,24 @@ while ($null -ne ($requestLine = [Console]::In.ReadLine())) {
             }
             $null = Write-FakeRpcLine @{ id = $request.id; result = @{ startupInstructions = $catalog.models[0].base_instructions } }
         }
+        'thread/start' {
+            $provider = [string]$request.params.modelProvider
+            $model = [string]$request.params.model
+            $threadId = if ($provider -eq 'aicli_deepseek_flash') { 'deep-thread' } else { 'thread-started' }
+            $null = Write-FakeRpcLine ([ordered]@{
+                jsonrpc = '2.0'
+                id = $request.id
+                result = @{
+                    modelProvider = $provider
+                    model = $model
+                    thread = @{
+                        id = $threadId
+                        modelProvider = $provider
+                        model = $model
+                    }
+                }
+            })
+        }
         'thread/read' {
             $null = Write-FakeRpcLine ([ordered]@{
                 jsonrpc = '2.0'
@@ -115,6 +133,19 @@ while ($null -ne ($requestLine = [Console]::In.ReadLine())) {
                 }
             }
             $null = Write-FakeRpcLine $response
+        }
+        'test/deepseek-events' {
+            $threadId = 'deep-thread'
+            $turnId = 'deep-turn'
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/started'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'reason-a'; type = 'reasoning'; summary = @() } } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/reasoning/textDelta'; params = @{ threadId = $threadId; turnId = $turnId; itemId = 'reason-a'; contentIndex = 0; delta = '第一段思考' } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/completed'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'reason-a'; type = 'reasoning'; summary = @(); content = @('第一段完整思考') } } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/started'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'reason-b'; type = 'reasoning'; summary = @() } } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/reasoning/textDelta'; params = @{ threadId = $threadId; turnId = $turnId; itemId = 'reason-b'; contentIndex = 0; delta = '第二段思考' } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/completed'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'reason-b'; type = 'reasoning'; summary = @(); content = @('第二段完整思考') } } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'item/completed'; params = @{ threadId = $threadId; turnId = $turnId; item = @{ id = 'message-final'; type = 'agentMessage'; text = 'FINAL' } } })
+            $null = Write-FakeRpcLine ([ordered]@{ method = 'turn/completed'; params = @{ threadId = $threadId; turn = @{ id = $turnId; status = 'completed' } } })
+            $null = Write-FakeRpcLine ([ordered]@{ jsonrpc = '2.0'; id = $request.id; result = @{ ok = $true } })
         }
         'client/notice' {
             $null = Write-FakeRpcLine ([ordered]@{

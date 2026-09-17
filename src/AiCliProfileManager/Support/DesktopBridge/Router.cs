@@ -15,9 +15,15 @@ public sealed class ModelRouter
     private readonly ConcurrentDictionary<string, byte> upstreamModels = new();
     private readonly ConcurrentDictionary<string, byte> managedProviders = new();
     private readonly ConcurrentDictionary<string, byte> rawReasoningProviders = new();
+    private readonly ConcurrentDictionary<string, byte> deepSeekReasoningProviders = new();
+    private readonly ConcurrentDictionary<string, DeepSeekTurnState> deepSeekTurns = new();
     private readonly string catalogPath;
     public string? StartupCatalogPath => models.Count > 0 ? catalogPath : null;
     private sealed record ThreadState(string Provider, string? Model);
+    private sealed class DeepSeekTurnState
+    {
+        public ConcurrentQueue<JsonObject> PendingCompletions { get; } = new();
+    }
 
     public ModelRouter(JsonObject plan)
     {
@@ -32,8 +38,11 @@ public sealed class ModelRouter
                 throw new InvalidOperationException("A managed desktop model has no provider definition.");
             modelProviders[model] = routeProvider;
             managedProviders[routeProvider] = 0;
-            if (Text(entry, "profileId") is "codex-glm-5-3" or "codex-glm-5-3-flash" or "codex-deepseek-flash")
+            var profileId = Text(entry, "profileId");
+            if (profileId is "codex-glm-5-3" or "codex-glm-5-3-flash" or "codex-deepseek-flash")
                 rawReasoningProviders[routeProvider] = 0;
+            if (profileId == "codex-deepseek-flash")
+                deepSeekReasoningProviders[routeProvider] = 0;
             var normalized = (JsonObject)definition.DeepClone();
             if (routeProvider == LocalProviderId) normalized["name"] = "AICLI local models";
             if (providers.TryGetValue(routeProvider, out var existing) && !JsonNode.DeepEquals(existing, normalized))
@@ -138,13 +147,61 @@ public sealed class ModelRouter
         if (method == "config/read") RememberProviders(result["config"]);
     }
 
-    public bool NormalizeNotification(JsonObject message)
+    public IReadOnlyList<JsonObject>? NormalizeNotifications(JsonObject message)
     {
         if (message["params"] is not JsonObject parameters ||
             Text(parameters, "threadId") is not { } threadId ||
             !threads.TryGetValue(threadId, out var state) ||
-            !rawReasoningProviders.ContainsKey(state.Provider)) return false;
+            !rawReasoningProviders.ContainsKey(state.Provider)) return null;
 
+        if (deepSeekReasoningProviders.ContainsKey(state.Provider))
+            return NormalizeDeepSeekNotification(message, parameters, threadId);
+
+        return NormalizeRawReasoningNotification(message, parameters)
+            ? new[] { message }
+            : null;
+    }
+
+    // Retained for focused router callers that only expect one immediate event.
+    public bool NormalizeNotification(JsonObject message)
+    {
+        var normalized = NormalizeNotifications(message);
+        return normalized is { Count: 1 } && ReferenceEquals(normalized[0], message);
+    }
+
+    private IReadOnlyList<JsonObject>? NormalizeDeepSeekNotification(
+        JsonObject message, JsonObject parameters, string threadId)
+    {
+        var method = Text(message, "method");
+        var turnId = NotificationTurnId(parameters);
+        if (turnId is null)
+            return NormalizeRawReasoningNotification(message, parameters) ? new[] { message } : null;
+
+        var key = threadId + "\n" + turnId;
+        if (method == "item/completed" && Text(parameters["item"], "type") == "reasoning")
+        {
+            PromoteRawReasoning(parameters);
+            deepSeekTurns.GetOrAdd(key, _ => new DeepSeekTurnState())
+                .PendingCompletions.Enqueue((JsonObject)message.DeepClone());
+            return Array.Empty<JsonObject>();
+        }
+
+        if (method == "turn/completed")
+        {
+            if (!deepSeekTurns.TryRemove(key, out var turnState)) return null;
+            var pending = turnState.PendingCompletions.ToArray();
+            if (pending.Length == 0) return null;
+            var flushed = new List<JsonObject>(pending.Length + 1);
+            flushed.AddRange(pending);
+            flushed.Add(message);
+            return flushed;
+        }
+
+        return NormalizeRawReasoningNotification(message, parameters) ? new[] { message } : null;
+    }
+
+    private static bool NormalizeRawReasoningNotification(JsonObject message, JsonObject parameters)
+    {
         var method = Text(message, "method");
         if (method == "item/reasoning/textDelta")
         {
@@ -155,6 +212,9 @@ public sealed class ModelRouter
         }
         return PromoteRawReasoning(parameters);
     }
+
+    private static string? NotificationTurnId(JsonObject parameters) =>
+        Text(parameters, "turnId") ?? Text(parameters["turn"], "id");
 
     private async Task<ThreadState> ReadThreadAsync(string id, Func<string, JsonObject, Task<JsonObject>> call)
     {
