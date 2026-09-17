@@ -332,6 +332,7 @@ try
         Check(JsonNode.DeepEquals(errorPage, originalError), "History failures must not be converted into success.");
     }
 
+    PublicSummaryProjectionTests.Run(Check);
     Console.WriteLine($"PASS: {checks} desktop router checks");
 }
 catch (Exception error) { Console.Error.WriteLine("FAIL: " + error.Message); Environment.ExitCode = 1; }

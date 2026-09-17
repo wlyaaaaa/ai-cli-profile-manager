@@ -44,7 +44,10 @@ $entry.supported_reasoning_levels = @(
 )
 $entry.minimal_client_version = '0.144.0'
 $entry.priority = $definition.priority
+$entry.base_instructions = Remove-AiCliCodexSummaryPresentationPolicy -Instructions ([string]$entry.base_instructions)
 $entry.base_instructions = Remove-AiCliCodexUserCommunicationPolicy -BaseInstructions ([string]$entry.base_instructions)
+$entry.model_messages.instructions_template = Remove-AiCliCodexSummaryPresentationPolicy -Instructions ([string]$entry.model_messages.instructions_template)
+$entry.model_messages.instructions_template = Remove-AiCliCodexUserCommunicationPolicy -BaseInstructions ([string]$entry.model_messages.instructions_template)
 
 # Bind non-policy fields to the current official deepseek-flash catalog from
 # codex-deepseek-setup-en.ps1 (SHA-256 b49dd413...2c3fa08b). AICLI applies
@@ -75,6 +78,7 @@ $entry.include_plugin_usage_instructions = $false
 $entry.include_apps_usage_instructions = $false
 $entry.auto_compact_token_limit = 943718
 $entry.base_instructions = Add-AiCliCodexUserCommunicationPolicy -BaseInstructions ([string]$entry.base_instructions)
+Set-AiCliCodexSummaryPresentationPolicy -ModelEntry $entry -Provider deepseek
 
 $json = [ordered]@{ models = @($entry) } | ConvertTo-Json -Depth 100
 $canonicalJson = ($json -replace "`r`n?", "`n") + "`n"

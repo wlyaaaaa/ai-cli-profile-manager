@@ -15,6 +15,8 @@ public sealed class ModelRouter
     private readonly ConcurrentDictionary<string, byte> upstreamModels = new();
     private readonly ConcurrentDictionary<string, byte> managedProviders = new();
     private readonly ConcurrentDictionary<string, byte> rawReasoningProviders = new();
+    private readonly ConcurrentDictionary<string, byte> publicSummaryProviders = new();
+    private readonly PublicSummaryProjection publicSummaries = new();
     private readonly ConcurrentDictionary<string, byte> deepSeekReasoningProviders = new();
     private readonly ConcurrentDictionary<string, DeepSeekTurnState> deepSeekTurns = new();
     private readonly string catalogPath;
@@ -52,6 +54,10 @@ public sealed class ModelRouter
                 rawReasoningProviders[routeProvider] = 0;
             if (profileId == "codex-deepseek-flash")
                 deepSeekReasoningProviders[routeProvider] = 0;
+            if (rawReasoningProviders.ContainsKey(routeProvider) &&
+                ((Text(entry["catalogModel"], "base_instructions") ?? "").Contains(PublicSummaryProjection.PolicyMarker, StringComparison.Ordinal) ||
+                 (Text(entry["catalogModel"]?["model_messages"], "instructions_template") ?? "").Contains(PublicSummaryProjection.PolicyMarker, StringComparison.Ordinal)))
+                publicSummaryProviders[routeProvider] = 0;
             var normalized = (JsonObject)definition.DeepClone();
             if (routeProvider == LocalProviderId) normalized["name"] = "AICLI local models";
             if (providers.TryGetValue(routeProvider, out var existing) && !JsonNode.DeepEquals(existing, normalized))
@@ -147,7 +153,9 @@ public sealed class ModelRouter
         {
             RememberThread(result);
             var providerId = Text(result, "modelProvider") ?? Text(result["thread"], "modelProvider");
-            if (providerId is not null && rawReasoningProviders.ContainsKey(providerId))
+            if (providerId is not null && publicSummaryProviders.ContainsKey(providerId))
+                PublicSummaryProjection.ProjectHistory(result);
+            else if (providerId is not null && rawReasoningProviders.ContainsKey(providerId))
                 PromoteRawReasoning(result);
         }
         // Paginated history has no provider field; bind it to the already identified thread.
@@ -156,7 +164,10 @@ public sealed class ModelRouter
             Text(originalParams, "threadId") is { } historyThreadId &&
             threads.TryGetValue(historyThreadId, out var historyState) &&
             rawReasoningProviders.ContainsKey(historyState.Provider))
-            PromoteRawReasoning(result);
+        {
+            if (publicSummaryProviders.ContainsKey(historyState.Provider)) PublicSummaryProjection.ProjectHistory(result);
+            else PromoteRawReasoning(result);
+        }
         if (method == "thread/settings/update" && Text(originalParams, "threadId") is { } threadId &&
             threads.TryGetValue(threadId, out var state) && SelectedModel(originalParams) is { } selected)
             threads[threadId] = state with { Model = selected };
@@ -170,6 +181,18 @@ public sealed class ModelRouter
             !threads.TryGetValue(threadId, out var state) ||
             !rawReasoningProviders.ContainsKey(state.Provider)) return null;
 
+        if (publicSummaryProviders.ContainsKey(state.Provider))
+        {
+            var output = new List<JsonObject>();
+            foreach (var projected in publicSummaries.Normalize(message, threadId))
+            {
+                // Reuse the proven summary continuity/keep-alive transport.
+                var normalized = NormalizeDeepSeekNotification(projected, projected["params"]!.AsObject(), threadId);
+                if (normalized is not null) output.AddRange(normalized);
+                else output.Add(projected);
+            }
+            return output;
+        }
         if (deepSeekReasoningProviders.ContainsKey(state.Provider))
             return NormalizeDeepSeekNotification(message, parameters, threadId);
 

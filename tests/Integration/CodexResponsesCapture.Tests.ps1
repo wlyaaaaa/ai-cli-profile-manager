@@ -1,7 +1,11 @@
 #Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 
 Describe 'Codex Responses loopback capture' -Tag 'Integration' {
-    It 'maps model_reasoning_effort max to reasoning.effort max in the actual request JSON' {
+    It 'keeps max effort and effective catalog instructions for <Model>' -ForEach @(
+        @{ Model = 'qwen3.6-35b:256k'; Catalog = '' },
+        @{ Model = 'deepseek-flash'; Catalog = 'deepseek-flash.json' },
+        @{ Model = 'glm-5.3-flash'; Catalog = 'glm-5.3-flash-codex.json' }
+    ) {
         $codexCommand = Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1
         if (-not $codexCommand -or -not $codexCommand.Path) {
             Set-ItResult -Skipped -Because 'Codex CLI is not installed on this test host.'
@@ -57,7 +61,7 @@ Describe 'Codex Responses loopback capture' -Tag 'Integration' {
                 '-C'
                 $workspace
                 '-c'
-                'model="qwen3.6-35b:256k"'
+                ('model="' + $Model + '"')
                 '-c'
                 'model_provider="aicli_capture"'
                 '-c'
@@ -72,6 +76,10 @@ Describe 'Codex Responses loopback capture' -Tag 'Integration' {
                 'model_reasoning_effort="max"'
                 'Reply with exactly PONG.'
             )
+            if ($Catalog) {
+                $catalogPath = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) ('data/model-catalogs/' + $Catalog)
+                $codexArgs = $codexArgs[0..($codexArgs.Count - 2)] + @('-c', ('model_catalog_json=' + ($catalogPath | ConvertTo-Json -Compress)), $codexArgs[-1])
+            }
             foreach ($argument in $codexArgs) {
                 [void]$startInfo.ArgumentList.Add($argument)
             }
@@ -117,8 +125,13 @@ Describe 'Codex Responses loopback capture' -Tag 'Integration' {
             $request = $requestBody | ConvertFrom-Json
             $requestMethod | Should -Be 'POST'
             $requestPath | Should -Be '/v1/responses'
-            $request.model | Should -Be 'qwen3.6-35b:256k'
+            $request.model | Should -BeExactly $Model
             $request.reasoning.effort | Should -Be 'max'
+            if ($Catalog) {
+                $entry = (Get-Content $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100).models[0]
+                $request.instructions | Should -BeExactly $entry.model_messages.instructions_template
+                $request.instructions | Should -Match 'AICLI user-visible summary presentation'
+            }
         } finally {
             if ($process) {
                 if (-not $process.HasExited) {

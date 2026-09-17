@@ -67,3 +67,75 @@ function Add-AiCliCodexUserCommunicationPolicy {
 
     return $BaseInstructions + $script:AiCliCodexUserCommunicationPolicyMarker + $policy
 }
+
+# Keep the user-visible summary policy separate from final-answer instructions.
+# The legacy and current catalog instruction fields must both carry it: modern
+# Codex selects model_messages.instructions_template when it exists.
+$script:AiCliCodexSummaryPresentationMarker = "`n`n# AICLI user-visible summary presentation`n"
+
+function Get-AiCliCodexSummaryPresentationPolicy {
+    [OutputType([string])]
+    param([Parameter(Mandatory)][ValidateSet('deepseek', 'glm')][string]$Provider)
+
+    $policy = @'
+任务中的可见思考摘要：下面只约束任务进行中给用户看的摘要，不改变最终答复要求，也不要求展示、扩写或限制内部思维链。摘要用独立的用户可见助手消息表达；支持 commentary 时使用 commentary，最终答案仍单独发送。
+主动给出摘要：需要调查或多步处理时，首次工具调用前说明准备解决的关键问题及它为何影响结果。得到有意义的发现、遇到资料冲突、改变判断或出现影响结果的阻碍时，在继续下一组工作前补充新的摘要，不能只有开场一句就一直静默到最终答复。
+说清楚而不压成便签：让用户不必翻看工具卡片，也能理解当前确认了什么、为什么仍需核对、这对结果有什么影响；按需要自然展开，不固定句数、字数或套用固定顺序。不要只说“正在检查”“继续处理”“准备完成”而省掉已有的有效信息，也不要为每次工具调用机械配一句解说。
+用产品和生活语言：面向用户讲功能、结果、原因和实际影响，不复述实现流水账。工具、规则、权限等级、技能名、路径和内部编号通常留在工具记录里；不要把 screen/global、KH、pwsh、Owner、索引命中等内部标识直接当成解释。技术名称确实影响用户的判断或操作时，保留准确名称并解释其含义。简体中文要自然完整，不用英文自我便签充当摘要。
+表达要具体自然：直接说哪份信息有什么不同、哪个功能会怎样影响用户，不用“存在张力、对齐、闭环、链路、口径”等抽象说法替代具体解释。比如“索引命中但待展开”应说“找到了相关记录，还要看具体内容才能判断”；“两份资料有张力”应说“两份记录的说法不一致，还不能确定哪份反映现在的情况”。不要照念“总览、明细、核验”等内部步骤标签，也不要添加资料中没有的人物背景或限制。
+摘要必须忠于已知事实：只概括已经取得的证据及其意义，未核实的内容明确说未核实。没有新信息不重复播报，不编造进展、发现、百分比或预计完成时间。保留最终答案的独立位置，不把整篇最终答复提前塞进摘要，也不把原始推导当摘要。
+'@
+    if ($Provider -eq 'deepseek') {
+        $policy += "`n多步任务尤其要补足中间的实质发现：除了开场和收尾，查证中出现了会影响结论的新信息，就向用户解释其具体意义，再继续工作；不要把本应展开的说明压成一句笼统过渡语。目标是让用户看懂处理过程，而不是增加思维链长度或凑段落。"
+    }
+    return $policy
+}
+
+$script:AiCliCodexPublicThinkingStart = "# AICLI public thinking-panel language`n"
+$script:AiCliCodexPublicThinkingEnd = "# End AICLI public thinking-panel language`n`n"
+
+function Get-AiCliCodexPublicThinkingPrefix {
+    [OutputType([string])]
+    param()
+    $body = @"
+# AICLI public progress summary v1
+任务中的公开进度说明会同时用于桌面的思考摘要。请在调查开始前、取得有意义的新发现、改变判断或遇到阻碍时，主动输出自然、具体的简体中文说明，让用户理解当前确认了什么、为什么重要，以及还需核实什么。不要只留一句笼统便签，也不要为每个工具机械播报。
+这些说明必须是公开进度消息；支持 commentary 时使用 commentary。不要把 reasoning_text 中的原始推导当成公开摘要，不要求展示或扩写隐藏思维链。公开说明和最终答复是不同内容，最终答案仍单独发送。不要把最终答复冒充进度，也不重复堆砌已有信息。
+"@
+    return $script:AiCliCodexPublicThinkingStart + ($body -replace "`r`n?", "`n") + "`n" + $script:AiCliCodexPublicThinkingEnd
+}
+
+function Remove-AiCliCodexSummaryPresentationPolicy {
+    [OutputType([string])]
+    param([AllowEmptyString()][string]$Instructions)
+
+    # Strip only the bounded managed prefix; retain the complete vendor prompt.
+    if ($Instructions.StartsWith($script:AiCliCodexPublicThinkingStart, [StringComparison]::Ordinal)) {
+        $endIndex = $Instructions.IndexOf($script:AiCliCodexPublicThinkingEnd, [StringComparison]::Ordinal)
+        if ($endIndex -lt 0) { throw 'The public thinking policy prefix is incomplete.' }
+        $Instructions = $Instructions.Substring($endIndex + $script:AiCliCodexPublicThinkingEnd.Length)
+    }
+    $index = $Instructions.IndexOf($script:AiCliCodexSummaryPresentationMarker, [StringComparison]::Ordinal)
+    if ($index -ge 0) { return $Instructions.Substring(0, $index) }
+    return $Instructions
+}
+
+function Set-AiCliCodexSummaryPresentationPolicy {
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$ModelEntry,
+        [Parameter(Mandatory)][ValidateSet('deepseek', 'glm')][string]$Provider
+    )
+
+    $base = Remove-AiCliCodexSummaryPresentationPolicy -Instructions ([string]$ModelEntry['base_instructions'])
+    if ([string]::IsNullOrWhiteSpace($base)) { throw 'A summary policy needs non-empty base instructions.' }
+    if ($null -eq $ModelEntry['model_messages']) { $ModelEntry['model_messages'] = [ordered]@{} }
+    $messages = $ModelEntry['model_messages']
+    if ($messages -isnot [System.Collections.IDictionary]) { throw 'Model messages must be an object.' }
+    $template = Remove-AiCliCodexSummaryPresentationPolicy -Instructions ([string]$messages['instructions_template'])
+    if ([string]::IsNullOrWhiteSpace($template)) { $template = $base }
+
+    $suffix = $script:AiCliCodexSummaryPresentationMarker + (Get-AiCliCodexSummaryPresentationPolicy -Provider $Provider)
+    $prefix = Get-AiCliCodexPublicThinkingPrefix
+    $ModelEntry['base_instructions'] = $prefix + (Add-AiCliCodexUserCommunicationPolicy -BaseInstructions $base) + $suffix
+    $messages['instructions_template'] = $prefix + (Add-AiCliCodexUserCommunicationPolicy -BaseInstructions $template) + $suffix
+}

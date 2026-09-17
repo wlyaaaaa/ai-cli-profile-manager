@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\src\AiCliProfileManager\Support\DesktopBridge\Router.cs" Link="Router.cs" />
+    <Compile Include="..\..\src\AiCliProfileManager\Support\DesktopBridge\PublicSummaryProjection.cs" Link="PublicSummaryProjection.cs" />
   </ItemGroup>
 </Project>

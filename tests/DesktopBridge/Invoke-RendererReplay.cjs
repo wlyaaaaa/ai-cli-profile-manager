@@ -62,9 +62,10 @@ function apply(turn,event){const p=event.params??{},m=event.method;
  else if(m==='turn/completed'){turn.status=p.turn.status;}
  return view(turn);
 }
-async function collect(exe,scenario){
+async function collect(exe,scenario,publicSummary=false){
  const temp=path.join(root,'replay-home');fs.mkdirSync(temp,{recursive:true});
  const plan={schemaVersion:1,codexHome:temp,upstreamFileName:process.execPath,upstreamPrefixArgs:[__filename,'--fake'],models:[{profileId:'codex-deepseek-flash',model:'deepseek-flash',providerId:'aicli_deepseek_flash',routeProviderId:'aicli_deepseek_flash',kind:'cloud',provider:{name:'DeepSeek Flash',base_url:'https://api.deepseek.com/v1',wire_api:'responses',requires_openai_auth:false},contextWindow:1048576,catalogModel:{slug:'deepseek-flash',display_name:'DeepSeek Flash',context_window:1048576}}]};
+ if(publicSummary)plan.models[0].catalogModel.base_instructions="# AICLI public progress summary v1";
  const pf=path.join(root,'replay-plan.json');fs.writeFileSync(pf,JSON.stringify(plan));
  const child=cp.spawn(exe,['app-server','--stdio'],{windowsHide:true,env:{...process.env,AICLI_DESKTOP_PLAN_FILE:pf,TEMP:root,TMP:root,TMPDIR:root},stdio:['pipe','pipe','pipe']});
  let err='';child.stderr.on('data',x=>err+=x);
@@ -76,6 +77,33 @@ async function collect(exe,scenario){
  assert(result.length>0,err);return result;
 }
 
+async function verifyPublicSummary(){
+ const nt=(method,params)=>({method,params:{threadId:'deep-thread',turnId:'deep-turn',...params}});
+ const items=[
+ nt('item/started',{item:{type:'reasoning',id:'r',summary:[],content:[]}}),
+ nt('item/reasoning/textDelta',{itemId:'r',contentIndex:0,delta:'RAW_PRIVATE_CANARY'}),
+ nt('item/completed',{item:{type:'reasoning',id:'r',summary:[],content:['RAW_PRIVATE_CANARY']}}),
+ nt('item/started',{item:{type:'agentMessage',id:'progress',phase:'commentary',text:''}}),
+ nt('item/agentMessage/delta',{itemId:'progress',delta:'已经发现四个文件遗漏，需要核对备份目标。'}),
+ nt('item/completed',{item:{type:'agentMessage',id:'progress',phase:'commentary',text:'已经发现四个文件遗漏，需要核对备份目标。'}}),
+ nt('item/started',{item:{type:'commandExecution',id:'tool',command:'synthetic fixture',cwd:'',processId:null,status:'inProgress',commandActions:[],aggregatedOutput:'',exitCode:null,durationMs:null}}),
+ nt('item/completed',{item:{type:'commandExecution',id:'tool',command:'synthetic fixture',cwd:'',processId:null,status:'completed',commandActions:[],aggregatedOutput:'synthetic',exitCode:0,durationMs:1}}),
+ nt('item/started',{item:{type:'agentMessage',id:'final',phase:'final_answer',text:''}}),
+ nt('item/agentMessage/delta',{itemId:'final',delta:'最终答案保留原样。'}),
+ nt('item/completed',{item:{type:'agentMessage',id:'final',phase:'final_answer',text:'最终答案保留原样。'}}),
+ {method:'turn/completed',params:{threadId:'deep-thread',turn:{id:'deep-turn',status:'completed'}}}];
+ const events=await collect(process.argv[2],items,true);
+ const turn={turnId:'deep-turn',status:'inProgress',params:{input:[],threadId:'deep-thread'},items:[]};
+ const views=events.map(event=>({event:event.method,...apply(turn,event)}));
+ const early=views.filter(v=>v.status==='in_progress'&&v.assistant);
+ const summary=views.at(-1).reasoning.map(r=>r.text).join('');
+ assert.equal(early.length,0,'Public summary progress must not flash in the final slot');
+ assert(summary.includes('四个文件'),'Public summary text missing from actual renderer');
+ assert(!summary.includes('RAW_PRIVATE_CANARY'),'Raw reasoning leaked into public summary');
+ assert.equal(views.at(-1).assistant,'最终答案保留原样。','Public-summary mode must preserve final answer');
+ assert.equal(views.at(-1).active.length,0,'Public-summary mode must not remain thinking');
+ return {case:'public-summary',events:events.length,early_final_frames:0,summary_visible:true,final_preserved:true};
+}
 (async()=>{
  const scenarios=[];
  const nt=(method,params)=>({method,params:{threadId:'deep-thread',turnId:'deep-turn',...params}});
@@ -105,6 +133,7 @@ async function collect(exe,scenario){
    assert.equal(views.at(-1).active.length,0,scenario.name+': stuck thinking');
    report.push({case:scenario.name,events:events.length,early_final_frames:early.length,summary_visible:true,final_preserved:true});
  }
+ report.push(await verifyPublicSummary());
  fs.writeFileSync(path.join(root,'renderer-matrix-result.json'),JSON.stringify(report,null,2));
  console.log(JSON.stringify({status:'pass',cases:report.length,projection_asset_sha256:crypto.createHash('sha256').update(source).digest('hex'),grouping_asset_sha256:crypto.createHash('sha256').update(splitSource).digest('hex'),early_final_frames:0,summary_loss_cases:0,final_loss_cases:0}));
 })().catch(e=>{console.error(e.stack);process.exitCode=1;});

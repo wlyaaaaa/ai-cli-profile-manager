@@ -1,4 +1,4 @@
-﻿#Requires -Version 7.0
+#Requires -Version 7.0
 [CmdletBinding()]
 param(
     [string]$SourceCatalog = (Join-Path (Split-Path $PSScriptRoot -Parent) 'data\model-catalogs\deepseek-flash.json'),
@@ -16,6 +16,10 @@ $baseline = $source.models[0]
 if ([string]::IsNullOrWhiteSpace([string]$baseline.base_instructions) -or $null -eq $baseline.model_messages) {
     throw 'The source catalog must provide non-empty Codex instructions and model messages.'
 }
+# Do not inherit another provider's presentation policy through the vendor baseline.
+$baseline.base_instructions = Remove-AiCliCodexSummaryPresentationPolicy -Instructions ([string]$baseline.base_instructions)
+$baseline.model_messages.instructions_template = Remove-AiCliCodexSummaryPresentationPolicy -Instructions ([string]$baseline.model_messages.instructions_template)
+$baseline.model_messages.instructions_template = Remove-AiCliCodexUserCommunicationPolicy -BaseInstructions ([string]$baseline.model_messages.instructions_template)
 
 if ($CatalogKind -in @('local', 'localQwen38_27b')) {
     $definitions = @(
