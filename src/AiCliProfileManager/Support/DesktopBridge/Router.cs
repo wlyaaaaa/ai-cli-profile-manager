@@ -32,7 +32,7 @@ public sealed class ModelRouter
                 throw new InvalidOperationException("A managed desktop model has no provider definition.");
             modelProviders[model] = routeProvider;
             managedProviders[routeProvider] = 0;
-            if (Text(entry, "profileId") is "codex-glm-5-3" or "codex-glm-5-3-flash")
+            if (Text(entry, "profileId") is "codex-glm-5-3" or "codex-glm-5-3-flash" or "codex-deepseek-flash")
                 rawReasoningProviders[routeProvider] = 0;
             var normalized = (JsonObject)definition.DeepClone();
             if (routeProvider == LocalProviderId) normalized["name"] = "AICLI local models";
