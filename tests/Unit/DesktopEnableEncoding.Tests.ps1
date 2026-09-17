@@ -38,3 +38,125 @@ Describe 'Desktop enable UTF-8 discovery handoff' {
         $result.nested.ok | Should -BeTrue
     }
 }
+
+Describe 'Desktop bridge managed rotation state' {
+    It 'records the immediately previous managed bridge for continuity' {
+        $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+        $text = Get-Content -LiteralPath (
+            Join-Path $repoRoot 'scripts\Set-CodexDesktopLocalModels.ps1'
+        ) -Raw
+        $text | Should -BeLike '*$previousManagedExecutable = if (*'
+        $text | Should -BeLike '*schemaVersion = 2*'
+        $text | Should -BeLike '*previousManagedExecutable = $previousManagedExecutable*'
+        $text | Should -BeLike '*managedRotationCandidates = @($managedRotationCandidates)*'
+        $text | Should -BeLike '*$state.managedRotationCandidates*'
+    }
+}
+
+Describe 'Desktop bridge protected approval gate' {
+    BeforeAll {
+        $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+        $scriptPath = Join-Path $repoRoot 'scripts\Set-CodexDesktopLocalModels.ps1'
+        $tokens = $null
+        $errors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseFile(
+            $scriptPath,
+            [ref]$tokens,
+            [ref]$errors
+        )
+        $errors.Count | Should -Be 0
+        $functionAst = $ast.Find({
+            param($node)
+            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -eq 'Test-ProtectedBridgeApproval'
+        }, $true)
+        $null -ne $functionAst | Should -BeTrue
+        . ([scriptblock]::Create($functionAst.Extent.Text))
+    }
+
+    It 'accepts only the exact seven-file release recorded by the protected registry' {
+        $releaseId = '0123456789abcdef'
+        $release = Join-Path $TestDrive "releases\$releaseId"
+        $bridge = Join-Path $release 'bridge'
+        New-Item -ItemType Directory -Path $bridge -Force | Out-Null
+        $relativePaths = @(
+            'GetDesktopModelPlan.ps1',
+            'GetDesktopProviderToken.ps1',
+            'ResolveDesktopEngine.ps1',
+            'bridge\AiCli.CodexDesktopBridge.deps.json',
+            'bridge\AiCli.CodexDesktopBridge.dll',
+            'bridge\AiCli.CodexDesktopBridge.exe',
+            'bridge\AiCli.CodexDesktopBridge.runtimeconfig.json'
+        )
+        $files = @()
+        $index = 0
+        foreach ($relative in $relativePaths) {
+            $index++
+            $target = Join-Path $release $relative
+            [IO.Directory]::CreateDirectory((Split-Path $target -Parent)) | Out-Null
+            [IO.File]::WriteAllText(
+                $target,
+                "fixture-$index",
+                [Text.UTF8Encoding]::new($false)
+            )
+            $item = Get-Item -LiteralPath $target
+            $files += [ordered]@{
+                path = $relative
+                size = $item.Length
+                sha256 = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+        }
+        $registryPath = Join-Path $TestDrive 'aicli_desktop_bridge.json'
+        [ordered]@{
+            schema = 'pcconfig.aicli-desktop-bridge-allowlist.v1'
+            releases = @(
+                [ordered]@{
+                    release_id = $releaseId
+                    install_root = $release
+                    files = $files
+                }
+            )
+        } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $registryPath -Encoding utf8NoBOM
+
+        Test-ProtectedBridgeApproval `
+            -ReleaseDirectory $release `
+            -RegistryPath $registryPath | Should -BeTrue
+
+        $dllPath = Join-Path $bridge 'AiCli.CodexDesktopBridge.dll'
+        Add-Content -LiteralPath $dllPath -Value 'tamper'
+        Test-ProtectedBridgeApproval `
+            -ReleaseDirectory $release `
+            -RegistryPath $registryPath | Should -BeFalse
+
+        [IO.File]::WriteAllText(
+            $dllPath,
+            'fixture-5',
+            [Text.UTF8Encoding]::new($false)
+        )
+        Test-ProtectedBridgeApproval `
+            -ReleaseDirectory $release `
+            -RegistryPath $registryPath | Should -BeTrue
+
+        $realBridge = Join-Path $TestDrive 'real-bridge'
+        Move-Item -LiteralPath $bridge -Destination $realBridge
+        New-Item -ItemType Junction -Path $bridge -Target $realBridge | Out-Null
+        Test-ProtectedBridgeApproval `
+            -ReleaseDirectory $release `
+            -RegistryPath $registryPath | Should -BeFalse
+    }
+
+    It 'checks protected approval before any activation mutation' {
+        $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+        $scriptText = Get-Content -LiteralPath (
+            Join-Path $repoRoot 'scripts\Set-CodexDesktopLocalModels.ps1'
+        ) -Raw
+        $approval = $scriptText.IndexOf(
+            'Test-ProtectedBridgeApproval -ReleaseDirectory $release'
+        )
+        $providerMutation = $scriptText.IndexOf('Register-LocalProviders $plan')
+        $entryMutation = $scriptText.IndexOf('Set-UserDesktopEntry $installedExe')
+        $approval | Should -BeGreaterThan -1
+        $providerMutation | Should -BeGreaterThan $approval
+        $entryMutation | Should -BeGreaterThan $approval
+    }
+}

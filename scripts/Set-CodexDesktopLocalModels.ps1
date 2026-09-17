@@ -80,6 +80,113 @@ function Invoke-Utf8JsonPowerShellFile {
     finally { $process.Dispose() }
 }
 
+function Test-ProtectedBridgeApproval {
+    param(
+        [Parameter(Mandatory)][string]$ReleaseDirectory,
+        [string]$RegistryPath = (Join-Path (
+            [Environment]::GetFolderPath(
+                [Environment+SpecialFolder]::CommonApplicationData
+            )
+        ) 'PCConfig\AuthorityHost\registries\aicli_desktop_bridge.json')
+    )
+
+    try {
+        $releaseDirectory = [IO.Path]::GetFullPath($ReleaseDirectory)
+        $releaseId = Split-Path $releaseDirectory -Leaf
+        if ($releaseId -cnotmatch '^[a-f0-9]{16}$' -or
+            -not (Test-Path -LiteralPath $RegistryPath -PathType Leaf)) {
+            return $false
+        }
+        $registryFile = Get-Item -LiteralPath $RegistryPath -Force
+        if ($registryFile.Length -lt 2 -or $registryFile.Length -gt 65536 -or
+            ($registryFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            return $false
+        }
+        $registry = Get-Content -LiteralPath $RegistryPath -Raw -Encoding utf8 |
+            ConvertFrom-Json -Depth 20
+        if ([string]$registry.schema -cne
+                'pcconfig.aicli-desktop-bridge-allowlist.v1') {
+            return $false
+        }
+        $matches = @($registry.releases | Where-Object {
+            [string]$_.release_id -ceq $releaseId
+        })
+        if ($matches.Count -ne 1) { return $false }
+        $approved = $matches[0]
+        $approvedRoot = [IO.Path]::GetFullPath(
+            [Environment]::ExpandEnvironmentVariables(
+                [string]$approved.install_root
+            )
+        )
+        if (-not [string]::Equals(
+                $approvedRoot,
+                $releaseDirectory,
+                [StringComparison]::OrdinalIgnoreCase
+            ) -or @($approved.files).Count -ne 7) {
+            return $false
+        }
+        $releaseItem = Get-Item -LiteralPath $releaseDirectory -Force
+        if (($releaseItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            return $false
+        }
+        $actualFiles = @(Get-ChildItem -LiteralPath $releaseDirectory `
+            -Recurse -File -Force | ForEach-Object {
+                $_.FullName.Substring($releaseDirectory.Length + 1)
+            } | Sort-Object)
+        $approvedFiles = @($approved.files | ForEach-Object {
+            [string]$_.path
+        } | Sort-Object)
+        if (($actualFiles -join "`n") -cne ($approvedFiles -join "`n")) {
+            return $false
+        }
+        foreach ($file in @($approved.files)) {
+            $relative = [string]$file.path
+            if ([string]::IsNullOrWhiteSpace($relative) -or
+                [IO.Path]::IsPathRooted($relative) -or
+                $relative -match '(^|[\\/])\.\.([\\/]|$)' -or
+                [long]$file.size -lt 1 -or
+                [string]$file.sha256 -cnotmatch '^[a-f0-9]{64}$') {
+                return $false
+            }
+            $candidate = [IO.Path]::GetFullPath(
+                (Join-Path $releaseDirectory $relative)
+            )
+            if (-not $candidate.StartsWith(
+                    $releaseDirectory.TrimEnd('\') + '\',
+                    [StringComparison]::OrdinalIgnoreCase
+                ) -or -not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+                return $false
+            }
+            $cursor = Split-Path $candidate -Parent
+            while (-not [string]::Equals(
+                    $cursor,
+                    $releaseDirectory,
+                    [StringComparison]::OrdinalIgnoreCase
+                )) {
+                if (-not $cursor.StartsWith(
+                        $releaseDirectory.TrimEnd('\') + '\',
+                        [StringComparison]::OrdinalIgnoreCase
+                    )) {
+                    return $false
+                }
+                $directoryItem = Get-Item -LiteralPath $cursor -Force
+                if (($directoryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    return $false
+                }
+                $cursor = Split-Path $cursor -Parent
+            }
+            $item = Get-Item -LiteralPath $candidate -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                $item.Length -ne [long]$file.size -or
+                (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+                    [string]$file.sha256) {
+                return $false
+            }
+        }
+        return $true
+    }
+    catch { return $false }
+}
 function Notify-EnvironmentChange {
     if (-not ('AiCliDesktopEnvironmentNotice' -as [type])) {
         Add-Type @'
@@ -179,15 +286,59 @@ if ($Mode -eq 'Build') {
     if (-not (Test-Path -LiteralPath $installedTokenHelper)) { Copy-Item -LiteralPath $tokenHelper -Destination $installedTokenHelper }
     $installedResolver = Join-Path $release 'ResolveDesktopEngine.ps1'
     if (-not (Test-Path -LiteralPath $installedResolver)) { Copy-Item -LiteralPath $resolver -Destination $installedResolver }
+    # The protected PCConfig allowlist is the trust source for a desktop bridge.
+    # Do not switch CODEX_CLI_PATH or mutate Codex config until this exact
+    # content-addressed release is registered and installed there.
+    if (-not (Test-ProtectedBridgeApproval -ReleaseDirectory $release)) {
+        throw 'Desktop bridge release is not approved by the protected PCConfig allowlist. Register and install the exact release before enabling it.'
+    }
     # Validate the installed discovery route before changing the desktop entry.
     $plan = Invoke-Utf8JsonPowerShellFile -Path $installedExporter
     if (@($plan.models).Count -eq 0) { throw 'Installed local model discovery did not return the configured models.' }
     Register-LocalProviders $plan
     $previous = if ($null -ne $state -and $current -eq $state.executable) { $state.previousUserValue } else { $current }
+    $previousManagedExecutable = if (
+        $null -ne $state -and
+        $state.enabled -and
+        -not [string]::IsNullOrWhiteSpace([string]$state.executable) -and
+        [IO.Path]::GetFullPath([string]$state.executable) -ne
+            [IO.Path]::GetFullPath($installedExe)
+    ) {
+        [string]$state.executable
+    }
+    elseif ($null -ne $state) {
+        [string]$state.previousManagedExecutable
+    }
+    else { '' }
+    $managedRotationCandidates = @()
+    if ($null -ne $state) {
+        if (-not [string]::IsNullOrWhiteSpace(
+                [string]$state.previousManagedExecutable
+            )) {
+            $managedRotationCandidates += [string]$state.previousManagedExecutable
+        }
+        foreach ($candidate in @($state.managedRotationCandidates)) {
+            if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
+                $managedRotationCandidates += [string]$candidate
+            }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($previousManagedExecutable)) {
+        $managedRotationCandidates = @(
+            $previousManagedExecutable
+        ) + @(
+            $managedRotationCandidates | Where-Object {
+                [IO.Path]::GetFullPath($_) -ne
+                    [IO.Path]::GetFullPath($previousManagedExecutable)
+            }
+        )
+    }
     $newState = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         executable = $installedExe
         previousUserValue = $previous
+        previousManagedExecutable = $previousManagedExecutable
+        managedRotationCandidates = @($managedRotationCandidates)
         enabled = $true
         updatedUtc = [DateTime]::UtcNow.ToString('o')
     }
