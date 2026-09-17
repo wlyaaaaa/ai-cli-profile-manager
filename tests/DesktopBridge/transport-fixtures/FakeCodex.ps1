@@ -182,7 +182,15 @@ while ($null -ne ($requestLine = [Console]::In.ReadLine())) {
         }
         'thread/read' {
             if ([string]$request.params.threadId -eq [string]$script:openAiChild.threadId -and $script:openAiChild.threadId) {
-                $path = if ($script:openAiChild.ephemeral) { $null } else { 'E:\fixture\rollout-protected.jsonl' }
+                if ($script:openAiChild.ephemeral) {
+                    $null = Write-FakeRpcLine ([ordered]@{
+                        jsonrpc = '2.0'
+                        id = $request.id
+                        error = @{ code = -32000; message = 'ephemeral child history is intentionally unavailable' }
+                    })
+                    continue
+                }
+                $path = 'E:\fixture\rollout-protected.jsonl'
                 $null = Write-FakeRpcLine ([ordered]@{
                     jsonrpc = '2.0'
                     id = $request.id

@@ -191,6 +191,7 @@ internal sealed partial class RpcTransport
                 !TryGetString(startResult["modelProvider"], out var observedProvider) || observedProvider != OpenAiProvider ||
                 !TryGetString(startResult["model"], out var observedModel) || observedModel != model)
                 throw new InvalidDataException("OpenAI child thread identity mismatch.");
+            var sessionId = TryGetString(thread["sessionId"], out var observedSession) ? observedSession : threadId;
             ConfirmHiddenThread(pending, threadId);
 
             var run = new OpenAiChildRun(threadId);
@@ -221,19 +222,30 @@ internal sealed partial class RpcTransport
                     !TryGetString(terminalTurn["status"], out var terminalStatus) || terminalStatus != "completed")
                     throw new InvalidDataException("OpenAI child turn did not complete successfully.");
 
-                var readResponse = await CallUpstreamAsync("thread/read", new JsonObject
+                FinalAgentMessage? final = run.ReadFinalAgentMessage(turnId);
+                JsonObject? readThread = null;
+                if (persistent)
                 {
-                    ["threadId"] = threadId,
-                    ["includeTurns"] = true
-                }).WaitAsync(cancellationToken).ConfigureAwait(false);
-                var readResult = RequireRpcResult(readResponse, "OpenAI child thread/read failed.");
-                if (readResult["thread"] is not JsonObject readThread ||
-                    !TryGetString(readThread["modelProvider"], out var readProvider) || readProvider != OpenAiProvider ||
-                    !TryGetString(readThread["model"], out var readModel) || readModel != model)
-                    throw new InvalidDataException("OpenAI child readback identity mismatch.");
-
-                var final = ReadFinalAgentMessage(readThread, turnId);
-                var sessionId = TryGetString(readThread["sessionId"], out var observedSession) ? observedSession : threadId;
+                    var readResponse = await CallUpstreamAsync("thread/read", new JsonObject
+                    {
+                        ["threadId"] = threadId,
+                        ["includeTurns"] = true
+                    }).WaitAsync(cancellationToken).ConfigureAwait(false);
+                    var readResult = RequireRpcResult(readResponse, "OpenAI child thread/read failed.");
+                    if (readResult["thread"] is not JsonObject observedThread ||
+                        !TryGetString(observedThread["modelProvider"], out var readProvider) || readProvider != OpenAiProvider ||
+                        !TryGetString(observedThread["model"], out var readModel) || readModel != model)
+                        throw new InvalidDataException("OpenAI child readback identity mismatch.");
+                    readThread = observedThread;
+                    if (TryGetString(readThread["sessionId"], out var readSession) && readSession != sessionId)
+                        throw new InvalidDataException("OpenAI child session identity mismatch.");
+                    var readFinal = ReadFinalAgentMessage(readThread, turnId);
+                    if (final is not null && (final.Id != readFinal.Id || final.Text != readFinal.Text))
+                        throw new InvalidDataException("OpenAI child streamed final does not match durable history.");
+                    final = readFinal;
+                }
+                if (final is null)
+                    throw new InvalidDataException("OpenAI child final answer is unavailable from the live stream.");
                 var result = new JsonObject
                 {
                     ["schemaVersion"] = 1,
@@ -249,7 +261,7 @@ internal sealed partial class RpcTransport
                     ["final_text"] = final.Text,
                     ["persistent"] = persistent
                 };
-                if (persistent && TryGetString(readThread["path"], out var transcriptPath))
+                if (persistent && readThread is not null && TryGetString(readThread["path"], out var transcriptPath))
                 {
                     result["transcript_path"] = transcriptPath;
                     result["host_event"] = new JsonObject
@@ -349,8 +361,21 @@ internal sealed partial class RpcTransport
             if (!hiddenThreadIds.Contains(threadId))
                 return false;
         }
-        if (openAiChildRuns.TryGetValue(threadId, out var run) && method == "turn/completed")
-            run.Terminal.TrySetResult((JsonObject)parameters.DeepClone());
+        if (openAiChildRuns.TryGetValue(threadId, out var run))
+        {
+            if (method == "item/completed" &&
+                TryGetString(parameters["turnId"], out var itemTurnId) &&
+                parameters["item"] is JsonObject item &&
+                TryGetString(item["type"], out var itemType) && itemType == "agentMessage" &&
+                TryGetString(item["id"], out var itemId) &&
+                TryGetString(item["text"], out var itemText))
+            {
+                var isFinal = TryGetString(item["phase"], out var phase) && phase == "final_answer";
+                run.ObserveAgentMessage(itemTurnId, new FinalAgentMessage(itemId, itemText), isFinal);
+            }
+            if (method == "turn/completed")
+                run.Terminal.TrySetResult((JsonObject)parameters.DeepClone());
+        }
         return true;
     }
 
@@ -419,10 +444,38 @@ internal sealed partial class RpcTransport
 
     private sealed class OpenAiChildRun
     {
+        private readonly object messageGate = new();
+        private string? observedTurnId;
+        private FinalAgentMessage? lastMessage;
+        private FinalAgentMessage? finalMessage;
+
         public OpenAiChildRun(string threadId) => ThreadId = threadId;
         public string ThreadId { get; }
         public string? TurnId { get; set; }
         public TaskCompletionSource<JsonObject> Terminal { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void ObserveAgentMessage(string turnId, FinalAgentMessage message, bool isFinal)
+        {
+            lock (messageGate)
+            {
+                if (observedTurnId is not null && observedTurnId != turnId)
+                    return;
+                observedTurnId ??= turnId;
+                lastMessage = message;
+                if (isFinal)
+                    finalMessage = message;
+            }
+        }
+
+        public FinalAgentMessage? ReadFinalAgentMessage(string turnId)
+        {
+            lock (messageGate)
+            {
+                if (observedTurnId != turnId)
+                    return null;
+                return finalMessage ?? lastMessage;
+            }
+        }
     }
 
     private sealed class PendingHiddenThread
