@@ -105,7 +105,7 @@ Describe 'Retired provider identities' {
         }
     }
 
-    It 'keeps only DeepSeek Flash 0731 and Pro 0813 identities without reserved variants' {
+    It 'keeps the auto-updating DeepSeek Flash ID and CLI-only V4 Pro without reserved variants' {
         $manifests = InModuleScope AiCliProfileManager {
             $all = Import-AiCliProviderManifests
             @($all.Values | Where-Object provider -eq 'deepseek')
@@ -113,35 +113,31 @@ Describe 'Retired provider identities' {
 
         foreach ($manifest in @($manifests)) {
             @($manifest.models.reserved) | Should -BeNullOrEmpty -Because $manifest.id
-            @($manifest.models.candidates) |
-                Should -Not -Contain 'deepseek-chat' -Because $manifest.id
-            @($manifest.models.candidates) |
-                Should -Not -Contain 'deepseek-reasoner' -Because $manifest.id
+            @($manifest.models.candidates) | Should -Not -Contain 'deepseek-chat' -Because $manifest.id
+            @($manifest.models.candidates) | Should -Not -Contain 'deepseek-reasoner' -Because $manifest.id
             foreach ($model in @(
                 $manifest.models.primary,
                 $manifest.models.small,
                 @($manifest.models.candidates)
             ) | Where-Object { $_ }) {
-                $model | Should -BeIn @('deepseek-v4-flash', 'deepseek-v4-pro') -Because $manifest.id
+                $model | Should -BeIn @('deepseek-flash', 'deepseek-v4-pro') -Because $manifest.id
             }
         }
 
-        $flash = @($manifests | Where-Object id -eq 'codex-deepseek')[0]
+        $flash = @($manifests | Where-Object id -eq 'codex-deepseek-flash')[0]
         $pro = @($manifests | Where-Object id -eq 'codex-deepseek-v4-pro')[0]
-        $flash.compatibility.modelVersion | Should -Be 'DeepSeek-V4-Flash-0731'
+        $flash.compatibility.modelVersion | Should -Be 'DeepSeek-V4.1-Flash'
         $pro.compatibility.modelVersion | Should -Be 'DeepSeek-V4-Pro-0813'
-
-        foreach ($id in @('claude-deepseek', 'oi-deepseek')) {
-            $profile = @($manifests | Where-Object id -eq $id)[0]
-            $profile.models.primary | Should -Be 'deepseek-v4-flash' -Because $id
-            $profile.compatibility.modelVersion | Should -Be 'DeepSeek-V4-Flash-0731' -Because $id
-        }
+        @($manifests.id) | Should -Not -Contain 'codex-deepseek'
+        @($manifests.id) | Should -Not -Contain 'claude-deepseek'
+        @($manifests.id) | Should -Not -Contain 'oi-deepseek'
     }
 
-    It 'rejects every other DeepSeek V4 model identity in profiles and native arguments' {
+    It 'rejects retired DeepSeek V4 Flash identities while retaining deepseek-flash and exact V4 Pro' {
         InModuleScope AiCliProfileManager {
             foreach ($modelId in @(
                 'deepseek-v4',
+                'deepseek-v4-flash',
                 'deepseek-v4-flash-0731',
                 'deepseek-v4-pro-0813',
                 'deepseek-v4-preview',
@@ -150,12 +146,12 @@ Describe 'Retired provider identities' {
                 'DeepSeek-V4-Flash-0731'
             )) {
                 { Assert-AiCliModelIsActive -ModelId $modelId -Context '测试模型' } |
-                    Should -Throw '*DeepSeek V4*只保留*deepseek-v4-flash*deepseek-v4-pro*' -Because $modelId
+                    Should -Throw '*已退役的 DeepSeek V4 Flash*deepseek-flash*deepseek-v4-pro*' -Because $modelId
                 { Assert-AiCliNativeArgsDoNotUseRetiredModel -NativeArgs @('--model', $modelId) } |
-                    Should -Throw '*DeepSeek V4*' -Because $modelId
+                    Should -Throw '*DeepSeek V4 Flash*' -Because $modelId
             }
 
-            foreach ($activeAlias in @('deepseek-v4-flash', 'deepseek-v4-pro')) {
+            foreach ($activeAlias in @('deepseek-flash', 'deepseek-v4-pro')) {
                 { Assert-AiCliModelIsActive -ModelId $activeAlias -Context '测试模型' } |
                     Should -Not -Throw -Because $activeAlias
             }
@@ -197,23 +193,23 @@ Describe 'Retired provider identities' {
             }
 
             { Get-AiCliResolvedProfile -Id 'old-deepseek-work' } |
-                Should -Throw '*DeepSeek V4*只保留*'
+                Should -Throw '*已退役的 DeepSeek V4 Flash*'
         }
     }
 
     It 'reuses an existing opaque secret reference only when its template proves the same credential domain' {
         InModuleScope AiCliProfileManager {
             Mock Test-AiCliSecretExists { $true }
-            $template = Get-AiCliProviderManifest -Id 'codex-deepseek'
+            $template = Get-AiCliProviderManifest -Id 'codex-deepseek-flash'
             $existing = [ordered]@{
-                id = 'codex-deepseek'
-                templateId = 'codex-deepseek'
+                id = 'codex-deepseek-flash'
+                templateId = 'codex-deepseek-flash'
                 secretRef = 'opaque-existing-secret-ref'
             }
 
             Resolve-AiCliReusableSecretRef `
                 -Template $template `
-                -ProfileId 'codex-deepseek' `
+                -ProfileId 'codex-deepseek-flash' `
                 -ExistingProfile $existing `
                 -ReuseExistingSecret |
                 Should -Be 'opaque-existing-secret-ref'
@@ -223,16 +219,16 @@ Describe 'Retired provider identities' {
     It 'rejects same-id SecretRef reuse when the old template belongs to another provider' {
         InModuleScope AiCliProfileManager {
             Mock Test-AiCliSecretExists { $true }
-            $template = Get-AiCliProviderManifest -Id 'codex-deepseek'
+            $template = Get-AiCliProviderManifest -Id 'codex-deepseek-flash'
             $existing = [ordered]@{
-                id = 'codex-deepseek'
+                id = 'codex-deepseek-flash'
                 templateId = 'codex-official'
                 secretRef = 'opaque-unknown-secret-ref'
             }
 
             {
                 Resolve-AiCliReusableSecretRef -Template $template `
-                    -ProfileId 'codex-deepseek' -ExistingProfile $existing -ReuseExistingSecret
+                    -ProfileId 'codex-deepseek-flash' -ExistingProfile $existing -ReuseExistingSecret
             } | Should -Throw '*认证域*拒绝复用*'
         }
     }
@@ -241,14 +237,14 @@ Describe 'Retired provider identities' {
         InModuleScope AiCliProfileManager {
             Mock Get-AiCliUserProfile {
                 [ordered]@{
-                    id = 'codex-deepseek'
-                    templateId = 'codex-deepseek'
+                    id = 'codex-deepseek-flash'
+                    templateId = 'codex-deepseek-flash'
                     secretRef = 'opaque-deepseek-secret-ref'
                 }
             }
             Mock Get-AiCliResolvedProfile {
                 [ordered]@{
-                    id = 'codex-deepseek'
+                    id = 'codex-deepseek-flash'
                     provider = 'deepseek'
                     plan = 'paygo'
                     region = 'global'
@@ -263,7 +259,7 @@ Describe 'Retired provider identities' {
             Resolve-AiCliReusableSecretRef `
                 -Template $template `
                 -ProfileId 'codex-deepseek-v4-pro' `
-                -ReuseSecretFrom 'codex-deepseek' |
+                -ReuseSecretFrom 'codex-deepseek-flash' |
                 Should -Be 'opaque-deepseek-secret-ref'
         }
     }
@@ -350,10 +346,10 @@ Describe 'Retired provider identities' {
     It 'never deletes a shared DeepSeek SecretRef when saving the target Profile fails' {
         InModuleScope AiCliProfileManager {
             Mock Get-AiCliUserProfile {
-                if ($Id -eq 'codex-deepseek') {
+                if ($Id -eq 'codex-deepseek-flash') {
                     return [ordered]@{
-                        id = 'codex-deepseek'
-                        templateId = 'codex-deepseek'
+                        id = 'codex-deepseek-flash'
+                        templateId = 'codex-deepseek-flash'
                         secretRef = 'opaque-shared-deepseek-ref'
                     }
                 }
@@ -361,7 +357,7 @@ Describe 'Retired provider identities' {
             }
             Mock Get-AiCliResolvedProfile {
                 [ordered]@{
-                    id = 'codex-deepseek'
+                    id = 'codex-deepseek-flash'
                     provider = 'deepseek'
                     plan = 'paygo'
                     region = 'global'
@@ -380,7 +376,7 @@ Describe 'Retired provider identities' {
 
             {
                 Invoke-AiCliProfileConfigure -TemplateId 'codex-deepseek-v4-pro' `
-                    -ReuseSecretFrom 'codex-deepseek'
+                    -ReuseSecretFrom 'codex-deepseek-flash'
             } | Should -Throw '*simulated target save failure*'
             Should -Invoke Remove-AiCliSecret -Times 0 -Exactly
             Should -Invoke New-AiCliSecret -Times 0 -Exactly

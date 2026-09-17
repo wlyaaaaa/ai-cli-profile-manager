@@ -121,7 +121,7 @@ function Show-AiCliHelpEffort {
 对受管第三方 Codex Profile，用户看到的 max 始终表示该模型当前支持的最高思考档：
   - Qwen3.7 Max 06-08: max → 原生 xhigh
   - Qwen3.8 Max: max → 原生 xhigh
-  - DeepSeek V4 Flash/Pro: max → 原生 max
+  - DeepSeek Flash / V4 Pro: max → 原生 max
   - 本地 qwen-main/review: max → 目录最高档 max
 
 启动计划会解析、固定并记录 requested/effective effort；它们是发出的计划值，不冒充供应商回读。只有取得独立证明时 attested effort 才会有值。

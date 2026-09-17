@@ -5,7 +5,7 @@ function ConvertTo-AiCliTokenList {
     .SYNOPSIS
       Normalize CLI tokens into List[string] (single object — avoids PS array unwrap bugs).
       Critical: a single-element [string[]] often collapses to [string]; then $Tokens[0] is
-      the first character (e.g. 'c' from codex-deepseek). Returning List avoids that.
+      the first character (e.g. 'c' from codex-deepseek-flash). Returning List avoids that.
     #>
     param($Tokens)
     $list = [System.Collections.Generic.List[string]]::new()
@@ -791,7 +791,7 @@ function Invoke-AiCliSetup {
     Write-Host '  5) 可选 Live:   aicli test <id> --live --yes'
     $idx = Show-AiCliMenu -Title '选择要配置的方向' -Choices @(
         '仅查看说明（稍后手动）',
-        '配置 Codex DeepSeek V4.1 Flash',
+        '配置 Codex DeepSeek Flash',
         '配置 Codex Qwen3.7 Max 06-08 Workspace 按量',
         '配置 Codex Qwen3.8 Max Workspace 按量',
         '查看全部模板'

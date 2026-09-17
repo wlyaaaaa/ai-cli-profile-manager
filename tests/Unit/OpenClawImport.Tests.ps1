@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 
 Describe 'OpenClaw import helper' {
     BeforeAll {
@@ -33,9 +33,9 @@ Describe 'OpenClaw import helper' {
 
         $LASTEXITCODE | Should -Be 0
         $output | Should -Not -Match 'PREVIEW .*qwen'
-        $output | Should -Match 'PREVIEW claude-deepseek'
-        $output | Should -Match 'PREVIEW codex-deepseek'
-        $output | Should -Match 'PREVIEW codex-deepseek-v4-pro'
+        $output | Should -Not -Match 'PREVIEW claude-deepseek|PREVIEW oi-deepseek'
+        $output | Should -Match 'PREVIEW codex-deepseek-flash'
+        $output | Should -Not -Match 'PREVIEW codex-deepseek-v4-pro|PREVIEW claude-deepseek|PREVIEW oi-deepseek'
         $output | Should -Not -Match 'CANARY_OPENCLAW_(QWEN|DEEPSEEK)_SECRET'
         @(Get-ChildItem -LiteralPath $script:DataRoot -Recurse -File -Filter '*.json' -ErrorAction SilentlyContinue |
             Where-Object { $_.DirectoryName -match 'Profiles' }).Count | Should -Be 0
@@ -49,15 +49,16 @@ Describe 'OpenClaw import helper' {
         $output | Should -Not -Match 'CANARY_OPENCLAW_(QWEN|DEEPSEEK)_SECRET'
         $profiles = @(Get-ChildItem -LiteralPath $script:DataRoot -Recurse -File -Filter '*.json' |
             Where-Object { $_.DirectoryName -match 'Profiles' })
-        $profiles.Count | Should -Be 4
-        foreach ($profileFile in $profiles) {
-            $profile = Get-Content -LiteralPath $profileFile.FullName -Raw | ConvertFrom-Json
-            $profile.secretRef | Should -Match '^[a-f0-9]{32}$'
-            $profile.importedFrom | Should -Match '^openclaw:'
-        }
+        $profiles.Count | Should -Be 1
+        $profile = Get-Content -LiteralPath $profiles[0].FullName -Raw | ConvertFrom-Json
+        $profile.id | Should -Be 'codex-deepseek-flash'
+        $profile.templateId | Should -Be 'codex-deepseek-flash'
+        $profile.models.primary | Should -Be 'deepseek-flash'
+        $profile.secretRef | Should -Match '^[a-f0-9]{32}$'
+        $profile.importedFrom | Should -Match '^openclaw:'
         $secretFiles = @(Get-ChildItem -LiteralPath $script:DataRoot -Recurse -File |
             Where-Object { $_.DirectoryName -match 'secrets' })
-        $secretFiles.Count | Should -Be 4
+        $secretFiles.Count | Should -Be 1
         # Secret files are deliberately ACL-restricted and covered by the
         # dedicated SecretStore tests. Scan every non-secret artifact here.
         $allBytesAsText = @(Get-ChildItem -LiteralPath $script:DataRoot -Recurse -File |

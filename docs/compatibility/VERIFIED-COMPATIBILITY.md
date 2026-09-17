@@ -1,14 +1,14 @@
 # 兼容性与最终验收状态
 
-文档日期：2026-08-15
-产品版本：`0.3.12`（source/install/runtime/live 分层验收）
+文档日期：2026-09-17
+产品版本：`0.3.15`（source/install/runtime/live 分层验收）
 状态原则：代码路径存在不等于 Provider 已通过；最终状态必须来自当前版本、当前 Profile 指纹和真实目标 CLI 的验收记录。
 
-本页严格分开 source/static/install/runtime/live。任何旧版本安装或旧 Live 回执都不能证明 `0.3.12`；最终安装提交、payload、受管 TOML/catalog 和 Live 回执必须分别固定指纹。
+本页严格分开 source/static/install/runtime/live。任何旧版本安装或旧 Live 回执都不能证明 `0.3.15`；最终安装提交、payload、受管 TOML/catalog 和 Live 回执必须分别固定指纹。
 
 ## 1. 当前实现基线
 
-开发环境当前检测到：Windows 11、PowerShell 7.6.4、PATH 固定解析的 npm Codex CLI 0.147.0、Claude Code 2.1.220、Qwen Code 0.21.0、OpenCode 1.18.18、Open Interpreter 0.0.21。WindowsApps 中另有不可直接版本探测的 Codex Desktop 可执行文件，不与 npm CLI 混为一谈。它们只是当前实现环境，不是所有用户机器的保证，也不代替逐 Profile Live 验收。`codex-deepseek` 的上游最低要求为 Codex CLI `0.144.0`。
+开发环境当前检测到：Windows 11、PowerShell 7.6.4、PATH 固定解析的 npm Codex CLI 0.147.0、Claude Code 2.1.220、Qwen Code 0.21.0、OpenCode 1.18.18、Open Interpreter 0.0.21。WindowsApps 中另有不可直接版本探测的 Codex Desktop 可执行文件，不与 npm CLI 混为一谈。它们只是当前实现环境，不是所有用户机器的保证，也不代替逐 Profile Live 验收。`codex-deepseek-flash` 的最低兼容基线仍按 Codex CLI `0.144.0` 或更高处理；桌面桥每次启动动态定位当前 Codex 引擎，不固定版本目录。
 
 Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形如 `Open Interpreter 0.4.x` 的旧 Python 产品不在支持范围。
 
@@ -21,21 +21,23 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | `codex-official` | 已实现 | 可用但有限制（本轮按用户要求未做 Live） | 使用上游官方登录；不得由桌面端登录状态推断 CLI 一定可用 |
 | `codex-qwen3-7-max-paygo` | `0.3.12` source/static 已实现 | 当前版本 Live 待验收 | 精确 `qwen3.7-max-2026-06-08`、北京 Workspace paygo Responses、983616/95%、compact 885254（90%）；用户 `max` → 原生 `xhigh`；旧 alias/Plus/Profile 与模型覆盖继续失败关闭。 |
 | `codex-qwen3-8-max-paygo` | 当前 source/static 已实现 | 仅由同指纹发布验收回执判定 | 精确 `qwen3.8-max-0902`、Workspace paygo Responses、983616/95%、compact 885254（90%）；用户 `max` → 原生 `xhigh`；拒绝可变 alias、preview/Token Plan/模型覆盖。 |
-| `codex-deepseek` | `0.3.12` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，1048576 context，Responses，默认/配置/argv `max`。 |
-| `codex-deepseek-v4-pro` | `0.3.12` source/static 已实现 | 待本版本各一次 Codex harness Live | 精确 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`，1048576 context，Responses，默认/配置/argv `max`。 |
+| `codex-deepseek-flash` | 当前 source/static + Desktop bridge 已实现 | 桌面实际使用与桥接回归已通过；CLI Live 仍按当前 Profile 指纹单独判定 | 官方自动升级 ID `deepseek-flash`，1048576 context，Responses，图像输入，默认/配置/argv `max`；桌面显示“DeepSeek Flash”，不写死版本号。 |
+| `codex-deepseek-v4-pro` | source/static 已保留为 CLI-only | 待当前 Profile 指纹的 Codex harness Live | 精确 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`，1048576 context，Responses，默认/配置/argv `max`；不进入 Desktop 模型菜单。 |
 | `codex-ollama-main` | exact source/static 已实现 | 本轮不把旧运行证据晋升为新 Live | `qwen-main-v1`、Responses、max、无 fallback。 |
 | `codex-ollama-qwen3-8-27b` | `0.3.12` source/install/runtime/live 已验收 | Agent Live 通过；旧 CACB max-3 未完成且不复用 | 2026-08-15 安装版以 `aicli-qwen3.8-27b-256k:2026-08-14` / `aicli_ollama_qwen38_27b`、Responses、max、Codex `0.147.0`、完全访问运行；14 steps / 7 tool calls 后独立 verifier 通过并确认进程树清理。本次一次完成（resume_count=0），中断恢复能力由同一 root-owned run 合同和既有故障注入 Live 证明。 |
 | `codex-ollama-review` | exact source/static 已切换 | 35B 模型切换后需新的 Live 回执 | `qwen-main-v1`（Qwen3.6 35B）、Responses、max、无 fallback；旧 27B 回执不继承。 |
 | `codex-spark-xhigh` | 已实现；workspace 修复仅在未发布源码 | 能力验收不通过 | 2026-07-24 的只读严格 JSON smoke 仍只证明文本链路。2026-07-29 使用仓库源代码入口和 `gpt-5.3-codex-spark` / `xhigh` 的真实 `workspace-write` 任务已证明命名权限与工作区写入生效；但 `code_repair` 在硬上限 `maxSteps=80` 下达到 `81/80` 后终止，确定性得分 `2/9`。本轮停止复测，不把权限修复等同于代码 Agent 能力通过。官方 Spark 使用临时 `CODEX_HOME` / `auth.json` 副本，不走付费 API Key。 |
 | `claude-official` | 已实现 | 不可用（本机未登录，401） | 完成 Claude CLI 官方登录后可重新验收；不等于产品安装失败 |
-| `claude-deepseek` | Flash-only 模板与上下文修复已在本机 installed | 可用但有限制（尚未做当前 Flash Live） | 2.1.193+ 按 `deepseek-v4-flash` 注入 MAX/AUTO=`1000000`；不设置提前压缩覆盖或禁压缩变量。安装态静态回读确认已知模型注入 1M，未知模型清除 MAX/AUTO、提前压缩与两个禁压缩变量。2026-07-14 的 Pro 记录属于旧指纹，不能证明当前 Flash。 |
+
 | `claude-ollama` | 已实现，公共默认 `127.0.0.1:11434` | 可用但有限制（公共默认未做 Live） | 本机 `claude-ollama-main` 在 2.1.193+ 为 `qwen-main-v1` 注入 MAX/AUTO=`262144`；本机服务和模型仍是前置条件 |
 | `opencode-ollama-qwen3-8-27b` | `0.3.12` exact source/static 已实现 | Desktop 目录、256K 参数与完整 OpenCode 样本已回读 | 与 Codex 共用同一运行标签/权重，262144 context/input、32768 output；Desktop 显示 `Qwen3.8 27B MAX (256K)`。 |
 | `claude-custom` | 已实现 | 可用但有限制（按用户端点分别验收） | 只接受 HTTPS 或 localhost HTTP 的 Anthropic Messages 兼容端点 |
-| `oi-deepseek` | Rust 0.0.21+ Flash-only 模板已实现 | 可用但有限制（尚未做当前 Flash Live） | 2026-07-14 的 `deepseek-v4-pro` 文本通过记录属于旧 Profile 指纹；不能作为当前 `deepseek-v4-flash` 证据。 |
+
 | `oi-ollama` | Rust 0.0.21+ 适配已实现 | 可用但有限制（公共默认未做 Live） | 公共默认 `127.0.0.1:11434/v1` |
 | `claude-chatgpt-ccp` | 代理运维与 Profile 已实现 | 可用但有限制（本轮未做 OAuth/端到端 Live） | 可选第三方通道，不标成完全“可用” |
 | `claude-chatgpt-cliproxy` | 代理运维与 Profile 已实现 | 可用但有限制（本轮未做 OAuth/端到端 Live） | 可选第三方通道，不标成完全“可用” |
+
+旧 `codex-deepseek`、`claude-deepseek`、`oi-deepseek` 与 `deepseek-v4-flash` 已退役。它们的历史 Live / installed 记录只用于追溯，不能证明当前 `codex-deepseek-flash`，也不能作为恢复已删除入口的依据。
 
 另有三条本机用户 Profile 在 2026-07-14（UTC+8）完成文本验收：Codex 0.144.3、Claude Code 2.1.207 和 Rust OI 0.0.21 均连接本机 Ollama `qwen3.6:27b`，目标 CLI exit 0 且最终正文严格等于 `PONG`。这些用户 Profile 使用非公开默认端口，因此证据只说明三套 Ollama 适配路径在该配置下通过，**不能**替代上表三个公共默认 Ollama Profile 的最终验收；三条工具层同样跳过，状态为“可用但有限制”。
 
@@ -91,7 +93,7 @@ aicli test <Codex Profile ID> --live --level agent --yes --json
 内置模板当前候选包括：
 
 - Qwen 云端只保留两个隔离 exact Codex Profile：`codex-qwen3-7-max-paygo` → `qwen3.7-max-2026-06-08` 与 `codex-qwen3-8-max-paygo` → `qwen3.8-max-0902`，requested `max` 均映射 effective `xhigh`。其他 Qwen3.7 Max/Plus、Qwen3.8 可变 alias/preview、兼容 ID、目录与导入入口继续退役；旧用户 Profile/原生模型参数失败关闭。
-- DeepSeek Codex 分别固定 `deepseek-v4-flash` / `DeepSeek-V4-Flash-0731` 与 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`，均为 Responses、1M、默认 `max`；Claude Code 与 Open Interpreter 的 DeepSeek 模板仍保持 Flash-only。
+- DeepSeek Codex 当前以 `codex-deepseek-flash` → `deepseek-flash` 为主入口，Responses、1M、默认 `max`，Desktop 不写死版本；`codex-deepseek-v4-pro` → `deepseek-v4-pro` 仅保留 CLI-only。Claude Code 与 Open Interpreter 不再公开 DeepSeek 模板，旧 V4 Flash 身份失败关闭。
 - Ollama 公共模板只使用默认端口和公开模型名；用户必须确认本机已经存在该模型。
 
 模型名、地域、套餐和端点属于动态事实。`0.1.0` 发布时已按官方来源和真实目标 CLI 证据核对；后续版本仍须重新核对。“模板中存在”不等于账号有权调用。

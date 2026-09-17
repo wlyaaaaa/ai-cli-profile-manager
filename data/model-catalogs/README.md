@@ -4,24 +4,21 @@
 
 `glm-5.3-codex.json` 与 `glm-5.3-flash-codex.json` 对应智谱中国区 Codex Responses exact Profile：模型 ID 分别为 `glm-5.3` / `glm-5.3-flash`，上下文 1048576、有效窗口 95%、自动压缩线 943718（最大上下文 90%），推理档位固定 `low/high/max`。两者不包含凭据、不声明 alias 或 fallback，并启用 Codex 延迟工具搜索；其模型级指令要求根任务和子代理默认使用简体中文，以用户目标为中心解释有意义的发现、原因和影响；需要调查、工具或多步处理时，在首次工具前及重要发现、阶段进展或方向变化处主动发送用户可见的助手进度；不能仅留在内部分析或最终答复。不固定摘要长度或汇报模板，内部操作转译成用户关心的目的和影响。最终答复按问题复杂度兼顾必要细节与简洁。Flash 目录只声明 Codex 当前使用的文本和图像输入。
 
-`deepseek-v4-flash.json` 与 `deepseek-v4-pro.json` 从 DeepSeek 官方 Windows/Linux Codex setup 脚本内同一份双模型 `models.json` 按 slug 确定性抽取，各自只保留一个 exact 条目：
+`deepseek-flash.json` 是当前 DeepSeek Flash 受管 Codex 目录：Profile 使用官方自动升级模型 ID `deepseek-flash`，桌面只显示“DeepSeek Flash”，不把当前具体版本号写进菜单；目录仍绑定到 AICLI 已审计的官方 Codex setup 基线后再叠加本项目策略。
 
 - 来源：<https://cdn.deepseek.com/api-docs/codex-deepseek-setup-en.ps1>
-- 取证日期：2026-08-13；上游 Windows 脚本版本 `1.1.0`
-- 上游 Windows 脚本 SHA-256：`239c5e7e4a24a5216cf03756cc66d7459c748a46d1d4bf084418d2b58ef54a36`
-- 上游双模型 `models.json` SHA-256：`b459a6e438d6a9939d01fd0dbb4693f165ed732bc8e4fd58d7145d9d94bd49a4`
-- 官方规范化单条目 SHA-256：Flash `8065e17700fe1a88bed911114c10f3e792eac48601aa765e067bec13eb0ae1d4`；Pro `16e8716359c27ade5f748e586e2b25886f5a7257ab4e9795436e11f9c4fdeedf`
-- alias 到版本的映射由官方 Models & Pricing 页分别固定为 Flash 0731 与 Pro 0813；setup catalog 自身只写 alias。
-- AICLI 在验证官方条目后，才叠加三项受管策略：默认推理档位 `max`、最大上下文 90% 自动压缩，以及本文件所述的面向用户的进度与最终答复指令；这些策略不参与官方条目哈希，模型身份和其他官方字段仍必须通过上述单条目哈希校验。
+- 当前 Flash 官方规范化单条目 SHA-256：`d8c36e252d43d474bd776bc0d47ef99b8ca72fa579d62ca03cfa5c7b6179877a`；生成器在写入前必须先通过该基线校验。
+- AICLI 只在官方条目校验通过后叠加默认推理档位 `max`、最大上下文 90% 自动压缩，以及 `CodexUserCommunicationPolicy.ps1` 的用户可见进度与最终答复策略；模型身份、wire、输入能力与其他官方字段不得被静默漂移。
+- 旧 `deepseek-v4-flash.json` / `deepseek-v4-flash` 已退役并失败关闭。`deepseek-v4-pro.json` / `deepseek-v4-pro` 继续作为独立 CLI-only exact Profile 保留，不进入 Codex Desktop 模型列表，也不由 Flash 回执代为证明。
 
-`scripts/Build-DeepSeekCodexCatalog.ps1` 负责上述抽取和哈希绑定。Flash 与 Pro 目录、Provider ID 和 Profile 指纹互相隔离；任何一方的 Live 回执不能证明另一方。
+`scripts/Build-DeepSeekCodexCatalog.ps1` 当前只重建并验证 `deepseek-flash.json`；Flash 与 V4 Pro 的 Provider ID、目录和 Profile 指纹继续互相隔离，任何一方的 Live 回执都不能证明另一方。
 
 `qwen3.8-max-0902-codex.json` 由 `scripts/Build-QwenCodexCatalog.ps1 -CatalogKind qwen38max0902` 确定性生成：
 
 - 精确 slug `qwen3.8-max-0902`、Responses 能力与 983616 输入窗口来自[阿里云 Responses 文档](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-responses)及模型页；
 - `effective_context_window_percent=95`、`auto_compact_token_limit=885254`（最大上下文 90%）；用户 `max` 在 Profile 层映射为模型原生最高 `xhigh`；
 - Workspace 按量 Profile 不包含 preview、Token Plan 或其他候选；
-- 基础指令与 `model_messages` 复用同一发布版 `deepseek-v4-flash.json` 中的通用 Codex 指令，避免阿里云最小示例的空 `base_instructions` 覆盖 Codex Agent 行为；生成器再叠加 `CodexUserCommunicationPolicy.ps1` 的用户可见进度与最终答复策略。其余能力与限制由生成器白名单逐项声明，不随 DeepSeek 目录静默漂移。
+- 基础指令与 `model_messages` 复用同一发布版 `deepseek-flash.json` 中的通用 Codex 指令，避免阿里云最小示例的空 `base_instructions` 覆盖 Codex Agent 行为；生成器再叠加 `CodexUserCommunicationPolicy.ps1` 的用户可见进度与最终答复策略。其余能力与限制由生成器白名单逐项声明，不随 DeepSeek 目录静默漂移。
 
 `qwen3.7-max-2026-06-08-codex.json` 由同一生成器的 `-CatalogKind qwen37max0608` 确定性生成，只服务 `codex-qwen3-7-max-paygo`：
 

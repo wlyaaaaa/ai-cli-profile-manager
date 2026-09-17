@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 Describe 'Profile' {
     BeforeAll {
         $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -63,28 +63,18 @@ Describe 'Profile' {
         Test-Path (Join-Path $out 'start.ps1') | Should -BeTrue
     }
 
-    It 'migrates an existing DeepSeek profile to the locked Flash model without touching its secret' {
+    It 'fails closed for a legacy DeepSeek V4 Flash user Profile instead of silently migrating it' {
         InModuleScope AiCliProfileManager {
-            Mock Test-AiCliSecretExists { $true }
-            $template = Get-AiCliProviderManifest -Id 'claude-deepseek'
+            $template = Get-AiCliProviderManifest -Id 'codex-deepseek-flash'
             $user = [ordered]@{
-                id = 'claude-deepseek'
-                templateId = 'claude-deepseek'
-                models = [ordered]@{ primary = 'deepseek-v4-pro'; small = 'deepseek-v4-pro' }
-                endpoint = 'https://example.invalid/steal-key'
-                region = 'tampered'
-                plan = 'tampered'
+                id = 'codex-deepseek-flash'
+                templateId = 'codex-deepseek-flash'
+                models = [ordered]@{ primary = 'deepseek-v4-flash'; small = 'deepseek-v4-flash'; candidates = @('deepseek-v4-flash') }
                 secretRef = 'opaque-existing-secret-ref'
             }
 
-            $merged = Merge-AiCliProfile -Template $template -UserProfile $user
-
-            $merged.models.primary | Should -Be 'deepseek-v4-flash'
-            $merged.models.small | Should -Be 'deepseek-v4-flash'
-            $merged.endpoint | Should -Be 'https://api.deepseek.com/anthropic'
-            $merged.region | Should -Be 'global'
-            $merged.plan | Should -Be 'paygo'
-            $merged.secretRef | Should -Be 'opaque-existing-secret-ref'
+            { Merge-AiCliProfile -Template $template -UserProfile $user } |
+                Should -Throw '*已退役的 DeepSeek V4 Flash*'
         }
     }
 
@@ -140,32 +130,32 @@ Describe 'Profile' {
     It 'preserves a matching DeepSeek exact Profile SecretRef without allowing route drift' {
         InModuleScope AiCliProfileManager {
             Mock Test-AiCliSecretExists { $true }
-            $template = Get-AiCliProviderManifest -Id 'codex-deepseek'
+            $template = Get-AiCliProviderManifest -Id 'codex-deepseek-flash'
             $user = [ordered]@{
-                id = 'codex-deepseek'
-                templateId = 'codex-deepseek'
+                id = 'codex-deepseek-flash'
+                templateId = 'codex-deepseek-flash'
                 region = 'global'
                 plan = 'paygo'
                 endpoint = 'https://api.deepseek.com/'
                 models = [ordered]@{
-                    primary = 'deepseek-v4-flash'
-                    small = 'deepseek-v4-flash'
-                    candidates = @('deepseek-v4-flash')
+                    primary = 'deepseek-flash'
+                    small = 'deepseek-flash'
+                    candidates = @('deepseek-flash')
                 }
                 secretRef = 'opaque-existing-secret-ref'
             }
 
             $merged = Merge-AiCliProfile -Template $template -UserProfile $user
             $merged.endpoint | Should -Be 'https://api.deepseek.com'
-            $merged.models.primary | Should -Be 'deepseek-v4-flash'
+            $merged.models.primary | Should -Be 'deepseek-flash'
             $merged.secretRef | Should -Be 'opaque-existing-secret-ref'
         }
     }
 
     It 'rejects configuring one builtin template under another builtin ID' {
         InModuleScope AiCliProfileManager {
-            { Invoke-AiCliProfileConfigure -TemplateId 'codex-official' -ProfileId 'codex-deepseek' } |
-                Should -Throw '*已由内置模板 codex-deepseek 保留*'
+            { Invoke-AiCliProfileConfigure -TemplateId 'codex-official' -ProfileId 'codex-deepseek-flash' } |
+                Should -Throw '*已由内置模板 codex-deepseek-flash 保留*'
         }
     }
 
@@ -173,13 +163,13 @@ Describe 'Profile' {
         InModuleScope AiCliProfileManager {
             $profile = [ordered]@{
                 schemaVersion = 1
-                id = 'codex-deepseek'
+                id = 'codex-deepseek-flash'
                 engine = 'codex'
-                codexModelCatalog = 'deepseek-v4-flash.json'
+                codexModelCatalog = 'deepseek-flash.json'
                 compatibility = [ordered]@{ minCliVersion = '0.144.0' }
             }
             $script:CatalogHash = ('1' * 64)
-            Mock Get-AiCliDataPath { 'C:\test\deepseek-v4-flash.json' }
+            Mock Get-AiCliDataPath { 'C:\test\deepseek-flash.json' }
             Mock Test-Path { $true }
             Mock Get-FileHash { [pscustomobject]@{ Hash = $script:CatalogHash } }
 
@@ -189,7 +179,7 @@ Describe 'Profile' {
             $profile.compatibility.minCliVersion = '0.145.0'
             $third = Get-AiCliProfileFingerprint -Profile $profile
             $profile.modelMetadata = [ordered]@{
-                'deepseek-v4-flash' = [ordered]@{
+                'deepseek-flash' = [ordered]@{
                     contextWindowTokens = 1000000
                     autoCompactWindowTokens = 1000000
                 }

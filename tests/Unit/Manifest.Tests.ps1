@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 Describe 'Manifest' {
     BeforeAll {
         function Assert-CanonicalCatalogBytes {
@@ -72,14 +72,16 @@ Describe 'Manifest' {
         $manifest.compatibility.modelVersion | Should -Be 'DeepSeek-V4.1-Flash'
     }
 
-    It 'keeps DeepSeek in Codex only while retaining the legal Pro CLI profile' {`n        $all = Import-AiCliProviderManifests`n        $all.Contains('claude-deepseek') | Should -BeFalse`n        $all.Contains('oi-deepseek') | Should -BeFalse`n        $all['codex-deepseek-v4-pro'].models.primary | Should -Be 'deepseek-v4-pro'`n    }
+    It 'keeps DeepSeek in Codex only while retaining the legal Pro CLI profile' {
+        $all = Import-AiCliProviderManifests
+        $all.Contains('claude-deepseek') | Should -BeFalse
+        $all.Contains('oi-deepseek') | Should -BeFalse
+        $all['codex-deepseek-v4-pro'].models.primary | Should -Be 'deepseek-v4-pro'
+    }
 
-    It 'binds third-party Claude and OpenCode profiles to exact model context metadata' {
+    It 'binds retained Claude and OpenCode profiles to exact model context metadata' {
         $all = Import-AiCliProviderManifests
         $runtimeTag = 'qwen3.8-27b:256k'
-        $all['claude-deepseek'].compatibility.minCliVersion | Should -Be '2.1.193'
-        $all['claude-deepseek'].modelMetadata.'deepseek-flash'.contextWindowTokens | Should -Be 1000000
-        $all['claude-deepseek'].modelMetadata.'deepseek-flash'.autoCompactWindowTokens | Should -Be 1000000
         $all['claude-ollama-main'].compatibility.minCliVersion | Should -Be '2.1.193'
         $all['claude-ollama-main'].modelMetadata.$runtimeTag.contextWindowTokens | Should -Be 262144
         $all['claude-ollama-main'].modelMetadata.$runtimeTag.outputWindowTokens | Should -Be 32768
@@ -137,18 +139,16 @@ Describe 'Manifest' {
             Should -Be (Get-FileHash -LiteralPath $checkedIn -Algorithm SHA256).Hash
     }
 
-    It 'rebuilds both exact DeepSeek catalogs deterministically' {
-        foreach ($model in @('flash', 'pro')) {
-            $generated = Join-Path $TestDrive "deepseek-v4-$model.json"
-            & (Join-Path $root 'scripts\Build-DeepSeekCodexCatalog.ps1') `
-                -Model $model -OutputCatalog $generated | Out-Null
+    It 'rebuilds the managed DeepSeek Flash catalog deterministically' {
+        $generated = Join-Path $TestDrive 'deepseek-flash.json'
+        & (Join-Path $root 'scripts\Build-DeepSeekCodexCatalog.ps1') `
+            -OutputCatalog $generated | Out-Null
 
-            $checkedIn = Join-Path $root "data\model-catalogs\deepseek-v4-$model.json"
-            Assert-CanonicalCatalogBytes -Path $generated
-            Assert-CanonicalCatalogBytes -Path $checkedIn
-            (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
-                Should -Be (Get-FileHash -LiteralPath $checkedIn -Algorithm SHA256).Hash -Because $model
-        }
+        $checkedIn = Join-Path $root 'data\model-catalogs\deepseek-flash.json'
+        Assert-CanonicalCatalogBytes -Path $generated
+        Assert-CanonicalCatalogBytes -Path $checkedIn
+        (Get-FileHash -LiteralPath $generated -Algorithm SHA256).Hash |
+            Should -Be (Get-FileHash -LiteralPath $checkedIn -Algorithm SHA256).Hash
     }
 
     It 'binds local Codex main to the exact deterministic Qwen3.8-27B 256K catalog' {

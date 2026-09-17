@@ -30,14 +30,14 @@ pwsh -File .\bin\aicli.ps1 doctor
 
 | 引擎 | 已实现的公开路径 | 验收口径 |
 |------|------------------|----------|
-| Codex CLI | 官方登录、精确 Qwen3.7 Max 06-08 / Qwen3.8 Max Workspace 按量、精确 DeepSeek V4 Flash 0731 / Pro 0813、本机 qwen-main/review / Qwen3.8-27B | `0.3.12` source/static；安装与 Live 只认同提交、同指纹回执 |
-| Claude Code | 官方登录、DeepSeek V4 Flash、Ollama、自定义 Anthropic Messages | Qwen3.7 Max/Plus 云模板已移除 |
+| Codex CLI | 官方登录、精确 Qwen3.7 Max 06-08 / Qwen3.8 Max Workspace 按量、DeepSeek Flash（`deepseek-flash`）/ V4 Pro CLI-only、本机 qwen-main/review / Qwen3.8-27B | 当前 source/static；安装与 Live 只认同提交、同指纹回执 |
+| Claude Code | 官方登录、Ollama、自定义 Anthropic Messages | DeepSeek 与 Qwen3.7 Max/Plus 云模板已移除 |
 | Qwen Code | 本机 Ollama `qwen-main-v1` machine run | 仅机器入口 |
 | OpenCode | 本机 Ollama `qwen-main-v1` / Qwen3.8-27B 256K machine run；Desktop 目录可见 | 仅机器入口 |
-| Open Interpreter | 当前官方 Rust `0.0.21+`：DeepSeek V4 Flash Chat、Ollama | Qwen3.7 云模板已移除；旧 Python `0.4.x` 不支持 |
+| Open Interpreter | 当前官方 Rust `0.0.21+`：Ollama | DeepSeek / Qwen3.7 云模板已移除；旧 Python `0.4.x` 不支持 |
 | ChatGPT → Claude | `raine/claude-code-proxy`、`CLIProxyAPI` | 可选第三方通道；本轮未完成 OAuth 与端到端 Live 验收 |
 
-DeepSeek 当前官方 Codex/Responses 目录同时支持 `deepseek-v4-flash` 与 `deepseek-v4-pro`。AICLI 用 `codex-deepseek` 精确绑定 alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，用 `codex-deepseek-v4-pro` 精确绑定 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`；两者都是 1048576 context、Responses、`low/high/max`，默认 `max`，不接受模型或 fallback 覆盖。动态支持状态以 [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 与 [DeepSeek Change Log](https://api-docs.deepseek.com/updates/) 为准。
+DeepSeek 当前主入口是 `codex-deepseek-flash` → 官方自动升级 ID `deepseek-flash`：Responses、1048576 context、图像输入与 `low/high/max`，默认 `max`；桌面菜单只显示“DeepSeek Flash”，不写死当前版本号。`codex-deepseek-v4-pro` → `deepseek-v4-pro` 继续作为独立 CLI-only exact Profile，仍不接受模型或 fallback 覆盖。旧 `codex-deepseek` / `deepseek-v4-flash` 与 Claude Code、Open Interpreter 的旧 DeepSeek 模板均已退役并失败关闭。动态支持状态以 [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 与 [DeepSeek Change Log](https://api-docs.deepseek.com/updates/) 为准。
 
 Qwen 云端使用两个互相隔离的 exact Profile：`codex-qwen3-7-max-paygo` 只固定 `qwen3.7-max-2026-06-08`，`codex-qwen3-8-max-paygo` 只固定 `qwen3.8-max-0902`；两者都只接受北京百炼 Workspace 按量 Responses endpoint，使用 983616 context、95% 有效窗口、885254 token（最大上下文 90%）自动压缩阈值，用户 `max` 映射为原生最高 `xhigh`。通用 alias、05-20、preview、Plus、通用 DashScope、Token Plan、模型覆盖和 fallback 都不进入这两个入口。Codex 桌面桥接会在启动时读取原生 OpenAI 模型目录，再合并已配置的 0902 快照与本地模型；不会把官方模型写成静态白名单。
 
@@ -47,7 +47,7 @@ DeepSeek API Key 仍由 Windows CurrentUser DPAPI 保存，Codex 受管配置只
 
 Qwen3.7 只恢复上述单一 exact Codex 快照。旧 `codex-qwen-paygo` 等 Profile、Qwen3.7 Plus、其他 Max alias/snapshot、Claude/OI 路线和导入入口继续退役；旧用户 Profile 或原生 `--model` / `--fallback-model` 会失败关闭，不会自动改投新入口或 Qwen3.8。本地备用交叉入口 `codex-ollama-review` 现使用 `qwen-main-v1`（Qwen3.6 35B）；旧 `qwen-review-v1`/Qwen3.6 27B 身份已退役并失败关闭。
 
-2026-07-14（UTC+8）曾完成 Claude Code / Rust Open Interpreter → `deepseek-v4-pro` 的文本验收；当前 Claude Code / Open Interpreter 模板已切换为 Flash-only，旧 Profile 指纹已经失效，也不能作为本轮任何 Codex exact Profile 的当前证据。逐项状态见兼容性页。
+2026-07-14（UTC+8）曾完成 Claude Code / Rust Open Interpreter → `deepseek-v4-pro` 的文本验收；之后两条路径曾短暂切到旧 V4 Flash，但现在 Claude Code / Open Interpreter 的 DeepSeek 模板已整体退役。上述旧 Profile 指纹均只保留为历史证据，不能证明当前 `codex-deepseek-flash` 或 V4 Pro CLI Profile。逐项状态见兼容性页。
 
 Claude 官方路径在未登录机器上出现 `401`，通常表示需要先完成 Claude Code 自己的官方登录，不代表本工具安装失败。
 

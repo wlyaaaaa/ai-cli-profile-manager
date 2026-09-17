@@ -21,8 +21,10 @@ Describe 'Paths' {
         }
     }
 
-    It 'brand version is 0.3.12' {
-        (Get-AiCliVersion) | Should -Be '0.3.12'
+    It 'keeps the brand version aligned with the module manifest' {
+        $manifest = Import-PowerShellDataFile (Join-Path $root 'src\AiCliProfileManager\AiCliProfileManager.psd1')
+        (Get-AiCliVersion) | Should -Be ([string]$manifest.ModuleVersion)
+        (Get-AiCliBrand).Version | Should -Be ([string]$manifest.ModuleVersion)
         (Get-AiCliBrand).CommandName | Should -Be 'aicli'
     }
 

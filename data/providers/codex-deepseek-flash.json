@@ -43,7 +43,7 @@
     "apiStatus": "available"
   },
   "dataDestination": "DeepSeek API",
-  "notes": "精确 DeepSeek V4.1 Flash Profile：官方 API model ID deepseek-flash，Responses wire、图像输入与 max effort 固定；V4 Flash 和 V4 Pro 入口已退役。",
+  "notes": "DeepSeek Flash Profile：官方 API model ID deepseek-flash，Responses wire、图像输入与 max effort 固定；旧 V4 Flash / codex-deepseek 入口已退役，V4 Pro 仅保留独立 CLI Profile。",
   "sources": [
     "https://api-docs.deepseek.com/updates/",
     "https://api-docs.deepseek.com/quick_start/agent_integrations/codex/",

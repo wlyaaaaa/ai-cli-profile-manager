@@ -35,7 +35,7 @@ aicli start oi-ollama
 
 ```powershell
 aicli start codex-official --project "C:\Work\Project"
-aicli start codex-deepseek --project "D:\项目\演示"
+aicli start codex-deepseek-flash --project "D:\项目\演示"
 ```
 
 启动参数在进程创建时生效，会话内斜杠命令在当前会话中生效。需要更换 Provider 时退出当前 CLI，重新运行 `aicli start <Profile ID>`。
@@ -68,7 +68,7 @@ aicli start codex-official -- --model gpt-5.6-sol
 
 第三方 Codex Profile 的 Provider 配置由 aicli 管理。不要透传 `-c`、`--config` 或 `--profile` 覆盖 Provider；这些参数与启动计划冲突，会被拒绝。
 
-DeepSeek Codex 使用两个 exact Profile：`codex-deepseek` 固定 API alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，`codex-deepseek-v4-pro` 固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`。两者都是 Responses、1M context、默认用户档 `max`，且不接受模型、Provider 或 fallback 覆盖。AICLI 用 DPAPI 保存 Key，受管配置只写 `env_key`；不要照抄官方示例里的明文 `experimental_bearer_token`。
+DeepSeek Codex 当前使用两个隔离 Profile：`codex-deepseek-flash` 固定官方自动升级模型 ID `deepseek-flash`，`codex-deepseek-v4-pro` 固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813` 且仅供 CLI 使用。两者都是 Responses、1M context、默认用户档 `max`，且不接受模型、Provider 或 fallback 覆盖；Desktop 只显示“DeepSeek Flash”，不把 V4 Pro 加进模型菜单。AICLI 用 DPAPI 保存 Key，受管配置只写 `env_key`；不要照抄官方示例里的明文 `experimental_bearer_token`。旧 `codex-deepseek` / `deepseek-v4-flash` 已退役并失败关闭。
 
 Qwen 使用两个隔离 exact Codex Profile：`codex-qwen3-7-max-paygo` 固定 `qwen3.7-max-2026-06-08`，`codex-qwen3-8-max-paygo` 固定 `qwen3.8-max-0902`。两者均为北京 Workspace 按量 Responses、983616 context、95% 有效窗口、885254 token（最大上下文 90%）自动压缩阈值，用户 `max` 映射原生最高 `xhigh`。通用 alias、其他快照、preview、Plus、通用 DashScope、Token Plan 与 native model/fallback 参数继续失败关闭。
 
@@ -160,16 +160,16 @@ manual → acceptEdits → plan
 
 ```powershell
 # 日常写代码、减少文件编辑确认
-aicli start claude-deepseek -- --permission-mode acceptEdits
+aicli start claude-official -- --permission-mode acceptEdits
 
 # 仅适合外部已隔离环境
-aicli start claude-deepseek -- --permission-mode bypassPermissions --dangerously-skip-permissions
+aicli start claude-official -- --permission-mode bypassPermissions --dangerously-skip-permissions
 ```
 
 PowerShell 可能吞掉 `--`，导致权限参数未进入 Claude。需要时用：
 
 ```powershell
-pwsh -NoProfile -File $env:LOCALAPPDATA\aicli\bin\aicli.ps1 --% start claude-deepseek -- --permission-mode acceptEdits
+pwsh -NoProfile -File $env:LOCALAPPDATA\aicli\bin\aicli.ps1 --% start claude-official -- --permission-mode acceptEdits
 ```
 
 `bypassPermissions` 需要新进程启动时明确启用，且通常无法仅靠 `Shift+Tab` 从 `manual` 切到最高档。第三方模型通常不满足 `auto` 模式的模型或账号门槛。
@@ -190,11 +190,11 @@ claude -p "检查当前项目"
 
 ### 3.4 第三方 API 常见提示
 
-使用 `claude-deepseek` 或 `claude-custom` 时，上游可能提示检测到自定义 API Key。确认前先用：
+使用 `claude-custom` 时，上游可能提示检测到自定义 API Key。确认前先用：
 
 ```powershell
-aicli profile show claude-deepseek
-aicli native claude-deepseek
+aicli profile show claude-custom
+aicli native claude-custom
 ```
 
 核对数据去向确实是你选择的 Provider。若同时登录 claude.ai，可能出现双认证或 connectors disabled 提示；这是上游认证优先级提示，不自动代表启动失败。
@@ -311,12 +311,12 @@ Token 是计量单位，不等于人民币费用。aicli 不计算费用。Codex
 
 #### 第三方模型下 Claude Code 的费用显示
 
-使用 `claude-deepseek` 等自定义 API 路径时，Claude 欢迎区可能显示 **API Usage Billing** 和 Provider 模型名。会话结束页可能出现类似：
+使用 `claude-custom` 等自定义 API 路径时，Claude 欢迎区可能显示 **API Usage Billing** 和 Provider 模型名。会话结束页可能出现类似：
 
 ```text
 Total cost: $1.57 (costs may be inaccurate due to usage of unknown models)
 Usage by model:
-  deepseek-v4-flash: … input, … output, … cache read, … cache write
+  third-party-model: … input, … output, … cache read, … cache write
 ```
 
 如何阅读：
@@ -337,7 +337,7 @@ Usage by model:
 
 - **原生 ChatGPT + Codex**：作为基准，使用上游默认机制，AICLI 不附加压缩限制。
 - **Codex + DeepSeek/千问**：自定义 Provider 没有 OpenAI 原生 remote compact；受管 model catalog 负责给出真实窗口，云千问为 983616，本地 `qwen3.6-35b:256k` 与 Qwen3.8-27B 256K 运行标签均为 262144，摘要仍由当前客户端/模型完成。
-- **Claude Code + DeepSeek/千问/本地 Qwen**：AICLI 按最终有效模型设置 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 与 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`。不设置只能提前压缩的百分比覆盖，也不关闭自动溢出保护。未知模型不猜窗口，并清除父进程遗留的窗口/禁压缩变量。
+- **Claude Code + 千问/本地 Qwen/自定义第三方模型**：AICLI 按最终有效模型设置 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 与 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`。不设置只能提前压缩的百分比覆盖，也不关闭自动溢出保护。未知模型不猜窗口，并清除父进程遗留的窗口/禁压缩变量。
 - **OpenCode + 本地千问**：`qwen3.6-35b:256k` 声明 262144 context / 8192 output，Qwen3.8-27B 256K 运行标签声明 262144 context/input / 32768 output；两者使用 20000 reserved，保留最近 4 轮/16384 token，并关闭有损 tool-output pruning。一次 `aicli run` 的 checkpoint 不跨 run 持久。
 
 聪明用法是一个会话/run 只做一个内聚里程碑；AICLI 的第三方连续性契约要求在自然边界把目标与验收、约束/授权/owner、规则与关键文件、改动文件及既有脏改动、决定、测试/Live 缺口、阻塞项和下一步写入项目已有 plan/progress/decision。接近真实窗口时优先拆任务或开 fresh session；确需压缩时先落盘。压缩后把摘要当线索，重新读取适用的 `AGENTS.md` / `CLAUDE.md`、状态文档以及 `git status` / `git diff`，再继续编辑；不得建立第二事实源。

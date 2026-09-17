@@ -125,8 +125,8 @@ cd E:\你的项目
 aicli start codex-qwen3-7-max-paygo --project (Get-Location)
 # 或 Qwen3.8 Max
 aicli start codex-qwen3-8-max-paygo --project (Get-Location)
-# 或 DeepSeek V4 Flash 0731 / Pro 0813
-aicli start codex-deepseek --project (Get-Location)
+# 或 DeepSeek Flash / V4 Pro（CLI-only）
+aicli start codex-deepseek-flash --project (Get-Location)
 aicli start codex-deepseek-v4-pro --project (Get-Location)
 ```
 
@@ -134,11 +134,11 @@ aicli start codex-deepseek-v4-pro --project (Get-Location)
 
 - `--project` 必须是已经确认可信的工作区；Profile 自己封闭 Provider、模型、Responses wire、MAX 与 SecretRef。
 - Qwen3.7 只恢复 `codex-qwen3-7-max-paygo` → `qwen3.7-max-2026-06-08`；通用 alias、其他快照、Plus、旧 Profile、导入和原生 `--model` / fallback 仍失败关闭。
-- DeepSeek Codex 只保留下列两个 exact 身份：
+- DeepSeek Codex 当前保留下列两个隔离身份：
 
 | 模型身份 | Profile |
 |----------|---------|
-| `deepseek-v4-flash` / `DeepSeek-V4-Flash-0731` | `codex-deepseek` |
+| `deepseek-flash`（官方自动升级 Flash ID） | `codex-deepseek-flash`（桌面 + CLI） |
 | `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813` | `codex-deepseek-v4-pro` |
 
 ### 1.6 安装或升级 aicli 之后必须用新会话
@@ -188,9 +188,9 @@ aicli run abort <run-id> --json
 aicli profile list
 aicli profile list --available
 aicli profile list --available --json
-aicli profile show codex-deepseek
-aicli profile configure codex-deepseek
-aicli profile configure codex-deepseek-v4-pro --reuse-secret-from codex-deepseek
+aicli profile show codex-deepseek-flash
+aicli profile configure codex-deepseek-flash
+aicli profile configure codex-deepseek-v4-pro --reuse-secret-from codex-deepseek-flash
 aicli profile set-default codex-official
 aicli profile remove qwen-work
 ```
@@ -214,18 +214,18 @@ aicli profile remove qwen-work
 | Codex | Qwen3.7 Max 06-08 Workspace 按量 Responses | `codex-qwen3-7-max-paygo` |
 | Codex | Qwen3.8 Max Workspace 按量 Responses | `codex-qwen3-8-max-paygo` |
 | Codex | GLM-5.3 / GLM-5.3-Flash 中国区 Responses | `codex-glm-5-3`、`codex-glm-5-3-flash` |
-| Codex | DeepSeek V4 Flash 0731 / Pro 0813 Responses | `codex-deepseek`、`codex-deepseek-v4-pro` |
+| Codex | DeepSeek Flash / V4 Pro（CLI-only）Responses | `codex-deepseek-flash`、`codex-deepseek-v4-pro` |
 | Codex | 本机精确 main / 35B 交叉 / Qwen3.8-27B | `codex-ollama-main`、`codex-ollama-review`、`codex-ollama-qwen3-8-27b` |
 | OpenCode | 本机精确 main / Qwen3.8-27B | `opencode-ollama-main`、`opencode-ollama-qwen3-8-27b` |
 | Claude Code | Claude 官方登录 | `claude-official` |
-| Claude Code | DeepSeek V4 Flash | `claude-deepseek` |
+
 | Claude Code | 本机 Ollama | `claude-ollama` |
 | Claude Code | 自定义 Anthropic Messages 兼容端点 | `claude-custom` |
 | Claude Code | ChatGPT 第三方本地代理 | `claude-chatgpt-ccp`、`claude-chatgpt-cliproxy` |
-| Open Interpreter | DeepSeek V4 Flash Chat | `oi-deepseek` |
+
 | Open Interpreter | 本机 Ollama | `oi-ollama` |
 
-`codex-deepseek` 精确固定 API alias `deepseek-v4-flash` / 版本 `DeepSeek-V4-Flash-0731`，`codex-deepseek-v4-pro` 精确固定 alias `deepseek-v4-pro` / 版本 `DeepSeek-V4-Pro-0813`。两者均使用官方 [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 的 Responses wire、1M context、`low` / `high` / `max`，用户默认 `max`，并拒绝模型、Provider 与 fallback 覆盖。动态变化以 [DeepSeek Change Log](https://api-docs.deepseek.com/updates/) 为准；非 Codex 的 Claude Code / Open Interpreter DeepSeek 模板仍保持 Flash-only。
+`codex-deepseek-flash` 使用官方自动升级 ID `deepseek-flash`，`codex-deepseek-v4-pro` 使用固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`。两者均走官方 [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 的 Responses wire、1M context、`low` / `high` / `max`，用户默认 `max`，并拒绝模型、Provider 与 fallback 覆盖；V4 Pro 仅为 CLI-only。旧 `codex-deepseek` / `deepseek-v4-flash`、Claude Code 与 Open Interpreter 的 DeepSeek 模板均已退役。动态变化以 [DeepSeek Change Log](https://api-docs.deepseek.com/updates/) 为准。
 
 两个 Qwen exact Profile 都只接受北京百炼 Workspace 按量 Responses endpoint，并固定 983616 context、95% 有效窗口和 885254 token（最大上下文 90%）自动压缩阈值。`codex-qwen3-7-max-paygo` 只固定 `qwen3.7-max-2026-06-08`；`codex-qwen3-8-max-paygo` 只固定 `qwen3.8-max-0902`。用户 `max` 均映射 effective=`xhigh`。Qwen3.7 的通用 alias、其他快照、preview、Plus，以及 Qwen3.8 的可变 alias、preview、Token Plan 与模型覆盖继续失败关闭。
 
@@ -238,7 +238,7 @@ aicli profile remove qwen-work
 同一套“开始前说明、多步过程中讲清重要发现和影响、最终答复保留必要解释”的表达方式也用于 AICLI 受管的本地 Qwen、云端 Qwen 和 DeepSeek Codex 模型。它不会改变你在菜单中选择的模型、模型速度、上下文长度或 OpenAI 官方模型；OpenAI 模型仍由 Codex 自己动态更新。其他模型的实际表达效果会随模型本身而不同，当前已由实际使用验收的是 GLM。
 首次在重启后的 Codex Desktop 选择任一 GLM 模型时，command-backed auth 会调用 Password Center 的固定 `aicli-glm-codex-profile-import` 目标完成盲注入，再读取 CurrentUser DPAPI 运行副本；用户不重复输入 Key，秘密不进入对话、标准输出或明文配置。Password Center 只接受命中受保护发行哈希清单的单层桌面桥进程链。
 
-Claude Code `2.1.193+` 的 DeepSeek Profile 按最终 `--model` 精确注入 1000000 token 模型窗口。AICLI 不设置会提前压缩的 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`，也不默认禁用自动/手动压缩；未知或自定义模型不猜测。
+旧 Claude Code DeepSeek 内置 Profile 已退役。Claude 的第三方上下文窗口只接受当前 Profile 显式声明的 modelMetadata；未知或自定义模型不猜测容量，且 AICLI 不设置会提前压缩的 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`，也不默认禁用自动/手动压缩。
 
 本机主用入口 `codex-ollama-main`、`claude-ollama-main`、`opencode-ollama-main`、`qwen-code-ollama-main` 统一使用 Qwen3.8 27B 的受管运行标签 `qwen3.8-27b:256k`，保留 262144（256K）最大上下文。Codex 使用 Responses、`max` 和独立受管目录；原显式 27B Profile 保留兼容。运行标签复用官方 `qwen3.8:27b` 的 Q4_K_M 权重，固定 `num_ctx 262144` 与 `draft_num_predict 0`，避免 Ollama 0.33.1 的 MTP 草稿上下文初始化崩溃，不降低模型思考等级。先运行 `scripts\Setup-Qwen38-27B256K.ps1` 安装并回读；它可更新 OpenCode Desktop 的现有 27B 目录项。`codex-ollama-review` 继续使用 Qwen3.6 35B 的独立复核路线。
 
@@ -270,10 +270,8 @@ aicli doctor codex-ollama
 ```powershell
 aicli profile configure codex-qwen3-7-max-paygo --reuse-secret-from codex-qwen3-8-max-paygo
 aicli profile configure codex-qwen3-8-max-paygo
-aicli profile configure codex-deepseek
-aicli profile configure codex-deepseek-v4-pro --reuse-secret-from codex-deepseek
-aicli profile configure claude-deepseek
-aicli profile configure oi-deepseek
+aicli profile configure codex-deepseek-flash
+aicli profile configure codex-deepseek-v4-pro --reuse-secret-from codex-deepseek-flash
 ```
 
 配置过程中会先显示引擎、Provider、套餐和数据去向，再无回显读取 Key。秘密使用 Windows DPAPI CurrentUser 保存，不写入 Git、日志、`profile show`、`native` 或 `eject`。
@@ -281,9 +279,9 @@ aicli profile configure oi-deepseek
 ### 3.4 启动、查看与导出
 
 ```powershell
-aicli start claude-deepseek --project "C:\Work\Project"
-aicli native claude-deepseek
-aicli eject claude-deepseek --output .\export-claude-deepseek
+aicli start claude-custom --project "C:\Work\Project"
+aicli native claude-custom
+aicli eject claude-custom --output .\export-claude-custom
 ```
 
 - `start` 启动真实上游 CLI。
@@ -294,7 +292,7 @@ aicli eject claude-deepseek --output .\export-claude-deepseek
 
 ```powershell
 aicli start claude-official -- --effort high
-aicli start claude-deepseek -- --permission-mode acceptEdits
+aicli start claude-official -- --permission-mode acceptEdits
 aicli start codex-official -- --model gpt-5.6-terra
 ```
 
@@ -326,7 +324,7 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply -Force
 ```
 
-脚本只接受能由 HTTPS 主机名证明身份的 DeepSeek 配置，并要求主机为 `api.deepseek.com`。导入会生成 `codex-deepseek`、`codex-deepseek-v4-pro`、`claude-deepseek`、`oi-deepseek`；不会创建任何 Qwen3.7、Qwen Code 或 OpenCode 路径。未知/OpenAI Base URL 会被拒绝，避免把某家的 Key 误送到另一家。导入的 Key 立即使用 Windows CurrentUser DPAPI 保存；输出、Profile JSON 和日志中都不出现明文。导入后运行 `aicli doctor <Profile ID>`，需要真实连通证据时再显式执行 Live Test。
+脚本只接受能由 HTTPS 主机名证明身份的 DeepSeek 配置，并要求主机为 `api.deepseek.com`。当前只导入 `codex-deepseek-flash`；V4 Pro、Claude Code、Open Interpreter、Qwen3.7、Qwen Code 与 OpenCode 都不会由该脚本自动创建。未知/OpenAI Base URL 会被拒绝，避免把某家的 Key 误送到另一家。导入的 Key 立即使用 Windows CurrentUser DPAPI 保存；输出、Profile JSON 和日志中都不出现明文。导入后运行 `aicli doctor codex-deepseek-flash`，需要真实连通证据时再显式执行 Live Test。
 
 ## 4. Doctor 与 Live Test
 
@@ -334,8 +332,8 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply -Force
 
 ```powershell
 aicli doctor
-aicli doctor codex-deepseek
-aicli doctor codex-deepseek --json
+aicli doctor codex-deepseek-flash
+aicli doctor codex-deepseek-flash --json
 ```
 
 Doctor 检查 CLI、Profile、秘密引用、端点、有效配置层、代理、端口和本机服务。它不发送模型生成请求，不应消耗模型额度。
@@ -352,10 +350,10 @@ Doctor 检查 CLI、Profile、秘密引用、端点、有效配置层、代理�
 ### 4.2 Live Test：真实请求，可能消耗额度
 
 ```powershell
-aicli test codex-deepseek --live --level text
-aicli test claude-deepseek --live --level text
-aicli test claude-deepseek --live --level text --yes
-aicli test claude-deepseek --live --level all --yes --json
+aicli test codex-deepseek-flash --live --level text
+aicli test claude-official --live --level text
+aicli test claude-official --live --level text --yes
+aicli test claude-official --live --level all --yes --json
 aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 ```
 
@@ -391,9 +389,6 @@ aicli doctor
 ### 5.2 配置和启动
 
 ```powershell
-aicli profile configure oi-deepseek
-aicli start oi-deepseek
-
 aicli start oi-ollama
 ```
 
@@ -422,21 +417,21 @@ manual → acceptEdits → plan
 启动时指定更松的日常写代码模式：
 
 ```powershell
-aicli start claude-deepseek -- --permission-mode acceptEdits
+aicli start claude-official -- --permission-mode acceptEdits
 ```
 
 完全绕过权限只适合外部已经隔离、没有不可信网络或文件的环境：
 
 ```powershell
-aicli start claude-deepseek -- --permission-mode bypassPermissions --dangerously-skip-permissions
+aicli start claude-official -- --permission-mode bypassPermissions --dangerously-skip-permissions
 ```
 
 PowerShell 有时会吞掉参数分隔用的 `--`，导致 `--permission-mode` 等并未传给 Claude。需要透传时优先：
 
 ```powershell
-pwsh -NoProfile -File $env:LOCALAPPDATA\aicli\bin\aicli.ps1 --% start claude-deepseek -- --permission-mode acceptEdits
+pwsh -NoProfile -File $env:LOCALAPPDATA\aicli\bin\aicli.ps1 --% start claude-official -- --permission-mode acceptEdits
 # 或开发仓库：
-pwsh -NoProfile -File <安装目录>\bin\aicli.ps1 --% start claude-deepseek -- --permission-mode acceptEdits
+pwsh -NoProfile -File <安装目录>\bin\aicli.ps1 --% start claude-official -- --permission-mode acceptEdits
 ```
 
 `bypassPermissions` 必须在新进程启动时启用。第三方模型通常不满足 Claude `auto` 模式的模型或账号条件；这不是 aicli 的故障。
@@ -616,7 +611,7 @@ Get-Command aicli | Format-List *
 确认参数写在 `--` 之后；在 PowerShell 中优先使用 `--%`（见上文 §6）。也可用：
 
 ```powershell
-& aicli @('start','claude-deepseek','--','--permission-mode','acceptEdits')
+& aicli @('start','claude-official','--','--permission-mode','acceptEdits')
 ```
 
 ### 找不到目标 CLI

@@ -58,7 +58,7 @@ Describe 'CommandRouter' {
         foreach ($expected in @(
             @{ id = 'codex-qwen3-7-max-paygo'; model = 'qwen3.7-max-2026-06-08'; requested = 'max'; effective = 'xhigh' },
             @{ id = 'codex-qwen3-8-max-paygo'; model = 'qwen3.8-max-0902'; requested = 'max'; effective = 'xhigh' },
-            @{ id = 'codex-deepseek'; model = 'deepseek-v4-flash'; requested = 'max'; effective = 'max' },
+            @{ id = 'codex-deepseek-flash'; model = 'deepseek-flash'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-deepseek-v4-pro'; model = 'deepseek-v4-pro'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-ollama-main'; model = 'qwen3.8-27b:256k'; requested = 'max'; effective = 'max' },
             @{ id = 'codex-ollama-qwen3-8-27b'; model = 'qwen3.8-27b:256k'; requested = 'max'; effective = 'max' },
@@ -91,14 +91,14 @@ Describe 'CommandRouter' {
         foreach ($id in @(
             'codex-qwen3-7-max-paygo',
             'codex-qwen3-8-max-paygo',
-            'codex-deepseek',
-            'codex-deepseek-v4-pro',
+            'codex-deepseek-flash',
             'codex-ollama-main',
             'codex-ollama-qwen3-8-27b',
             'codex-ollama-review'
         )) {
             $help | Should -Match ([regex]::Escape("aicli start $id --project"))
         }
+        $help | Should -Not -Match ([regex]::Escape('aicli start codex-deepseek-v4-pro --project'))
     }
 
     It 'help compare works' {
@@ -117,22 +117,22 @@ Describe 'CommandRouter' {
             Mock Invoke-AiCliProfileConfigure {}
 
             Invoke-AiCliProfileCommand -Tokens @(
-                'configure', 'codex-deepseek', '--reuse-existing-secret'
+                'configure', 'codex-deepseek-flash', '--reuse-existing-secret'
             ) | Should -Be 0
             Should -Invoke Invoke-AiCliProfileConfigure -Times 1 -Exactly -ParameterFilter {
-                $TemplateId -eq 'codex-deepseek' -and
+                $TemplateId -eq 'codex-deepseek-flash' -and
                 $ReuseExistingSecret -and
                 -not $ReuseSecretFrom
             }
 
             Invoke-AiCliProfileCommand -Tokens @(
                 'configure', 'codex-deepseek-v4-pro',
-                '--reuse-secret-from', 'codex-deepseek'
+                '--reuse-secret-from', 'codex-deepseek-flash'
             ) | Should -Be 0
             Should -Invoke Invoke-AiCliProfileConfigure -Times 1 -Exactly -ParameterFilter {
                 $TemplateId -eq 'codex-deepseek-v4-pro' -and
                 -not $ReuseExistingSecret -and
-                $ReuseSecretFrom -eq 'codex-deepseek'
+                $ReuseSecretFrom -eq 'codex-deepseek-flash'
             }
         }
     }

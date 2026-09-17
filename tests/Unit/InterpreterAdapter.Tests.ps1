@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 
 $script:InterpreterTestRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Get-Module AiCliProfileManager -All | Remove-Module -Force -ErrorAction SilentlyContinue
@@ -87,10 +87,10 @@ Describe 'Rust Open Interpreter adapter' {
             }
             Mock Get-AiCliSecret { 'CANARY_OI_SECRET_654321' }
             $profile = [ordered]@{
-                id = 'oi-deepseek'; displayName = 'DeepSeek'; engine = 'interpreter'; provider = 'deepseek'
+                id = 'oi-third-party-deepseek'; displayName = 'DeepSeek'; engine = 'interpreter'; provider = 'deepseek'
                 endpoint = 'https://api.deepseek.com/v1'; wireApi = 'chat'
-                interpreterProviderId = 'aicli_deepseek'
-                models = [ordered]@{ primary = 'deepseek-v4-flash' }
+                interpreterProviderId = 'aicli_deepseek_flash'
+                models = [ordered]@{ primary = 'deepseek-flash' }
                 requiresSecret = $true; secretConfigured = $true; secretRef = 'secret-ref'
             }
 
@@ -98,7 +98,7 @@ Describe 'Rust Open Interpreter adapter' {
             $argv = $plan.argumentList -join ' '
 
             $argv | Should -Match 'wire_api="chat"'
-            $argv | Should -Match 'model="deepseek-v4-flash"'
+            $argv | Should -Match 'model="deepseek-flash"'
             $argv | Should -Not -Match 'CANARY_OI_SECRET_654321'
         }
 
@@ -166,15 +166,13 @@ Describe 'Rust Open Interpreter adapter' {
 }
 
 Describe 'Rust Open Interpreter manifests' {
-    It 'declares the retained DeepSeek wire API and public Ollama endpoint' {
+    It 'keeps only the public Ollama manifest after retiring the DeepSeek template' {
         $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-        $deepseek = Get-Content -LiteralPath (Join-Path $repoRoot 'data\providers\oi-deepseek.json') -Raw | ConvertFrom-Json
+        Test-Path -LiteralPath (Join-Path $repoRoot 'data\providers\oi-deepseek.json') | Should -BeFalse
         $ollama = Get-Content -LiteralPath (Join-Path $repoRoot 'data\providers\oi-ollama.json') -Raw | ConvertFrom-Json
 
-        $deepseek.wireApi | Should -Be 'chat'
         $ollama.wireApi | Should -Be 'responses'
         $ollama.endpoint | Should -Be 'http://127.0.0.1:11434/v1'
         $ollama.models.primary | Should -Be 'qwen3-coder:30b'
-        $deepseek.auth.envKey | Should -Be 'AICLI_OI_PROVIDER_KEY'
     }
 }
