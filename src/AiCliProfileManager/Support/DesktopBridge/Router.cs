@@ -150,6 +150,13 @@ public sealed class ModelRouter
             if (providerId is not null && rawReasoningProviders.ContainsKey(providerId))
                 PromoteRawReasoning(result);
         }
+        // Paginated history has no provider field; bind it to the already identified thread.
+        // Reuse the same projection as full thread reads, without altering native summaries.
+        if ((method is "thread/turns/list" or "thread/items/list") &&
+            Text(originalParams, "threadId") is { } historyThreadId &&
+            threads.TryGetValue(historyThreadId, out var historyState) &&
+            rawReasoningProviders.ContainsKey(historyState.Provider))
+            PromoteRawReasoning(result);
         if (method == "thread/settings/update" && Text(originalParams, "threadId") is { } threadId &&
             threads.TryGetValue(threadId, out var state) && SelectedModel(originalParams) is { } selected)
             threads[threadId] = state with { Model = selected };

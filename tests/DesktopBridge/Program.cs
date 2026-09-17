@@ -292,6 +292,46 @@ try
     try { _ = new ModelRouter(collisionPlan); }
     catch (InvalidOperationException) { rejected = true; }
     Check(rejected, "Conflicting native/local IDs must never silently replace the native model.");
+    // Full reads and paginated reads must project the same public reasoning content.
+    foreach (var target in new[] { (Router: router, ThreadId: "glm-task"), (Router: deepSeekRouter, ThreadId: "deep-task") })
+    foreach (var historyMethod in new[] { "thread/turns/list", "thread/items/list" })
+    foreach (var nativeSummary in new[] { false, true })
+    {
+        var historyItem = Parse("""{"id":"history-r","type":"reasoning","summary":[],"content":["Public history reasoning"],"encryptedContent":"opaque-fixture"}""");
+        if (nativeSummary) historyItem["summary"] = new JsonArray("Native summary");
+        JsonObject historyRow = historyMethod == "thread/items/list"
+            ? new() { ["turnId"] = "history-turn", ["item"] = historyItem }
+            : new() { ["id"] = "history-turn", ["status"] = "completed", ["items"] = new JsonArray(historyItem) };
+        var historyResponse = new JsonObject
+        {
+            ["id"] = "history-page",
+            ["result"] = new JsonObject { ["data"] = new JsonArray(historyRow), ["nextCursor"] = "next-page", ["futureField"] = 17 }
+        };
+        var expectedHistory = (JsonObject)historyResponse.DeepClone();
+        var expectedItem = historyMethod == "thread/items/list"
+            ? expectedHistory["result"]!["data"]![0]!["item"]!
+            : expectedHistory["result"]!["data"]![0]!["items"]![0]!;
+        if (!nativeSummary) expectedItem["summary"] = new JsonArray("Public history reasoning");
+        target.Router.AfterResponse(historyMethod, new JsonObject { ["threadId"] = target.ThreadId }, historyResponse);
+        Check(JsonNode.DeepEquals(historyResponse, expectedHistory), "Managed history pagination must only fill a missing public summary, preserving native summaries, encryption metadata and pagination.");
+    }
+    router.AfterResponse("thread/read", null, Parse("""{"result":{"thread":{"id":"native-task","modelProvider":"openai"}}}"""));
+    foreach (var passthroughThread in new[] { "cloud-task", "native-task", "unidentified-task" })
+    foreach (var historyMethod in new[] { "thread/turns/list", "thread/items/list" })
+    {
+        var nativePage = Parse("""{"id":"page","result":{"data":[{"item":{"id":"r","type":"reasoning","summary":[],"content":["Do not promote"]}}],"nextCursor":"native-cursor"}}""");
+        var originalPage = nativePage.DeepClone();
+        router.AfterResponse(historyMethod, new JsonObject { ["threadId"] = passthroughThread }, nativePage);
+        Check(JsonNode.DeepEquals(nativePage, originalPage), "Qwen, official and unidentified history must pass through unchanged.");
+    }
+    foreach (var historyMethod in new[] { "thread/turns/list", "thread/items/list" })
+    {
+        var errorPage = Parse("""{"id":"page","error":{"code":-32603,"message":"History unavailable"}}""");
+        var originalError = errorPage.DeepClone();
+        deepSeekRouter.AfterResponse(historyMethod, new JsonObject { ["threadId"] = "deep-task" }, errorPage);
+        Check(JsonNode.DeepEquals(errorPage, originalError), "History failures must not be converted into success.");
+    }
+
     Console.WriteLine($"PASS: {checks} desktop router checks");
 }
 catch (Exception error) { Console.Error.WriteLine("FAIL: " + error.Message); Environment.ExitCode = 1; }
