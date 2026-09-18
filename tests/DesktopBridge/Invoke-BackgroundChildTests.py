@@ -147,15 +147,40 @@ def main():
         ok, question = tool(parent, 'ASK:Which branch?', child)
         check('child can suspend for parent question', ok and question['state'] == 'waiting_for_parent' and len(question['pending_reply_ids']) == 1)
         evt_state = c.request('test/state')
-        question_events = [e for e in evt_state['events'] if json.loads(e['toolOutput']['output']).get('event') == 'question']
-        check('question auto-delivered as tool output, never fake user input', bool(question_events) and question_events[-1]['thread_id'] == parent and question_events[-1]['input'] == [])
+        question_events = [e for e in evt_state['events'] if e['context_event'].get('event') == 'question']
+        check('question auto-delivered as native machine context, never fake human input', bool(question_events) and question_events[-1]['thread_id'] == parent and question_events[-1]['context_event']['provenance'] == 'background_agent_not_user_authorization' and all('internal_chat_message_metadata_passthrough' not in x for x in question_events[-1]['items']))
         ok, answered = tool(parent, 'feature/collaboration', child, reply_to=question['pending_reply_ids'][0])
         answer = terminal(parent, child)
         check('parent reply resumes the same blocked child', ok and answer['final_text'] == 'ANSWER:feature/collaboration' and answer['turn_id'] == question['turn_id'])
         ok, progress = tool(parent, 'PROGRESS:Tested one component', child)
         progress = terminal(parent, child)
         events = c.request('test/state')['events']
-        check('child progress arrives as real tool exchange', ok and any(json.loads(e['toolOutput']['output']).get('event') == 'progress' for e in events))
+        check('child progress arrives as real tool exchange', ok and any(e['context_event'].get('event') == 'progress' for e in events))
+        _, delivered = control(parent, child)
+        check('active-turn delivery does not retry EmptyInput or lose messages', delivered['parent_wake'] == 'existing_active_turn' and delivered['parent_delivery'] == 'delivered')
+        c.request('test/finish-parent', {'thread_id': parent})
+        ok, q = tool(parent, 'ASK:Idle wake?', child)
+        _, status = control(parent, child)
+        check('idle parent is woken after confirmed native context injection', ok and status['parent_wake'] == 'idle_turn_started')
+        tool(parent, 'yes', child, reply_to=q['pending_reply_ids'][0]); terminal(parent, child)
+        before_events = len(c.request('test/state')['events'])
+        c.request('test/reject-next-injection')
+        tool(parent, 'PROGRESS:must not replay injection', child); failed_delivery = terminal(parent, child)
+        failure_events = [e['context_event'] for e in c.request('test/state')['events'][before_events:]]
+        check('rejected injection fails visibly without replay or standalone output fallback', failed_delivery['state'] == 'failed' and not any(e.get('event') == 'progress' and e.get('message') == 'must not replay injection' for e in failure_events))
+        c.request('test/reject-next-wake')
+        tool(parent, 'PROGRESS:injected but wake fails', child); failed_wake = terminal(parent, child)
+        _, failed_wake_state = control(parent, child)
+        failure_events = [e['context_event'] for e in c.request('test/state')['events'][before_events:]]
+        progress_events = [e for e in failure_events if e.get('event') == 'progress' and e.get('message') == 'injected but wake fails']
+        failure_terminals = [e for e in failure_events if e.get('event') == 'turn_terminal' and e.get('turn_id') == failed_wake['turn_id']]
+        check('wake failure is distinguished from injection and not retried', failed_wake['state'] == 'failed' and len(progress_events) == 1 and (failed_wake_state['parent_delivery'] == 'injected_wake_unconfirmed' or any(e.get('parent_delivery') == 'injected_wake_unconfirmed' for e in failure_terminals)))
+        c.request('test/malformed-next-wake')
+        tool(parent, 'PROGRESS:malformed wake success', child); malformed_wake = terminal(parent, child)
+        events = [e['context_event'] for e in c.request('test/state')['events']]
+        malformed_notice = [e for e in events if e.get('event') == 'turn_terminal' and e.get('turn_id') == malformed_wake['turn_id']]
+        _, malformed_status = control(parent, child)
+        check('wake success without actual turn identity is not reported delivered', malformed_wake['state'] == 'failed' and (malformed_status['parent_delivery'] == 'injected_wake_unconfirmed' or any(e.get('parent_delivery') == 'injected_wake_unconfirmed' for e in malformed_notice)))
         other = c.request('thread/start', {'model': 'deepseek-flash', 'cwd': str(root), 'config': {}})['thread']['id']
         ok, rejected = control(other, child)
         check('other parent cannot inspect child', not ok and rejected['error'] == 'OPENAI_CHILD_NOT_OWNED_BY_PARENT')

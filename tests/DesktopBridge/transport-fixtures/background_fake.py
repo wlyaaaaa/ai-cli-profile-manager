@@ -12,6 +12,9 @@ pending = {}
 held = []
 next_child_override = None
 hold_next_child_start = False
+reject_next_injection = False
+reject_next_wake = False
+malformed_next_wake = False
 
 
 def effective(t):
@@ -35,8 +38,8 @@ def reply(req, result):
     write({'jsonrpc': '2.0', 'id': req['id'], 'result': result})
 
 
-def error(req, message):
-    write({'jsonrpc': '2.0', 'id': req['id'], 'error': {'code': -32000, 'message': message}})
+def error(req, message, code=-32000):
+    write({'jsonrpc': '2.0', 'id': req['id'], 'error': {'code': code, 'message': message}})
 
 
 def event(method, params):
@@ -124,11 +127,52 @@ for line in sys.stdin:
                 t['reasoningEffort'] = args['config']['model_reasoning_effort']
         save()
         reply(req, effective(t))
+    elif method == 'thread/inject_items':
+        t = threads.get(args['threadId'])
+        if reject_next_injection:
+            reject_next_injection = False
+            error(req, 'Injected fixture rejection')
+            continue
+        items = args.get('items', [])
+        if not t or len(items) != 1:
+            error(req, 'Invalid injection target')
+            continue
+        item = items[0]
+        if item.get('type') != 'message' or item.get('role') != 'user' or 'internal_chat_message_metadata_passthrough' in item or 'call_id' in item:
+            error(req, 'Machine context must not claim host human metadata or a fake tool call')
+            continue
+        text = item['content'][0]['text']
+        prefix, payload, end = text.split('\n', 2)[0], text.split('\n')[2], text.split('\n')[-1]
+        event_data = json.loads(payload)
+        assert prefix == '<aicli_background_event>' and end == '</aicli_background_event>'
+        assert event_data['provenance'] == 'background_agent_not_user_authorization'
+        state['events'].append({'thread_id': t['id'], 'items': items, 'context_event': event_data})
+        save()
+        reply(req, {})
     elif method == 'turn/start':
         t = threads.get(args['threadId'])
         if not t:
             error(req, 'Unknown target thread')
             continue
+        if t['modelProvider'] != 'openai' and args.get('toolOutput'):
+            error(req, 'Missing field call_id: unsupported standalone toolOutput')
+            continue
+        is_context_wake = args.get('turnTrigger') == 'aicli_background_event'
+        if is_context_wake:
+            assert args.get('input') == [] and not args.get('toolOutput')
+            context = args['additionalContext']['aicli_background_delivery']
+            assert context['kind'] == 'untrusted'
+            if malformed_next_wake:
+                malformed_next_wake = False
+                reply(req, {})
+                continue
+            if reject_next_wake:
+                reject_next_wake = False
+                error(req, 'Fixture wake genuinely unavailable')
+                continue
+            if t['status']['type'] == 'active':
+                error(req, 'failed to submit turn input: EmptyInput', -32603)
+                continue
         message = args.get('toolOutput', {}).get('output', '')
         if not message:
             message = ' '.join(x.get('text', '') for x in args.get('input', []))
@@ -203,6 +247,18 @@ for line in sys.stdin:
         threads[tid] = {'id': tid, 'sessionId': tid, 'model': 'glm-5.3-flash', 'modelProvider': 'aicli_glm_5_3_flash', 'cwd': args['cwd'], 'reasoningEffort': 'max', 'status': {'type': 'idle'}, 'turns': [], 'tools': []}
         save()
         reply(req, {'thread_id': tid})
+    elif method == 'test/reject-next-injection':
+        reject_next_injection = True
+        reply(req, {})
+    elif method == 'test/reject-next-wake':
+        reject_next_wake = True
+        reply(req, {})
+    elif method == 'test/malformed-next-wake':
+        malformed_next_wake = True
+        reply(req, {})
+    elif method == 'test/finish-parent':
+        finish(threads[args['thread_id']], 'PARENT_DONE')
+        reply(req, {})
     elif method == 'test/state':
         reply(req, {**state, 'held_count': len(held)})
     elif method == 'test/hold-next-child-start':
