@@ -140,12 +140,14 @@ function Invoke-AiCliRouter {
                         command = (Get-AiCliCommandName)
                         version = (Get-AiCliVersion)
                         capabilities = [ordered]@{
+                            runtimeDiagnostics = 'aicli.runtime-diagnostics.v1'
                             machineRunPreflight = 'aicli.machine-run-preflight.v1'
                             machineRunArguments = 'structured'
                             machineRunNativeImages = $false
                             machineRunBudgetModes = @('watchdog_only','bounded')
                             machineEventProjection = 'aicli.machine-event.v1'
                             managedPublicWebSearch = 'public_web_search/bing-rss-v1'
+                            runControlReceipt = 'aicli.run-control.v1'
                             recoverableRuns = 'aicli.recoverable-run.v1'
                             recoverableRunControl = @(
                                 'start','resume','status','abort'
@@ -185,6 +187,14 @@ function Invoke-AiCliRouter {
                 $pos = Assert-AiCliTokenShape -Tokens $rest -MinPositionals 1 -MaxPositionals 1 -ValueOptions @('--output')
                 $out = Get-AiCliFlagValue -Tokens $rest -Name '--output'
                 Export-AiCliEject -ProfileId $pos[0] -OutputPath $out | Out-Null
+                return (Get-AiCliExitCode Success)
+            }
+            'diagnose' {
+                $null = Assert-AiCliTokenShape -Tokens $rest -Switches @('--json') -ValueOptions @('--bridge-registry')
+                $registry = Get-AiCliFlagValue -Tokens $rest -Name '--bridge-registry'
+                Write-AiCliJson (New-AiCliResult -Command 'diagnose' -OverallStatus '通过' -Extra @{
+                    diagnostics = Get-AiCliRuntimeDiagnostics -BridgeRegistry $registry
+                })
                 return (Get-AiCliExitCode Success)
             }
             'doctor' {
@@ -418,7 +428,7 @@ function Invoke-AiCliRunCommand {
         $split = Split-AiCliArgs -Tokens $tokenList
         $pos = Assert-AiCliTokenShape -Tokens $split.Before -MinPositionals 1 -MaxPositionals 1 `
             -Switches @('--stdin','--json','--watchdog-only','--authority-prelude-stdout','--no-web-search','--background','--dry-run') `
-            -ValueOptions @('--project','--sandbox-policy','--timeout-seconds','--max-steps','--max-tool-calls','--max-output-chars','--event-file','--max-resume-attempts')
+            -ValueOptions @('--project','--sandbox-policy','--timeout-seconds','--max-steps','--max-tool-calls','--max-output-chars','--event-file','--max-resume-attempts','--control-file')
         if (-not (Test-AiCliHasFlag $split.Before '--stdin')) {
             throw '参数 --stdin 是 machine run 的必需项；任务正文不得放入命令行参数。'
         }
@@ -429,6 +439,8 @@ function Invoke-AiCliRunCommand {
         $profileId = [string]$pos[0]
         $resolvedForHarness = Get-AiCliResolvedProfile -Id $profileId
         $isCodexHarness = [string](Get-AiCliProperty $resolvedForHarness 'engine') -eq 'codex'
+        $controlFile = Get-AiCliFlagValue -Tokens $split.Before -Name '--control-file'
+        if ($controlFile -and -not $isCodexHarness) { throw 'Run control receipt requires the Codex recoverable runner.' }
         $disableWebSearch = Test-AiCliHasFlag $split.Before '--no-web-search'
         $sandboxPolicy = Get-AiCliFlagValue -Tokens $split.Before -Name '--sandbox-policy'
         if ($isCodexHarness) {
@@ -527,6 +539,7 @@ function Invoke-AiCliRunCommand {
                     nativeImages = $false
                     arguments = 'structured'
                     liveAcceptance = 'not_checked'
+                    runControlReceipt = if ($isCodexHarness) { 'aicli.run-control.v1' } else { $null }
                 }
             })
             return (Get-AiCliExitCode Success)
@@ -582,6 +595,7 @@ function Invoke-AiCliRunCommand {
             -AuthorityPreludeStdout:(Test-AiCliHasFlag $split.Before '--authority-prelude-stdout') `
             -MaxResumeAttempts $maxResumeAttempts `
             -ConsumerEventFile $requestedEventFile
+        if ($controlFile) { Publish-AiCliRunControlReceipt -Path $controlFile -RunId $created.runId }
         if (Test-AiCliHasFlag $split.Before '--background') {
             $spawned = Start-AiCliRecoverableControllerProcess `
                 -RunId $created.runId -InitialTaskText $taskText

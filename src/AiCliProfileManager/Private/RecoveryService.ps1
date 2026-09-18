@@ -1,4 +1,4 @@
-# Durable, identity-bound recovery for Codex app-server machine runs.
+﻿# Durable, identity-bound recovery for Codex app-server machine runs.
 
 function Get-AiCliRecoveryHash {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
@@ -1320,6 +1320,15 @@ function Invoke-AiCliRecoverableRunCore {
             $captureFailureReason = `
                 'capture_exception_before_verified_receipt'
             $captureErrorCode = 'aicli.recovery.capture_exception'
+            # Closed diagnostics do not retain exception text, payloads or secrets.
+            $publicCaptureErrors = @{
+                'Codex recoverable run has no matching session/thread/turn identity.' = 'aicli.recovery.session_identity_missing'
+                'Codex machine run has no matching verified runtime identity.' = 'aicli.recovery.runtime_identity_missing'
+                'Codex machine run has no verified danger-full-access runtime permission identity.' = 'aicli.recovery.permission_identity_missing'
+            }
+            if ($publicCaptureErrors.ContainsKey($_.Exception.Message)) {
+                $captureErrorCode = $publicCaptureErrors[$_.Exception.Message]
+            }
             # Preserve only this exact public diagnosis. Unknown exceptions
             # remain generic and never expose their potentially private text.
             if ($_.Exception.Message -ceq 'LocalGpuBroker management request failed: owner_process_unavailable') {
@@ -1824,4 +1833,40 @@ function Stop-AiCliRecoverableRun {
     $result | Add-Member -NotePropertyName abortSignalPath `
         -NotePropertyValue $signal
     return $result
+}
+
+function Publish-AiCliRunControlReceipt {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$RunId)
+    if (-not [IO.Path]::IsPathFullyQualified($Path)) { throw 'Run control receipt requires an absolute path.' }
+    $full = [IO.Path]::GetFullPath($Path)
+    $parent = Split-Path -Parent $full
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) { throw 'Run control receipt parent must exist.' }
+    $current = $parent
+    while ($current) {
+        if ((Get-Item -LiteralPath $current).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw 'Run control receipt cannot traverse a reparse point.'
+        }
+        $next = Split-Path -Parent $current
+        if ($next -eq $current) { break }
+        $current = $next
+    }
+    if (Test-Path -LiteralPath $full) { throw 'Run control receipt already exists; refusing replacement.' }
+    $state = Get-AiCliRecoverableRunState -RunId $RunId
+    $payload = [ordered]@{
+        schema = 'aicli.run-control.v1'
+        run_id = $RunId
+        profile_id = [string]$state.sessionMeta.profileId
+        model = [string]$state.sessionMeta.model
+        workspace = [string]$state.sessionMeta.workspace
+    }
+    $temporary = $full + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($payload | ConvertTo-Json -Compress))
+        $stream = [IO.FileStream]::new($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try { $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
+        [IO.File]::Move($temporary,$full,$false)
+    } finally {
+        if (Test-Path -LiteralPath $temporary -PathType Leaf) { [IO.File]::Delete($temporary) }
+    }
 }

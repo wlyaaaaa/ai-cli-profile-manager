@@ -515,7 +515,15 @@ function Invoke-AiCliProfileCapture {
             -MachineEventMirrorFile $(if ($null -ne $RecoveryContext) {
                 [string](Get-AiCliProperty $RecoveryContext 'consumerEventFile')
             } else { '' })
-        if ($requireRuntimeIdentity) {
+        # A locally observed cancellation may end before runtime attestation.
+        # Preserve cleanup evidence without inventing model identity or success.
+        $abortFlag = Get-AiCliProperty $captured 'AbortRequested' $false
+        $abortWithoutIdentity = $requireRuntimeIdentity -and $null -ne $RecoveryContext -and
+            $abortFlag -is [bool] -and $abortFlag -and
+            [int]$captured.ExitCode -eq (Get-AiCliExitCode Cancelled) -and
+            $null -eq (Get-AiCliProperty $captured 'RuntimeIdentity') -and
+            (Test-Path -LiteralPath ([string](Get-AiCliProperty $RecoveryContext 'abortSignalPath')) -PathType Leaf)
+        if ($requireRuntimeIdentity -and -not $abortWithoutIdentity) {
             $capturedIdentity = Get-AiCliProperty $captured 'RuntimeIdentity'
             $capturedPermission = Get-AiCliProperty $capturedIdentity 'permission'
             if ($null -eq $capturedIdentity -or
@@ -651,6 +659,9 @@ function Invoke-AiCliProfileCapture {
             wire = [string](Get-AiCliProperty $plan 'wire')
             requestedEffort = [string](Get-AiCliProperty $plan 'effort')
             effectiveEffort = [string](Get-AiCliProperty $plan 'effectiveEffort')
+            requestedModel = [string](Get-AiCliProperty $plan 'model')
+            modelIdentityEvidence = if ($abortWithoutIdentity) { 'not_observed_cancelled' } elseif ($requireRuntimeIdentity) { 'verified_runtime' } else { 'launch_plan' }
+            abortRequested = [bool](Get-AiCliProperty $captured 'AbortRequested' $false)
             effortEvidence = 'launch-plan'
             attestedEffort = $null
             exitCode = [int]$captured.ExitCode
@@ -912,6 +923,10 @@ function Invoke-AiCliProfileCapture {
                 }
             }
         }
+    }
+    if ($receipt -and (Get-AiCliProperty $receipt 'modelIdentityEvidence') -ceq 'not_observed_cancelled') {
+        $receipt.model = $null
+        $receipt.modelProvider = $null
     }
     if ($receipt -and $captureSecretValues.Count -gt 0) {
         $receiptJson = $receipt | ConvertTo-Json -Depth 50 -Compress

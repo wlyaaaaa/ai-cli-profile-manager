@@ -64,6 +64,9 @@ function Protect-AiCliObject {
     )
     if ($null -eq $InputObject) { return $null }
     if ($InputObject -is [string]) { return (Protect-AiCliSecretText -Text $InputObject) }
+    # Pipeline-produced primitives can have a PSObject wrapper; keep their type.
+    if ($InputObject -is [bool]) { return [bool]$InputObject }
+    if ($InputObject -is [ValueType]) { return $InputObject.PSObject.BaseObject }
     if ($InputObject -is [pscustomobject]) {
         $properties = [ordered]@{}
         foreach ($property in $InputObject.PSObject.Properties) {

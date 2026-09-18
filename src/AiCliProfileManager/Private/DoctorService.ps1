@@ -229,3 +229,103 @@ function Invoke-AiCliDoctor {
     }
     return (Get-AiCliExitCodeFromStatus $overall)
 }
+
+function Read-AiCliDiagnosticJson {
+    param([Parameter(Mandatory)][string]$Path)
+    $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+    if ($item.PSIsContainer -or $item.Length -gt 2097152 -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'Diagnostic metadata must be a bounded regular file.'
+    }
+    return Get-Content -LiteralPath $Path -Raw -Encoding utf8 | ConvertFrom-Json -Depth 40
+}
+
+function Get-AiCliRuntimeDiagnostics {
+    param([string]$BridgeRegistry = '')
+    $moduleRoot = Get-AiCliModuleRoot
+    $paths = Get-AiCliAppPaths
+    $manifest = Join-Path $moduleRoot 'AiCliProfileManager.psd1'
+    $desktop = [ordered]@{
+        configuration_state = 'not_configured'
+        enabled = $null
+        release_id = $null
+        installation_state = 'not_checked'
+        running_process_loaded = 'unknown'
+        end_to_end = 'unknown'
+        files = @()
+    }
+    $statePath = Join-Path $paths.LocalRoot 'desktop\state.json'
+    if (Test-Path -LiteralPath $statePath) {
+        try {
+            $state = Read-AiCliDiagnosticJson -Path $statePath
+            $enabled = Get-AiCliProperty $state 'enabled'
+            $exe = Get-AiCliProperty $state 'executable'
+            if ($enabled -isnot [bool] -or $exe -isnot [string] -or -not [IO.Path]::IsPathFullyQualified($exe)) {
+                throw 'Invalid desktop state shape.'
+            }
+            $releaseRoot = Split-Path -Parent (Split-Path -Parent $exe)
+            $releaseId = Split-Path -Leaf $releaseRoot
+            if ($releaseId -cnotmatch '^[0-9a-f]{16}$') { throw 'Invalid release identity.' }
+            $expectedRoot = Join-Path $paths.LocalRoot ('desktop\releases\' + $releaseId)
+            $expectedExe = Join-Path $expectedRoot 'bridge\AiCli.CodexDesktopBridge.exe'
+            if (-not [string]::Equals([IO.Path]::GetFullPath($exe),[IO.Path]::GetFullPath($expectedExe),[StringComparison]::OrdinalIgnoreCase)) {
+                throw 'Desktop executable is outside the managed release.'
+            }
+            $desktop.configuration_state = 'configured'
+            $desktop.enabled = $enabled
+            $desktop.release_id = $releaseId
+            $desktop.installation_state = 'registry_not_supplied'
+            if (-not [string]::IsNullOrWhiteSpace($BridgeRegistry)) {
+                $registry = Read-AiCliDiagnosticJson -Path $BridgeRegistry
+                if ((Get-AiCliProperty $registry 'schema') -cne 'pcconfig.aicli-desktop-bridge-allowlist.v1') {
+                    throw 'Unsupported bridge registry schema.'
+                }
+                $matches = @($registry.releases | Where-Object release_id -CEQ $releaseId)
+                if ($matches.Count -ne 1) {
+                    $desktop.installation_state = 'unregistered'
+                } else {
+                    $files = @($matches[0].files)
+                    if ($files.Count -ne 7) { throw 'Incomplete bridge manifest.' }
+                    $checks = [Collections.Generic.List[object]]::new()
+                    $names = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+                    foreach ($file in $files) {
+                        $relative = [string]$file.path
+                        if ([IO.Path]::IsPathRooted($relative) -or $relative -match '(^|[\\/])\.\.([\\/]|$)' -or
+                            $relative.Contains(':') -or -not $names.Add($relative) -or
+                            [string]$file.sha256 -cnotmatch '^[a-f0-9]{64}$' -or
+                            $file.size -isnot [ValueType] -or $file.size -lt 0) {
+                            throw 'Invalid bridge manifest entry.'
+                        }
+                        $path = [IO.Path]::GetFullPath((Join-Path $expectedRoot $relative))
+                        $rootFull = [IO.Path]::GetFullPath($expectedRoot).TrimEnd('\')
+                        if (-not $path.StartsWith($rootFull + '\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid file scope.' }
+                        $regular = Test-Path -LiteralPath $path -PathType Leaf
+                        $current = $path
+                        while ($regular -and $current.Length -ge $rootFull.Length) {
+                            if ((Get-Item -LiteralPath $current).Attributes -band [IO.FileAttributes]::ReparsePoint) { $regular = $false; break }
+                            $current = Split-Path -Parent $current
+                        }
+                        $sizeMatch = $regular -and (Get-Item -LiteralPath $path).Length -eq $file.size
+                        $hashMatch = $sizeMatch -and (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $file.sha256
+                        $checks.Add([ordered]@{path=$relative; regular_file=$regular; size_match=$sizeMatch; sha256_match=$hashMatch})
+                    }
+                    $desktop.files = $checks.ToArray()
+                    $desktop.installation_state = if (@($checks | Where-Object { -not $_.sha256_match }).Count -eq 0) { 'verified' } else { 'mismatch' }
+                }
+            }
+        } catch {
+            $desktop.installation_state = 'invalid_or_unavailable'
+            if ($desktop.configuration_state -eq 'not_configured') { $desktop.configuration_state = 'invalid' }
+            $desktop.error = 'diagnostic_metadata_invalid_or_unavailable'
+        }
+    }
+    return [ordered]@{
+        schema = 'aicli.runtime-diagnostics.v1'
+        write_mode = 'zero_write'
+        network_performed = $false
+        model_invoked = $false
+        credentials_read = $false
+        module = [ordered]@{root=$moduleRoot; version=(Get-AiCliVersion); manifest_sha256=(Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash.ToLowerInvariant()}
+        desktop = $desktop
+    }
+}

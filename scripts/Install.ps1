@@ -3,7 +3,9 @@
 .SYNOPSIS
   Install AI CLI Profile Manager for the current user (no administrator required).
 #>
+[CmdletBinding(SupportsShouldProcess = $true)]
 param(
+    [switch]$DryRun,
     [string]$SourceRoot = (Split-Path -Parent $PSScriptRoot),
     [switch]$Force,
     [switch]$SkipShellIntegration,
@@ -170,6 +172,11 @@ function Move-InstallDirectoryAtomically {
     throw $lastException
 }
 
+if ($DryRun) {
+    [ordered]@{schema='aicli.install-plan.v1';write_mode='zero_write';source=$src;destination=$destVer;version=$version;installed=$false} | ConvertTo-Json
+    return
+}
+if (-not $PSCmdlet.ShouldProcess($destVer, 'Install the verified AICLI module and run its managed retirement migration')) { return }
 Write-Host "安装 $moduleName $version → $destVer"
 if ((Test-Path -LiteralPath $destVer) -and -not $Force) {
     throw '目标版本已存在；默认拒绝覆盖。确认要替换时请重新运行并加 -Force。'
