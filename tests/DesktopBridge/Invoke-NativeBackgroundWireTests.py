@@ -32,7 +32,7 @@ def child_snapshots(items):
     return snapshots
 
 
-def run_case(bridge:Path,engine:Path,model:str,expect_rejection:bool):
+def run_case(bridge:Path,engine:Path,model:str,expect_rejection:bool,protected_contract:bool=False):
     work=Path(tempfile.mkdtemp(prefix='native-child-wire-'));home=work/'home';home.mkdir()
     nonce=uuid.uuid4().hex;provider='aicli_'+model.replace('.','_').replace('-','_')
     if model=='deepseek-flash':provider='aicli_deepseek_flash'
@@ -42,7 +42,7 @@ def run_case(bridge:Path,engine:Path,model:str,expect_rejection:bool):
         'bridge_files_sha256':{name:hashlib.sha256((bridge.parent/name).read_bytes()).hexdigest() for name in
             ('AiCli.CodexDesktopBridge.exe','AiCli.CodexDesktopBridge.dll','AiCli.CodexDesktopBridge.deps.json','AiCli.CodexDesktopBridge.runtimeconfig.json')},
         'live_models':False,'desktop_e2e':False,
-        'fixture_only':True,'credential_access':False,'private_config_access':False}
+        'fixture_only':True,'credential_access':False,'private_config_access':False,'protected_contract':protected_contract}
     done=threading.Event()
     def function(name,args):
         return {'id':str(uuid.uuid4()),'type':'function_call','call_id':'call_nonce_'+uuid.uuid4().hex,
@@ -71,6 +71,27 @@ def run_case(bridge:Path,engine:Path,model:str,expect_rejection:bool):
             if x.get('type')=='message' and text.startswith('PHASE_'):
                 phase_index=i;phase=text.split()[0]
         phase_items=items[phase_index+1:];snapshots=child_snapshots(phase_items)
+        if protected_contract:
+            calls=[x for x in phase_items if x.get('type')=='function_call' and x.get('name')=='openai_child']
+            args={'agent_type':'gpt6_astra_high_protected_judgment','model':'gpt-6-astra','reasoning_effort':'high',
+                  'task_name':'astra_high_native_contract','message':'PROTECTED:'+nonce}
+            outputs=[json.loads(x['output']) for x in phase_items if x.get('type')=='function_call_output']
+            if not calls:
+                args['wait_ms']=30000  # Reproduce a caller using the old, broader schema.
+                return function('openai_child',args)
+            if len(calls)==1:
+                assert len(outputs)==1 and outputs[0].get('error')=='OPENAI_CHILD_PROTECTED_ARGUMENTS_INVALID',outputs
+                assert outputs[0].get('child_created') is False and 'retry_action' in outputs[0]
+                assert not any(r['path']=='/child/responses' for r in requests)
+                return function('openai_child',args)
+            assert len(calls)==2 and len(outputs)==2,outputs
+            complete=outputs[-1]
+            assert complete.get('final_text')=='JUDGMENT:'+nonce,complete
+            assert complete.get('model')=='gpt-6-astra' and complete.get('reasoning_effort')=='high' and complete.get('persistent') is True,complete
+            assert complete.get('transcript_path') and complete.get('host_event',{}).get('turn_id')==complete.get('turn_id'),complete
+            child_ids.add(complete['thread_id']);sessions.add(complete['session_id']);turns.append(complete['turn_id'])
+            result['protected_evidence_returned']=True
+            return final('PARENT_PROTECTED_PASS')
         all_snapshots=child_snapshots(items)
         for snap in all_snapshots:
             child_ids.add(snap['thread_id'])
@@ -102,6 +123,10 @@ def run_case(bridge:Path,engine:Path,model:str,expect_rejection:bool):
         return function('openai_child_control',{'action':'wait','thread_id':handle,'after_version':latest_version,'timeout_ms':1000})
     def child_reply(data):
         items=data.get('input',[])
+        if protected_contract:
+            assert data['model']=='gpt-6-astra' and data.get('reasoning',{}).get('effort')=='high',data.get('reasoning')
+            assert any(text_of(x)=='PROTECTED:'+nonce for x in items),items
+            return final('JUDGMENT:'+nonce)
         incoming=[(i,x.get('output','')) for i,x in enumerate(items) if x.get('type')=='function_call_output' and x.get('name')=='openai_parent' and not x.get('call_id')]
         if not incoming:raise AssertionError('Child did not receive the parent via native toolOutput')
         index,message=incoming[-1];following=items[index+1:]
@@ -182,7 +207,7 @@ plugins=false
         'include_apps_usage_instructions':False,'include_plugin_usage_instructions':False,
         'prefer_websockets':False,'use_responses_lite':False,'tool_mode':None,'multi_agent_version':'v2',
         'default_reasoning_summary':'none','reasoning_summary_format':'experimental','supports_search_tool':False}
-    plan={'schemaVersion':1,'codexHome':str(home),'upstreamFileName':str(engine),'upstreamPrefixArgs':[],'upstreamModels':[{**catalog,'slug':'gpt-5.6-luna','display_name':'Luna fixture'}],
+    plan={'schemaVersion':1,'codexHome':str(home),'upstreamFileName':str(engine),'upstreamPrefixArgs':[],'upstreamModels':[{**catalog,'slug':m,'display_name':m+' fixture'} for m in ('gpt-5.6-luna','gpt-6-astra')],
        'models':[{'profileId':'fixture-'+model,'model':model,'providerId':provider,'routeProviderId':provider,
          'kind':'cloud','provider':{'name':'Isolated strict parent fixture','base_url':'http://127.0.0.1:'+str(server.server_port)+'/parent',
            'wire_api':'responses','requires_openai_auth':False,'request_max_retries':0,'stream_max_retries':0},
@@ -218,7 +243,7 @@ plugins=false
         proc.stdin.write('{"jsonrpc":"2.0","method":"initialized"}\n');proc.stdin.flush()
         parent=rpc('thread/start',{'cwd':str(work),'model':model,'historyMode':'legacy','ephemeral':False,
            'approvalPolicy':'never','sandbox':'danger-full-access'})['thread']['id']
-        for phase in ('REMEMBER','RECALL','ASK','PROGRESS'):
+        for phase in (('PROTECTED',) if protected_contract else ('REMEMBER','RECALL','ASK','PROGRESS')):
             start=rpc('turn/start',{'threadId':parent,'input':[{'type':'text','text':'PHASE_'+phase+' '+(nonce if phase=='REMEMBER' else 'Continue the same child.')}]})
             wanted='PARENT_'+phase+'_PASS';deadline=time.monotonic()+25;matched=False
             while time.monotonic()<deadline and not errors:
@@ -242,11 +267,12 @@ plugins=false
             assert strict_rejections,'Old release did not reproduce the strict protocol rejection'
         else:
             assert not errors and not strict_rejections
-            assert phases==['REMEMBER','RECALL','ASK','PROGRESS']
-            assert len(child_ids)==len(sessions)==1 and len(turns)==4,(child_ids,sessions,turns)
-            assert any('OPTION_B' in json.dumps(r['body']) for r in requests if r['path']=='/child/responses')
+            assert phases==(['PROTECTED'] if protected_contract else ['REMEMBER','RECALL','ASK','PROGRESS'])
+            assert len(child_ids)==len(sessions)==1 and len(turns)==(1 if protected_contract else 4),(child_ids,sessions,turns)
+            if not protected_contract:
+                assert any('OPTION_B' in json.dumps(r['body']) for r in requests if r['path']=='/child/responses')
             visible=rpc('thread/list',{})['data']
-            assert child_ids.isdisjoint({x['id'] for x in visible})
+            assert child_ids.isdisjoint({x['id'] for x in visible}),(child_ids,[(x['id'],x.get('model'),x.get('source')) for x in visible])
         machine_records=0;human_records=0
         for file in (home/'sessions').rglob('*.jsonl'):
             for line in file.open(encoding='utf-8'):
@@ -257,11 +283,14 @@ plugins=false
                     assert not any(k.startswith('user.') for k in kinds),kinds
                     machine_records+=1
                 if text.startswith('PHASE_') and 'user.text' in kinds:human_records+=1
-        if not expect_rejection:assert machine_records>=3 and human_records==4,(machine_records,human_records)
+        if not expect_rejection and not protected_contract:assert machine_records>=3 and human_records==4,(machine_records,human_records)
+        if protected_contract:assert human_records==1 and machine_records==0,(machine_records,human_records)
         result.update({'pass':True,'positive_old_rejection_control':expect_rejection,'phases':phases,'requests':len(requests),
           'strict_rejections':strict_rejections,'same_child_thread':len(child_ids)==1,'same_child_session':len(sessions)==1,
           'distinct_child_completed_turns':len(turns),'machine_context_records':machine_records,'genuine_fixture_user_records':human_records})
-    except Exception as exc:result.update({'pass':False,'error':repr(exc),'fixture_errors':errors,'strict_rejections':strict_rejections,'stderr_tail':stderr[-8:]})
+    except Exception as exc:
+        import traceback
+        result.update({'pass':False,'error':repr(exc),'traceback':traceback.format_exc(),'fixture_errors':errors,'strict_rejections':strict_rejections,'stderr_tail':stderr[-8:]})
     finally:
         if proc is not None:
             if proc.poll() is None:
@@ -289,7 +318,8 @@ plugins=false
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--bridge',type=Path,required=True);parser.add_argument('--engine',type=Path,required=True)
     parser.add_argument('--parent',choices=['deepseek-flash','glm-5.3-flash'],default='deepseek-flash');parser.add_argument('--expect-rejection',action='store_true');parser.add_argument('--output',type=Path,required=True)
-    args=parser.parse_args();result=run_case(args.bridge.resolve(),args.engine.resolve(),args.parent,args.expect_rejection)
+    parser.add_argument('--protected-contract',action='store_true')
+    args=parser.parse_args();result=run_case(args.bridge.resolve(),args.engine.resolve(),args.parent,args.expect_rejection,args.protected_contract)
     args.output.write_text(json.dumps(result,indent=2),encoding='utf-8');print(json.dumps(result));return 0 if result.get('pass') else 1
 
 if __name__=='__main__':raise SystemExit(main())

@@ -6,6 +6,14 @@ internal sealed partial class RpcTransport
     private const string OpenAiChildToolName = "openai_child";
     private const string ProtectedJudgmentAgentType = "gpt6_astra_high_protected_judgment";
     private const string OpenAiProvider = "openai";
+    private const string ProtectedJudgmentThreadSource = "aicli.protected-judgment.";
+    private static readonly string[] OpenAiChildRequiredFields =
+        { "agent_type", "model", "reasoning_effort", "task_name", "message" };
+    private const string ProtectedJudgmentArgumentsHelp =
+        "For agent_type=gpt6_astra_high_protected_judgment, send ONLY agent_type, model, reasoning_effort, task_name and message; " +
+        "model must be gpt-6-astra and reasoning_effort must be high. Omit wait_ms, thread_id, reply_to and fork_turns entirely (not null). " +
+        "This route synchronously returns a fresh persistent judgment and its evidence, not a background handle. " +
+        "Creating a judgment does not grant approval or execution authority.";
     private static readonly TimeSpan OpenAiChildTimeout = TimeSpan.FromMinutes(30);
 
     private readonly ConcurrentDictionary<string, ParentThreadContext> managedParentThreads = new(StringComparer.Ordinal);
@@ -47,14 +55,14 @@ internal sealed partial class RpcTransport
     private static JsonObject CreateOpenAiChildToolSpec()
     {
         var required = new JsonArray();
-        foreach (var name in new[] { "agent_type", "model", "reasoning_effort", "task_name", "message" })
+        foreach (var name in OpenAiChildRequiredFields)
             required.Add(name);
         var agentTypes = new JsonArray { "openai_child", ProtectedJudgmentAgentType };
         return new JsonObject
         {
             ["type"] = "function",
             ["name"] = OpenAiChildToolName,
-            ["description"] = "Start or continue a background OpenAI child. Provider is fixed to OpenAI; select authorized model/effort explicitly. Include initial context in message. A returned running state is admission, not completion. To continue the SAME child after it finishes or send an update while it works, pass its thread_id with the unchanged model/effort/task_name. To answer its question include reply_to. Progress/questions/final results automatically arrive as openai_child tool outputs, not human messages. Use openai_child_control for list/status/wait/stop; do not create independent tasks. Default wait_ms=1000, maximum 30000. Protected Astra judgment retains its synchronous fresh-session behavior.",
+            ["description"] = "Start or continue a background OpenAI child. Provider is fixed to OpenAI; select authorized model/effort explicitly. Include initial context in message. A returned running state is admission, not completion. To continue the SAME child after it finishes or send an update while it works, pass its thread_id with the unchanged model/effort/task_name. To answer its question include reply_to. Progress/questions/final results arrive as marked agent machine context, never human authorization. Use openai_child_control for list/status/wait/stop; do not create independent tasks. For ordinary openai_child only: default wait_ms=1000, maximum 30000. " + ProtectedJudgmentArgumentsHelp,
             ["inputSchema"] = new JsonObject
             {
                 ["type"] = "object",
@@ -62,14 +70,14 @@ internal sealed partial class RpcTransport
                 ["required"] = required,
                 ["properties"] = new JsonObject
                 {
-                    ["agent_type"] = new JsonObject { ["type"] = "string", ["enum"] = agentTypes },
+                    ["agent_type"] = new JsonObject { ["type"] = "string", ["enum"] = agentTypes, ["description"] = ProtectedJudgmentArgumentsHelp },
                     ["model"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 128 },
                     ["reasoning_effort"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 32 },
                     ["task_name"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 192 },
                     ["message"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 500000 },
-                    ["thread_id"] = TextProperty(160),
-                    ["reply_to"] = TextProperty(256),
-                    ["wait_ms"] = new JsonObject { ["type"] = "integer", ["minimum"] = 0, ["maximum"] = 30000 }
+                    ["thread_id"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 160, ["description"] = "Ordinary openai_child only: continue this exact child. MUST be omitted for protected judgment." },
+                    ["reply_to"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 256, ["description"] = "Ordinary openai_child only: answer a pending question, not a final_message_id. Omit for ordinary follow-up and for protected judgment." },
+                    ["wait_ms"] = new JsonObject { ["type"] = "integer", ["minimum"] = 0, ["maximum"] = 30000, ["description"] = "Ordinary openai_child only: wait for background progress. MUST be omitted for protected judgment, which waits synchronously." }
                 }
             },
             ["deferLoading"] = false
@@ -130,21 +138,44 @@ internal sealed partial class RpcTransport
                     namespaceValue.TryGetValue<string>(out var ns) && !string.IsNullOrWhiteSpace(ns)) ||
                 !managedParentThreads.TryGetValue(parentThreadId, out var parent) ||
                 !openAiChildCallIds.TryAdd(parentThreadId + ":" + callId, 0) ||
-                !HasOnly(arguments, "agent_type", "model", "reasoning_effort", "task_name", "message", "thread_id", "reply_to", "wait_ms") ||
                 !TryGetString(arguments["agent_type"], out var agentType) ||
                 !TryGetString(arguments["model"], out var model) ||
                 !TryGetString(arguments["reasoning_effort"], out var effort) ||
                 !TryGetString(arguments["task_name"], out var taskName) ||
                 !TryGetString(arguments["message"], out var prompt) ||
                 model.Length > 128 || effort.Length > 32 || taskName.Length > 192 || prompt.Length > 500000 ||
-                agentType is not ("openai_child" or ProtectedJudgmentAgentType) ||
-                (agentType == ProtectedJudgmentAgentType && (arguments.Count != 5 || model != "gpt-6-astra" || effort != "high")))
+                agentType is not ("openai_child" or ProtectedJudgmentAgentType))
             {
                 await WriteOpenAiChildToolResultAsync(requestId ?? JsonValue.Create("invalid")!, false, new JsonObject
                 {
                     ["schemaVersion"] = 1,
                     ["error"] = "OPENAI_CHILD_REQUEST_INVALID"
                 }, shutdown.Token).ConfigureAwait(false);
+                return;
+            }
+
+            // Validate the selected role before any upstream call. Old threads keep
+            // their original tool schema, so the error must teach the same contract.
+            if (agentType == ProtectedJudgmentAgentType)
+            {
+                var invalidFields = !HasOnly(arguments, OpenAiChildRequiredFields);
+                if (invalidFields || model != "gpt-6-astra" || effort != "high")
+                {
+                    await WriteOpenAiChildToolResultAsync(requestId, false, new JsonObject
+                    {
+                        ["schemaVersion"] = 1,
+                        ["error"] = invalidFields ? "OPENAI_CHILD_PROTECTED_ARGUMENTS_INVALID" : "OPENAI_CHILD_PROTECTED_IDENTITY_INVALID",
+                        ["message"] = ProtectedJudgmentArgumentsHelp,
+                        ["required_fields"] = new JsonArray(OpenAiChildRequiredFields.Select(f => (JsonNode)JsonValue.Create(f)!).ToArray()),
+                        ["child_created"] = false,
+                        ["retry_action"] = "Correct the arguments and retry openai_child in the same parent. No new parent thread, permission rebind or fallback role is required."
+                    }, shutdown.Token).ConfigureAwait(false);
+                    return;
+                }
+            }
+            else if (!HasOnly(arguments, "agent_type", "model", "reasoning_effort", "task_name", "message", "thread_id", "reply_to", "wait_ms"))
+            {
+                await TryWriteOpenAiChildFailureAsync(requestId, "OPENAI_CHILD_REQUEST_INVALID").ConfigureAwait(false);
                 return;
             }
 
@@ -187,7 +218,8 @@ internal sealed partial class RpcTransport
         CancellationToken cancellationToken)
     {
         var persistent = agentType == ProtectedJudgmentAgentType;
-        var pending = new PendingHiddenThread(model, parent.Cwd);
+        var pending = new PendingHiddenThread(model, parent.Cwd)
+        { Source = persistent ? ProtectedJudgmentThreadSource + Guid.NewGuid().ToString("N") : null };
         lock (hiddenThreadGate)
             pendingHiddenThreads.Add(pending);
 
@@ -202,6 +234,7 @@ internal sealed partial class RpcTransport
                 ["sandbox"] = "danger-full-access",
                 ["ephemeral"] = !persistent
             };
+            if (pending.Source is not null) threadParameters["threadSource"] = pending.Source;
             if (!string.IsNullOrWhiteSpace(parent.Cwd))
                 threadParameters["cwd"] = parent.Cwd;
 

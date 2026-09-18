@@ -31,6 +31,25 @@ jobs:
           $cfg.Run.Exit = $true
           $cfg.Output.Verbosity = 'Detailed'
           Invoke-Pester -Configuration $cfg
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Offline desktop child contract regressions
+        shell: pwsh
+        run: |
+          $env:PYTHONDONTWRITEBYTECODE = '1'
+          dotnet build ./src/AiCliProfileManager/Support/DesktopBridge/DesktopBridge.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $bridge = (Resolve-Path ./src/AiCliProfileManager/Support/DesktopBridge/bin/Release/net10.0/AiCli.CodexDesktopBridge.exe).Path
+          python ./tests/DesktopBridge/Invoke-ProtectedChildContractTests.py --bridge $bridge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python ./tests/DesktopBridge/Invoke-BackgroundChildTests.py --bridge $bridge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tests/DesktopBridge/Invoke-TransportTests.ps1 -BridgePath $bridge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build and inspect release archive
         shell: pwsh
         run: |

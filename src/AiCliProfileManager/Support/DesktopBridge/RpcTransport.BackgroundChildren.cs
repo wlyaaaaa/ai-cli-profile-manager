@@ -814,7 +814,17 @@ internal sealed partial class RpcTransport
             for (int i = values.Count - 1; i >= 0; --i)
             {
                 var idNode = values[i] is JsonObject item ? item["id"] ?? item["threadId"] : values[i];
-                if (TryGetString(idNode, out var id) && backgroundChildren.ContainsKey(id)) values.RemoveAt(i);
+                if (!TryGetString(idNode, out var id)) continue;
+                // The native source marker survives restart without a second ledger.
+                // This is display classification only, never authority or lineage.
+                var protectedJudgment = values[i] is JsonObject row &&
+                    TryGetString(row["modelProvider"], out var provider) && provider == OpenAiProvider &&
+                    TryGetString(row["threadSource"], out var source) && source.StartsWith(ProtectedJudgmentThreadSource, StringComparison.Ordinal);
+                lock (hiddenThreadGate)
+                {
+                    if (protectedJudgment) hiddenThreadIds.Add(id);
+                    if (hiddenThreadIds.Contains(id)) values.RemoveAt(i);
+                }
             }
         }
     }
