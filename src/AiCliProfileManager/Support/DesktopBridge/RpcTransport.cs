@@ -34,11 +34,15 @@ internal sealed partial class RpcTransport
     private int childInputClosed;
 
     private RpcTransport(Process process, ModelRouter router)
+        : this(process, router, Environment.GetEnvironmentVariable("CODEX_HOME")) { }
+
+    private RpcTransport(Process process, ModelRouter router, string? codexHome)
     {
         this.process = process;
         this.router = router;
         childInput = process.StandardInput.BaseStream;
         clientOutput = Console.OpenStandardOutput();
+        InitializeBackgroundChildren(codexHome);
     }
 
     public static async Task<int> RunAsync(JsonObject plan, string[] args)
@@ -79,7 +83,7 @@ internal sealed partial class RpcTransport
                 throw;
             }
 
-            var transport = new RpcTransport(process, router);
+            var transport = new RpcTransport(process, router, TryGetString(plan["codexHome"], out var home) ? home : Environment.GetEnvironmentVariable("CODEX_HOME"));
             return await transport.RunStartedAsync(lifetime).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -311,15 +315,18 @@ internal sealed partial class RpcTransport
                 DispatchOpenAiChildServerRequest(message);
                 continue;
             }
+            if (message is not null && TryDispatchHiddenServerRequest(message))
+                continue;
             if (message is not null && TryHandleOpenAiChildNotification(message))
                 continue;
 
             if (message is not null && IsResponse(message) && TryGetIdKey(message["id"], out var responseId))
             {
-                if (responseId.StartsWith("s:" + InternalIdPrefix + sessionId + "_", StringComparison.Ordinal) &&
-                    internalRequests.TryRemove(responseId, out var internalCompletion))
+                if (responseId.StartsWith("s:" + InternalIdPrefix + sessionId + "_", StringComparison.Ordinal))
                 {
-                    internalCompletion.TrySetResult(message);
+                    if (internalRequests.TryRemove(responseId, out var internalCompletion))
+                        internalCompletion.TrySetResult(message);
+                    // A late internal response belongs to this adapter, not to Desktop.
                     continue;
                 }
 
@@ -332,6 +339,8 @@ internal sealed partial class RpcTransport
                     {
                         router.AfterResponse(context.Method, context.OriginalParams, message);
                         RememberManagedParentThread(context, message);
+                        FilterBackgroundChildList(context.Method, message);
+                        ObserveParentCancellation(context, message);
                     }
                     catch (Exception ex)
                     {
@@ -361,7 +370,10 @@ internal sealed partial class RpcTransport
         }
     }
 
-    private async Task<JsonObject> CallUpstreamAsync(string method, JsonObject parameters)
+    private Task<JsonObject> CallUpstreamAsync(string method, JsonObject parameters) =>
+        CallUpstreamAsync(method, parameters, shutdown.Token);
+
+    private async Task<JsonObject> CallUpstreamAsync(string method, JsonObject parameters, CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref childInputClosed) != 0)
             throw new IOException("The Codex engine input is closed.");
@@ -381,13 +393,12 @@ internal sealed partial class RpcTransport
         };
         try
         {
-            await WriteChildLineAsync(request.ToJsonString(), shutdown.Token).ConfigureAwait(false);
-            return await completion.Task.ConfigureAwait(false);
+            await WriteChildLineAsync(request.ToJsonString(), cancellationToken).ConfigureAwait(false);
+            return await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch
+        finally
         {
             internalRequests.TryRemove(idKey, out _);
-            throw;
         }
     }
 

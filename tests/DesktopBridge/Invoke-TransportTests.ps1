@@ -377,7 +377,7 @@ $testContainer = {
                 $payload.model | Should -Be 'gpt-5.6-luna'
                 $payload.reasoning_effort | Should -Be 'high'
                 $payload.final_text | Should -Be 'CHILD_OK'
-                $payload.persistent | Should -BeFalse
+                $payload.persistent | Should -BeTrue
 
                 Write-BridgeLine $process '{"jsonrpc":"2.0","id":"after-child","method":"ping","params":{}}'
                 $next = (Read-BridgeLine $process) | ConvertFrom-Json

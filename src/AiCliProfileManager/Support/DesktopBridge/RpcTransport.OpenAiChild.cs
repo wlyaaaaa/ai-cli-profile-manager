@@ -38,9 +38,10 @@ internal sealed partial class RpcTransport
             return;
         }
 
-        if (tools.OfType<JsonObject>().Any(tool => TryGetString(tool["name"], out var name) && name == OpenAiChildToolName))
-            return;
-        tools.Add(CreateOpenAiChildToolSpec());
+        if (!tools.OfType<JsonObject>().Any(tool => TryGetString(tool["name"], out var name) && name == OpenAiChildToolName))
+            tools.Add(CreateOpenAiChildToolSpec());
+        if (!tools.OfType<JsonObject>().Any(tool => TryGetString(tool["name"], out var name) && name == ChildControlTool))
+            tools.Add(CreateChildControlToolSpec());
     }
 
     private static JsonObject CreateOpenAiChildToolSpec()
@@ -53,7 +54,7 @@ internal sealed partial class RpcTransport
         {
             ["type"] = "function",
             ["name"] = OpenAiChildToolName,
-            ["description"] = "Delegate one bounded task from an AICLI non-OpenAI parent to an OpenAI Codex child. The provider is fixed to OpenAI. Select the OpenAI model and reasoning effort explicitly. This route has no inherited parent history, so include the needed context in message.",
+            ["description"] = "Start or continue a background OpenAI child. Provider is fixed to OpenAI; select authorized model/effort explicitly. Include initial context in message. A returned running state is admission, not completion. To continue the SAME child after it finishes or send an update while it works, pass its thread_id with the unchanged model/effort/task_name. To answer its question include reply_to. Progress/questions/final results automatically arrive as openai_child tool outputs, not human messages. Use openai_child_control for list/status/wait/stop; do not create independent tasks. Default wait_ms=1000, maximum 30000. Protected Astra judgment retains its synchronous fresh-session behavior.",
             ["inputSchema"] = new JsonObject
             {
                 ["type"] = "object",
@@ -65,7 +66,10 @@ internal sealed partial class RpcTransport
                     ["model"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 128 },
                     ["reasoning_effort"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 32 },
                     ["task_name"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 192 },
-                    ["message"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 500000 }
+                    ["message"] = new JsonObject { ["type"] = "string", ["minLength"] = 1, ["maxLength"] = 500000 },
+                    ["thread_id"] = TextProperty(160),
+                    ["reply_to"] = TextProperty(256),
+                    ["wait_ms"] = new JsonObject { ["type"] = "integer", ["minimum"] = 0, ["maximum"] = 30000 }
                 }
             },
             ["deferLoading"] = false
@@ -87,12 +91,13 @@ internal sealed partial class RpcTransport
             ? observedCwd
             : TryGetString(routed["cwd"], out var requestedCwd) ? requestedCwd : string.Empty;
         managedParentThreads[threadId] = new ParentThreadContext(threadId, cwd, provider);
+        RememberParentProtocol(context, threadId);
     }
 
     private static bool IsOpenAiChildServerRequest(JsonObject message) =>
         TryGetString(message["method"], out var method) && method == "item/tool/call" &&
         message.ContainsKey("id") && message["params"] is JsonObject parameters &&
-        TryGetString(parameters["tool"], out var tool) && tool == OpenAiChildToolName;
+        TryGetString(parameters["tool"], out var tool) && tool is OpenAiChildToolName or ChildControlTool or ParentMessageTool;
 
     private void DispatchOpenAiChildServerRequest(JsonObject request)
     {
@@ -108,6 +113,11 @@ internal sealed partial class RpcTransport
 
     private async Task HandleOpenAiChildServerRequestAsync(JsonObject request)
     {
+        if (TryGetString(request["params"]?["tool"], out var requestedTool) && requestedTool != OpenAiChildToolName)
+        {
+            await HandleBackgroundAuxiliaryRequestAsync(request).ConfigureAwait(false);
+            return;
+        }
         var requestId = request["id"]?.DeepClone();
         try
         {
@@ -119,8 +129,8 @@ internal sealed partial class RpcTransport
                 (parameters["namespace"] is JsonValue namespaceValue &&
                     namespaceValue.TryGetValue<string>(out var ns) && !string.IsNullOrWhiteSpace(ns)) ||
                 !managedParentThreads.TryGetValue(parentThreadId, out var parent) ||
-                !openAiChildCallIds.TryAdd(callId, 0) ||
-                arguments.Count != 5 ||
+                !openAiChildCallIds.TryAdd(parentThreadId + ":" + callId, 0) ||
+                !HasOnly(arguments, "agent_type", "model", "reasoning_effort", "task_name", "message", "thread_id", "reply_to", "wait_ms") ||
                 !TryGetString(arguments["agent_type"], out var agentType) ||
                 !TryGetString(arguments["model"], out var model) ||
                 !TryGetString(arguments["reasoning_effort"], out var effort) ||
@@ -128,7 +138,7 @@ internal sealed partial class RpcTransport
                 !TryGetString(arguments["message"], out var prompt) ||
                 model.Length > 128 || effort.Length > 32 || taskName.Length > 192 || prompt.Length > 500000 ||
                 agentType is not ("openai_child" or ProtectedJudgmentAgentType) ||
-                (agentType == ProtectedJudgmentAgentType && (model != "gpt-6-astra" || effort != "high")))
+                (agentType == ProtectedJudgmentAgentType && (arguments.Count != 5 || model != "gpt-6-astra" || effort != "high")))
             {
                 await WriteOpenAiChildToolResultAsync(requestId ?? JsonValue.Create("invalid")!, false, new JsonObject
                 {
@@ -140,8 +150,19 @@ internal sealed partial class RpcTransport
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(shutdown.Token);
             timeout.CancelAfter(OpenAiChildTimeout);
-            var result = await RunOpenAiChildAsync(parent, agentType, model, effort, taskName, prompt, timeout.Token).ConfigureAwait(false);
+            if (!modernParents.ContainsKey(parentThreadId) && arguments.Count != 5)
+                throw new BackgroundChildException("OPENAI_CHILD_PARENT_PROTOCOL_REQUIRES_NEW_THREAD");
+            // Resumed pre-upgrade roots retain their old native tool schema. Keep
+            // their established one-shot behavior instead of returning unknown handles.
+            var result = agentType == ProtectedJudgmentAgentType || !modernParents.ContainsKey(parentThreadId)
+                ? await RunOpenAiChildAsync(parent, agentType, model, effort, taskName, prompt, timeout.Token).ConfigureAwait(false)
+                : await SendBackgroundChildAsync(parent, model, effort, taskName, prompt, arguments, timeout.Token).ConfigureAwait(false);
             await WriteOpenAiChildToolResultAsync(requestId, true, result, timeout.Token).ConfigureAwait(false);
+            AnnounceBackgroundResult(result);
+        }
+        catch (BackgroundChildException ex)
+        {
+            if (requestId is not null) await TryWriteOpenAiChildFailureAsync(requestId, ex.Code).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -327,7 +348,7 @@ internal sealed partial class RpcTransport
 
     private bool TryHandleOpenAiChildNotification(JsonObject message)
     {
-        if (!TryGetString(message["method"], out var method) || message["params"] is not JsonObject parameters)
+        if (message.ContainsKey("id") || !TryGetString(message["method"], out var method) || message["params"] is not JsonObject parameters)
             return false;
 
         if (method == "thread/started" && parameters["thread"] is JsonObject startedThread &&
@@ -341,8 +362,10 @@ internal sealed partial class RpcTransport
                 {
                     var model = TryGetString(startedThread["model"], out var observedModel) ? observedModel : string.Empty;
                     var cwd = TryGetString(startedThread["cwd"], out var observedCwd) ? observedCwd : string.Empty;
-                    var pending = pendingHiddenThreads.FirstOrDefault(candidate =>
-                        candidate.Model == model && (string.IsNullOrWhiteSpace(candidate.Cwd) || candidate.Cwd == cwd));
+                    var source = TryGetString(startedThread["threadSource"], out var sourceValue) ? sourceValue : null;
+                    var pending = pendingHiddenThreads.FirstOrDefault(candidate => candidate.Source is not null
+                        ? candidate.Source == source
+                        : candidate.Model == model && (string.IsNullOrWhiteSpace(candidate.Cwd) || candidate.Cwd == cwd));
                     if (pending is not null)
                     {
                         pendingHiddenThreads.Remove(pending);
@@ -361,6 +384,7 @@ internal sealed partial class RpcTransport
             if (!hiddenThreadIds.Contains(threadId))
                 return false;
         }
+        if (ObserveBackgroundChildNotification(threadId, method, parameters)) return true;
         if (openAiChildRuns.TryGetValue(threadId, out var run))
         {
             if (method == "item/completed" &&
@@ -488,5 +512,6 @@ internal sealed partial class RpcTransport
         public string Model { get; }
         public string Cwd { get; }
         public string? ObservedThreadId { get; set; }
+        public string? Source { get; set; }
     }
 }

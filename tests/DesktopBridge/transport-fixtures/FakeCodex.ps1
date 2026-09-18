@@ -86,7 +86,7 @@ while ($null -ne ($requestLine = [Console]::In.ReadLine())) {
         'thread/start' {
             $provider = [string]$request.params.modelProvider
             $model = [string]$request.params.model
-            $cwd = [string]$request.params.cwd
+            $cwd = if ($request.params.cwd) { [string]$request.params.cwd } else { [IO.Path]::GetFullPath((Get-Location).Path) }
             $openAiToolPresent = @($request.params.dynamicTools | Where-Object { [string]$_.name -eq 'openai_child' }).Count -eq 1
             if ($provider -eq 'openai') {
                 $script:openAiChild.threadId = if ($model -eq 'gpt-6-astra') { 'astra-child-thread' } else { 'openai-child-thread' }
@@ -103,6 +103,7 @@ while ($null -ne ($requestLine = [Console]::In.ReadLine())) {
                         model = $model
                         cwd = $cwd
                         ephemeral = $script:openAiChild.ephemeral
+                        threadSource = $request.params.threadSource
                     } }
                 })
                 $threadId = $script:openAiChild.threadId
@@ -119,6 +120,10 @@ while ($null -ne ($requestLine = [Console]::In.ReadLine())) {
                     modelProvider = $provider
                     model = $model
                     openAiChildToolPresent = $openAiToolPresent
+                    reasoningEffort = [string]$request.params.config.model_reasoning_effort
+                    approvalPolicy = 'never'
+                    sandbox = @{ type = 'dangerFullAccess' }
+                    activePermissionProfile = $null
                     thread = @{
                         id = $threadId
                         sessionId = $sessionId
