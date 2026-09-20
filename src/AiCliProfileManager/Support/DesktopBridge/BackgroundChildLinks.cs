@@ -1,11 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 // Only parent/child identity metadata is stored here. All messages, task text,
 // tool results and recovery history stay in the official Codex rollout.
 internal sealed record BackgroundChildLink(int SchemaVersion, string ParentId, string ThreadId,
-    string SessionId, string Model, string Effort, string TaskName, string Cwd, string PermissionIdentity);
+    string SessionId, string Model, string Effort, string TaskName, string Cwd, string PermissionIdentity,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? AuthorizationRequestId = null);
 
 internal sealed class BackgroundChildLinks
 {
@@ -120,7 +122,9 @@ internal sealed class BackgroundChildLinks
 
     private static void Validate(BackgroundChildLink link)
     {
-        if (link.SchemaVersion != 2 || new[] { link.ParentId, link.ThreadId, link.SessionId, link.Model, link.Effort, link.TaskName, link.Cwd, link.PermissionIdentity }
+        if (link.SchemaVersion is not (2 or 3) ||
+            (link.SchemaVersion == 3 && (string.IsNullOrEmpty(link.AuthorizationRequestId) || link.AuthorizationRequestId.Length > 256)) ||
+            (link.SchemaVersion == 2 && link.AuthorizationRequestId is not null) || new[] { link.ParentId, link.ThreadId, link.SessionId, link.Model, link.Effort, link.TaskName, link.Cwd, link.PermissionIdentity }
             .Any(x => string.IsNullOrWhiteSpace(x) || x.IndexOf('\0') >= 0) ||
             link.ParentId.Length > 160 || link.ThreadId.Length > 160 || link.SessionId.Length > 160 ||
             link.Model.Length > 128 || link.Effort.Length > 32 || link.TaskName.Length > 192 ||

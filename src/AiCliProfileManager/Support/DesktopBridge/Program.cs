@@ -106,6 +106,9 @@ internal static class Program
             startInfo.StandardOutputEncoding = new UTF8Encoding(false);
             startInfo.StandardErrorEncoding = new UTF8Encoding(false);
         }
+        // A capability fact for the real upstream host, never a user permission.
+        // Old bridge processes do not advertise scoped child authorization.
+        startInfo.Environment["AICLI_OPENAI_CHILD_AUTHORIZATION_PROTOCOL"] = "2";
         foreach (var prefixArg in prefix)
             startInfo.ArgumentList.Add(prefixArg);
         foreach (var arg in args)

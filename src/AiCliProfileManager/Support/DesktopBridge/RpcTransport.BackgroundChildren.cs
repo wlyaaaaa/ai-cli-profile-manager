@@ -21,6 +21,7 @@ internal sealed partial class RpcTransport
         try
         {
             childLinks = new BackgroundChildLinks(codexHome);
+            InitializeChildAuthorization(codexHome);
             var links = childLinks.ReadAll().ToArray();
             foreach (var parentId in childLinks.ReadModernParents()) modernParents.TryAdd(parentId, 0);
             foreach (var link in links)
@@ -99,7 +100,7 @@ internal sealed partial class RpcTransport
     }
 
     private async Task<JsonObject> SendBackgroundChildAsync(ParentThreadContext parent, string model, string effort,
-        string taskName, string prompt, JsonObject arguments, CancellationToken cancellationToken)
+        string taskName, string prompt, JsonObject arguments, string requestId, CancellationToken cancellationToken)
     {
         if (childLinks is null) throw new BackgroundChildException("OPENAI_CHILD_HOME_UNAVAILABLE");
         var threadId = OptionalId(arguments, "thread_id");
@@ -107,7 +108,7 @@ internal sealed partial class RpcTransport
         var waitMs = ReadWaitMilliseconds(arguments, "wait_ms", 1000);
         var parentGeneration = parentStopGenerations.GetValueOrDefault(parent.ThreadId);
         ThrowIfParentStopped(parent.ThreadId, parentGeneration);
-        BackgroundChild child;
+        BackgroundChild child = null!;
         var dispatchLock = parentDispatchLocks.GetOrAdd(parent.ThreadId, _ => new SemaphoreSlim(1, 1));
         await dispatchLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -119,51 +120,59 @@ internal sealed partial class RpcTransport
                     c.Turn is not null && !c.Turn.Terminal.Task.IsCompleted);
                 if (running >= 10) throw new BackgroundChildException("OPENAI_CHILD_PARENT_SLOTS_FULL");
             }
-        if (threadId is null)
-        {
-            if (replyTo is not null) throw new BackgroundChildException("OPENAI_CHILD_REPLY_TARGET_REQUIRED");
-            child = await CreateBackgroundChildAsync(parent, model, effort, taskName, cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            child = RequireOwnedBackgroundChild(parent.ThreadId, threadId);
-            if (child.Link.Model != model || child.Link.Effort != effort || child.Link.TaskName != taskName ||
-                !SameDirectory(child.Link.Cwd, parent.Cwd))
-                throw new BackgroundChildException("OPENAI_CHILD_CONTINUATION_IDENTITY_MISMATCH");
-        }
-        await child.Operation.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await EnsureBackgroundChildLoadedAsync(child, cancellationToken).ConfigureAwait(false);
-            // Covers cancellation while native thread/start or resume was in flight.
-            ThrowIfParentStopped(parent.ThreadId, parentGeneration);
-            if (replyTo is not null)
+            if (threadId is null)
             {
-                PendingParentReply pending;
-                lock (child.Gate)
-                {
-                    if (!child.Questions.TryGetValue(replyTo, out pending!) || pending.Reply.Task.IsCompleted)
-                        throw new BackgroundChildException("OPENAI_CHILD_REPLY_NOT_PENDING");
-                }
-                pending.Reply.TrySetResult(prompt);
-                await pending.Delivered.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                if (replyTo is not null) throw new BackgroundChildException("OPENAI_CHILD_REPLY_TARGET_REQUIRED");
+                var grant = await CheckChildAuthorizationAsync(parent, model, effort, taskName,
+                    null, "reserve", requestId, cancellationToken).ConfigureAwait(false);
+                child = await CreateBackgroundChildAsync(parent, model, effort, taskName,
+                    grant.Managed ? requestId : null, cancellationToken).ConfigureAwait(false);
+                await CheckChildAuthorizationAsync(child, "attach", cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                lock (child.Gate)
+                child = RequireOwnedBackgroundChild(parent.ThreadId, threadId);
+                if (child.Link.Model != model || child.Link.Effort != effort || child.Link.TaskName != taskName ||
+                    !SameDirectory(child.Link.Cwd, parent.Cwd))
+                    throw new BackgroundChildException("OPENAI_CHILD_CONTINUATION_IDENTITY_MISMATCH");
+            }
+            await child.Operation.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await EnsureBackgroundChildLoadedAsync(child, cancellationToken).ConfigureAwait(false);
+                await CheckChildAuthorizationAsync(child, "check", cancellationToken).ConfigureAwait(false);
+                ThrowIfParentStopped(parent.ThreadId, parentGeneration);
+                if (replyTo is not null)
                 {
-                    if (child.Questions.Count > 0)
-                        throw new BackgroundChildException("OPENAI_CHILD_REPLY_TO_REQUIRED");
+                    PendingParentReply pending;
+                    lock (child.Gate)
+                    {
+                        if (!child.Questions.TryGetValue(replyTo, out pending!) || pending.Reply.Task.IsCompleted)
+                            throw new BackgroundChildException("OPENAI_CHILD_REPLY_NOT_PENDING");
+                    }
+                    pending.Reply.TrySetResult(prompt);
+                    await pending.Delivered.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
                 }
-                await StartBackgroundChildTurnAsync(child, prompt, cancellationToken).ConfigureAwait(false);
+                else
+                {
+                    lock (child.Gate)
+                        if (child.Questions.Count > 0) throw new BackgroundChildException("OPENAI_CHILD_REPLY_TO_REQUIRED");
+                    await StartBackgroundChildTurnAsync(child, prompt, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            finally { child.Operation.Release(); }
+            // An authorization change during the actual send stops the same child.
+            await CheckChildAuthorizationAsync(child, "check", cancellationToken).ConfigureAwait(false);
+            if (ParentWasStopped(parent.ThreadId, parentGeneration))
+            {
+                await InterruptBackgroundChildAsync(child, "parent_stopped_during_send").ConfigureAwait(false);
+                throw new BackgroundChildException("OPENAI_CHILD_PARENT_STOPPED");
             }
         }
-        finally { child.Operation.Release(); }
-        if (ParentWasStopped(parent.ThreadId, parentGeneration))
+        catch (NativeChildAuthorizationException)
         {
-            await InterruptBackgroundChildAsync(child, "parent_stopped_during_send").ConfigureAwait(false);
-            throw new BackgroundChildException("OPENAI_CHILD_PARENT_STOPPED");
-        }
+            if (child is not null) await StopUnauthorizedChildAsync(child).ConfigureAwait(false);
+            throw;
         }
         finally { dispatchLock.Release(); }
         await WaitBackgroundChangeAsync(child, -1, waitMs, cancellationToken).ConfigureAwait(false);
@@ -171,7 +180,7 @@ internal sealed partial class RpcTransport
     }
 
     private async Task<BackgroundChild> CreateBackgroundChildAsync(ParentThreadContext parent, string model,
-        string effort, string taskName, CancellationToken cancellationToken)
+        string effort, string taskName, string? authorizationRequestId, CancellationToken cancellationToken)
     {
         var source = "aicli.background-child." + Guid.NewGuid().ToString("N");
         var pending = new PendingHiddenThread(model, parent.Cwd) { Source = source };
@@ -202,7 +211,7 @@ internal sealed partial class RpcTransport
                 throw new BackgroundChildException("OPENAI_CHILD_START_IDENTITY_MISMATCH");
             ConfirmHiddenThread(pending, createdId);
             var permissionIdentity = EffectivePermissionIdentity(response, thread, effort);
-            var link = new BackgroundChildLink(2, parent.ThreadId, createdId, session, model, effort, taskName, cwd, permissionIdentity);
+            var link = new BackgroundChildLink(authorizationRequestId is null ? 2 : 3, parent.ThreadId, createdId, session, model, effort, taskName, cwd, permissionIdentity, authorizationRequestId);
             childLinks!.Create(link);
             var child = new BackgroundChild(link) { Loaded = true, Lease = childLinks.Acquire(link) };
             if (!backgroundChildren.TryAdd(createdId, child))
@@ -257,6 +266,7 @@ internal sealed partial class RpcTransport
             VerifyBackgroundIdentity(child, thread, response);
             HydrateBackgroundTurn(child, thread);
             child.Loaded = true;
+            TrackBackgroundWork(RecheckParentChildPermissionsAsync(child.Link.ParentId));
         }
         catch
         {
@@ -918,6 +928,9 @@ internal sealed partial class RpcTransport
         public BackgroundTurn? PendingNextTurn;
         public bool Loaded;
         public FileStream? Lease;
+        public string? AuthorizationGrantId;
+        public DateTimeOffset? AuthorizationExpiresAt;
+        public CancellationTokenSource? AuthorizationExpiry;
         public BackgroundChild(BackgroundChildLink link) => Link = link;
         public void Signal()
         {
@@ -931,6 +944,7 @@ internal sealed partial class RpcTransport
                 foreach (var question in Questions.Values) question.Reply.TrySetCanceled();
                 Turn?.Watchdog.Cancel(); PendingNextTurn?.Watchdog.Cancel(); Announced.TrySetCanceled(); Signal();
                 Lease?.Dispose(); Lease = null;
+                AuthorizationExpiry?.Cancel(); AuthorizationExpiry?.Dispose(); AuthorizationExpiry = null;
             }
         }
     }

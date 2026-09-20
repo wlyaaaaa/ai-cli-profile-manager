@@ -181,15 +181,21 @@ internal sealed partial class RpcTransport
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(shutdown.Token);
             timeout.CancelAfter(OpenAiChildTimeout);
+            if (agentType == OpenAiChildToolName && !modernParents.ContainsKey(parentThreadId) && childAuthorization?.Enabled == true)
+                throw new BackgroundChildException("OPENAI_CHILD_PARENT_PROTOCOL_REQUIRES_NEW_THREAD");
             if (!modernParents.ContainsKey(parentThreadId) && arguments.Count != 5)
                 throw new BackgroundChildException("OPENAI_CHILD_PARENT_PROTOCOL_REQUIRES_NEW_THREAD");
             // Resumed pre-upgrade roots retain their old native tool schema. Keep
             // their established one-shot behavior instead of returning unknown handles.
             var result = agentType == ProtectedJudgmentAgentType || !modernParents.ContainsKey(parentThreadId)
                 ? await RunOpenAiChildAsync(parent, agentType, model, effort, taskName, prompt, timeout.Token).ConfigureAwait(false)
-                : await SendBackgroundChildAsync(parent, model, effort, taskName, prompt, arguments, timeout.Token).ConfigureAwait(false);
+                : await SendBackgroundChildAsync(parent, model, effort, taskName, prompt, arguments, callId, timeout.Token).ConfigureAwait(false);
             await WriteOpenAiChildToolResultAsync(requestId, true, result, timeout.Token).ConfigureAwait(false);
             AnnounceBackgroundResult(result);
+        }
+        catch (NativeChildAuthorizationException ex)
+        {
+            if (requestId is not null) await TryWriteOpenAiChildFailureAsync(requestId, ex.Code + ": " + ex.Message).ConfigureAwait(false);
         }
         catch (BackgroundChildException ex)
         {
