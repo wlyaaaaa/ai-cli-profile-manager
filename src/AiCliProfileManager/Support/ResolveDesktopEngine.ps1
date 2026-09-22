@@ -57,14 +57,10 @@ function Get-AiCliCodexCliVersion {
         }
         $match = [regex]::Match(
             $stdout.Trim(),
-            '^codex-cli\s+([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-+].*)?$'
+            '^codex-cli\s+([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$'
         )
         if (-not $match.Success) { return $null }
-        return [version]::new(
-            [int]$match.Groups[1].Value,
-            [int]$match.Groups[2].Value,
-            [int]$match.Groups[3].Value
-        )
+        return [System.Management.Automation.SemanticVersion]::Parse($match.Groups[1].Value)
     }
     catch { return $null }
     finally { if ($null -ne $process) { $process.Dispose() } }
@@ -74,7 +70,7 @@ function Get-AiCliOfficialCodexCacheCandidate {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$OfficialCache,
-        [Parameter(Mandatory)][version]$MinimumVersion
+        [Parameter(Mandatory)][System.Management.Automation.SemanticVersion]$MinimumVersion
     )
 
     if (-not (Test-Path -LiteralPath $OfficialCache -PathType Container)) {
@@ -157,6 +153,82 @@ function Get-AiCliDesktopEngineFallback {
     catch { return $null }
 }
 
+function Get-AiCliStagedAppxEngine {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SourceDirectory,
+        [Parameter(Mandatory)][string]$SourceHash
+    )
+
+    $paths = Get-AiCliAppPaths
+    $cacheRoot = [IO.Path]::GetFullPath((Join-Path ([string]$paths.LocalRoot) 'desktop\upstream'))
+    $destination = Join-Path $cacheRoot $SourceHash
+    $cachedEngine = Join-Path $destination 'codex.exe'
+    $companions = @(
+        Get-ChildItem -LiteralPath $SourceDirectory -File -Filter 'codex*.exe' -ErrorAction Stop |
+            Sort-Object Name
+    )
+    if ($companions.Count -eq 0 -or -not ($companions.Name -contains 'codex.exe')) {
+        throw 'The installed Desktop package has no complete Codex engine.'
+    }
+    if ((Get-AiCliDesktopEngineHash -Path $cachedEngine) -eq $SourceHash) {
+        foreach ($companion in $companions) {
+            if ((Get-AiCliDesktopEngineHash -Path (Join-Path $destination $companion.Name)) -ne
+                (Get-AiCliDesktopEngineHash -Path $companion.FullName)) {
+                throw "The staged Desktop engine companion changed: $($companion.Name)"
+            }
+        }
+        $version = Get-AiCliCodexCliVersion -Path $cachedEngine
+        if ($null -eq $version) { throw 'The staged Desktop engine could not be verified.' }
+        return [pscustomobject]@{ FileName = $cachedEngine; Version = $version; Hash = $SourceHash }
+    }
+    if (Test-Path -LiteralPath $destination) {
+        throw 'The staged Desktop engine directory is incomplete or changed.'
+    }
+
+    New-Item -ItemType Directory -Path $cacheRoot -Force -ErrorAction Stop | Out-Null
+    $staging = [IO.Path]::GetFullPath((Join-Path $cacheRoot ('.' + $SourceHash + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')))
+    if (-not $staging.StartsWith($cacheRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'The Desktop engine staging path is outside its cache.'
+    }
+    try {
+        New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
+        foreach ($companion in $companions) {
+            $target = Join-Path $staging $companion.Name
+            # Store resources can carry EFS attributes. Copy the verified bytes,
+            # not the source file attributes, into the managed executable cache.
+            $inputStream = [IO.File]::OpenRead($companion.FullName)
+            try {
+                $outputStream = [IO.File]::Create($target)
+                try { $inputStream.CopyTo($outputStream) }
+                finally { $outputStream.Dispose() }
+            }
+            finally { $inputStream.Dispose() }
+            if ((Get-AiCliDesktopEngineHash -Path $target) -ne (Get-AiCliDesktopEngineHash -Path $companion.FullName)) {
+                throw "Desktop engine companion hash mismatch: $($companion.Name)"
+            }
+        }
+        if ((Get-AiCliDesktopEngineHash -Path (Join-Path $staging 'codex.exe')) -ne $SourceHash) {
+            throw 'Desktop engine staging hash mismatch.'
+        }
+        $version = Get-AiCliCodexCliVersion -Path (Join-Path $staging 'codex.exe')
+        if ($null -eq $version) { throw 'The installed Desktop engine has no valid OpenAI signature or version.' }
+        if (-not (Test-Path -LiteralPath $destination)) {
+            Move-Item -LiteralPath $staging -Destination $destination -ErrorAction Stop
+            $staging = $null
+        }
+    }
+    finally {
+        if ($staging -and (Test-Path -LiteralPath $staging)) {
+            Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction Stop
+        }
+    }
+    if ((Get-AiCliDesktopEngineHash -Path $cachedEngine) -ne $SourceHash) {
+        throw 'The staged Desktop engine did not retain the package bytes.'
+    }
+    return [pscustomobject]@{ FileName = $cachedEngine; Version = $version; Hash = $SourceHash }
+}
+
 function Resolve-AiCliDesktopEngine {
     <#
     .SYNOPSIS
@@ -180,16 +252,21 @@ function Resolve-AiCliDesktopEngine {
                 Sort-Object -Property Version -Descending
         )
     }
-    catch { return Get-AiCliDesktopEngineFallback }
+    catch { throw 'The installed Desktop package could not be inspected.' }
 
     if ($packages.Count -eq 0) { return Get-AiCliDesktopEngineFallback }
     $package = $packages[0]
     $sourceDirectory = Join-Path ([string]$package.InstallLocation) 'app\resources'
     $source = Join-Path $sourceDirectory 'codex.exe'
     $sourceHash = Get-AiCliDesktopEngineHash -Path $source
+    if ([string]::IsNullOrWhiteSpace($sourceHash)) {
+        throw 'The installed Desktop engine could not be read.'
+    }
     $sourceVersion = Get-AiCliCodexCliVersion -Path $source
-    if ([string]::IsNullOrWhiteSpace($sourceHash) -or $null -eq $sourceVersion) {
-        return Get-AiCliDesktopEngineFallback
+    $staged = $null
+    if ($null -eq $sourceVersion) {
+        $staged = Get-AiCliStagedAppxEngine -SourceDirectory $sourceDirectory -SourceHash $sourceHash
+        $sourceVersion = $staged.Version
     }
 
     try {
@@ -217,59 +294,9 @@ function Resolve-AiCliDesktopEngine {
         # package resource from being staged in the AICLI-owned cache below.
     }
 
-    try {
-        $paths = Get-AiCliAppPaths
-        $cacheRoot = Join-Path ([string]$paths.LocalRoot) 'desktop\upstream'
-        $destination = Join-Path $cacheRoot $sourceHash
-        $cachedEngine = Join-Path $destination 'codex.exe'
-        if ((Get-AiCliDesktopEngineHash -Path $cachedEngine) -eq $sourceHash) {
-            return New-AiCliDesktopEngineResult -FileName $cachedEngine -Resolution 'aicli-upstream-cache' `
-                -ContentHash $sourceHash -PackageFullName ([string]$package.PackageFullName)
-        }
-
-        $companions = @(
-            Get-ChildItem -LiteralPath $sourceDirectory -File -Filter 'codex*.exe' -ErrorAction Stop |
-                Sort-Object Name
-        )
-        if ($companions.Count -eq 0 -or -not ($companions.Name -contains 'codex.exe')) {
-            return Get-AiCliDesktopEngineFallback
-        }
-
-        New-Item -ItemType Directory -Path $cacheRoot -Force -ErrorAction Stop | Out-Null
-        $staging = Join-Path $cacheRoot ('.' + $sourceHash + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
-        try {
-            New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
-            foreach ($companion in $companions) {
-                $target = Join-Path $staging $companion.Name
-                Copy-Item -LiteralPath $companion.FullName -Destination $target -ErrorAction Stop
-                if ((Get-AiCliDesktopEngineHash -Path $target) -ne (Get-AiCliDesktopEngineHash -Path $companion.FullName)) {
-                    throw "Desktop engine companion hash mismatch: $($companion.Name)"
-                }
-            }
-            if ((Get-AiCliDesktopEngineHash -Path (Join-Path $staging 'codex.exe')) -ne $sourceHash) {
-                throw 'Desktop engine staging hash mismatch.'
-            }
-
-            if (-not (Test-Path -LiteralPath $destination)) {
-                Move-Item -LiteralPath $staging -Destination $destination -ErrorAction Stop
-                $staging = $null
-            }
-        }
-        finally {
-            if ($staging -and (Test-Path -LiteralPath $staging)) {
-                Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-            }
-        }
-
-        if ((Get-AiCliDesktopEngineHash -Path $cachedEngine) -eq $sourceHash) {
-            return New-AiCliDesktopEngineResult -FileName $cachedEngine -Resolution 'aicli-upstream-cache' `
-                -ContentHash $sourceHash -PackageFullName ([string]$package.PackageFullName)
-        }
+    if ($null -eq $staged) {
+        $staged = Get-AiCliStagedAppxEngine -SourceDirectory $sourceDirectory -SourceHash $sourceHash
     }
-    catch {
-        # Fall through to an existing resolver. Do not execute an AppX resource
-        # directly when its cache-copy path is unavailable.
-    }
-
-    return Get-AiCliDesktopEngineFallback
+    return New-AiCliDesktopEngineResult -FileName $staged.FileName -Resolution 'aicli-upstream-cache' `
+        -ContentHash $sourceHash -PackageFullName ([string]$package.PackageFullName)
 }

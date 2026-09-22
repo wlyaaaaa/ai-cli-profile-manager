@@ -32,9 +32,9 @@ Describe 'Resolve-AiCliDesktopEngine' {
         Mock Test-AiCliOpenAICodexSignature { $true }
         Mock Get-AiCliCodexCliVersion {
             $content = Get-Content -LiteralPath $Path -Raw
-            if ($content -eq 'engine-a') { return [version]'1.0.0' }
-            if ($content -eq 'engine-newer') { return [version]'3.0.0' }
-            return [version]'2.0.0'
+            if ($content -eq 'engine-a') { return [semver]'1.0.0' }
+            if ($content -eq 'engine-newer') { return [semver]'3.0.0' }
+            return [semver]'2.0.0'
         }
     }
 
@@ -109,6 +109,75 @@ Describe 'Resolve-AiCliDesktopEngine' {
 
         $resolved.Resolution | Should -Be 'aicli-upstream-cache'
         (Get-Content -LiteralPath $resolved.FileName -Raw) | Should -Be 'engine-b'
+    }
+
+    It 'compares prerelease components instead of treating every build of one base version as equal' {
+        $old = Join-Path $script:OfficialCache 'OpenAI\Codex\bin\7777777777777777'
+        New-Item -ItemType Directory -Path $old -Force | Out-Null
+        Copy-Item (Join-Path $script:PackageA 'app\resources\codex.exe') (Join-Path $old 'codex.exe')
+        Mock Get-AppxPackage {
+            [pscustomobject]@{ Version = [version]'2.0.0.0'; InstallLocation = $script:PackageB; PackageFullName = 'OpenAI.Codex_2' }
+        } -ParameterFilter { $Name -eq 'OpenAI.Codex' }
+        Mock Get-AiCliCodexCliVersion {
+            $content = Get-Content -LiteralPath $Path -Raw
+            if ($content -eq 'engine-a') { return [semver]'2.0.0-alpha.6' }
+            return [semver]'2.0.0-alpha.16'
+        }
+
+        $resolved = Resolve-AiCliDesktopEngine
+
+        $resolved.Resolution | Should -Be 'aicli-upstream-cache'
+        (Get-Content -LiteralPath $resolved.FileName -Raw) | Should -Be 'engine-b'
+    }
+
+    It 'stages the current package before comparing versions when its encrypted resource cannot run in place' {
+        $old = Join-Path $script:OfficialCache 'OpenAI\Codex\bin\6666666666666666'
+        New-Item -ItemType Directory -Path $old -Force | Out-Null
+        Copy-Item (Join-Path $script:PackageA 'app\resources\codex.exe') (Join-Path $old 'codex.exe')
+        Mock Get-AppxPackage {
+            [pscustomobject]@{ Version = [version]'2.0.0.0'; InstallLocation = $script:PackageB; PackageFullName = 'OpenAI.Codex_2' }
+        } -ParameterFilter { $Name -eq 'OpenAI.Codex' }
+        Mock Get-AiCliCodexCliVersion {
+            if ($Path -eq (Join-Path $script:PackageB 'app\resources\codex.exe')) { return $null }
+            $content = Get-Content -LiteralPath $Path -Raw
+            if ($content -eq 'engine-a') { return [semver]'1.0.0' }
+            return [semver]'2.0.0'
+        }
+        Mock Resolve-AiCliLaunchExecutable { throw 'An older fallback must not be used' }
+
+        $resolved = Resolve-AiCliDesktopEngine
+
+        $resolved.Resolution | Should -Be 'aicli-upstream-cache'
+        (Get-Content -LiteralPath $resolved.FileName -Raw) | Should -Be 'engine-b'
+        (Get-Content -LiteralPath (Join-Path (Split-Path $resolved.FileName) 'codex-command-runner.exe') -Raw) | Should -Be 'runner-b'
+        Should -Invoke Resolve-AiCliLaunchExecutable -Times 0 -Exactly
+    }
+
+    It 'does not silently use an older cache when the current package cannot be staged' {
+        Mock Get-AppxPackage {
+            [pscustomobject]@{ Version = [version]'2.0.0.0'; InstallLocation = $script:PackageB; PackageFullName = 'OpenAI.Codex_2' }
+        } -ParameterFilter { $Name -eq 'OpenAI.Codex' }
+        Mock Get-AiCliCodexCliVersion { $null }
+        Mock Get-AiCliAppPaths { throw 'Managed cache unavailable' }
+        Mock Resolve-AiCliLaunchExecutable { throw 'An older fallback must not be used' }
+
+        { Resolve-AiCliDesktopEngine } | Should -Throw 'Managed cache unavailable'
+        Should -Invoke Resolve-AiCliLaunchExecutable -Times 0 -Exactly
+    }
+
+    It 'rejects a staged package whose companion changed after the first launch' {
+        Mock Get-AppxPackage {
+            [pscustomobject]@{ Version = [version]'2.0.0.0'; InstallLocation = $script:PackageB; PackageFullName = 'OpenAI.Codex_2' }
+        } -ParameterFilter { $Name -eq 'OpenAI.Codex' }
+        Mock Get-AiCliCodexCliVersion {
+            if ($Path -eq (Join-Path $script:PackageB 'app\resources\codex.exe')) { return $null }
+            return [semver]'2.0.0'
+        }
+
+        $resolved = Resolve-AiCliDesktopEngine
+        [IO.File]::WriteAllText((Join-Path (Split-Path $resolved.FileName) 'codex-command-runner.exe'), 'changed')
+
+        { Resolve-AiCliDesktopEngine } | Should -Throw '*companion changed*'
     }
 
     It 'returns a marked existing resolver fallback when no registered AppX package is available' {
