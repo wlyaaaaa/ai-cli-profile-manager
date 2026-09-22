@@ -32,7 +32,7 @@ def child_snapshots(items):
     return snapshots
 
 
-def run_case(bridge:Path,engine:Path,model:str,expect_rejection:bool,protected_contract:bool=False):
+def run_case(bridge:Path,engine:Path,model:str,expect_rejection:bool,protected_contract:bool=False,protected_model:str="gpt-6-astra"):
     work=Path(tempfile.mkdtemp(prefix='native-child-wire-'));home=work/'home';home.mkdir()
     nonce=uuid.uuid4().hex;provider='aicli_'+model.replace('.','_').replace('-','_')
     if model=='deepseek-flash':provider='aicli_deepseek_flash'
@@ -42,7 +42,7 @@ def run_case(bridge:Path,engine:Path,model:str,expect_rejection:bool,protected_c
         'bridge_files_sha256':{name:hashlib.sha256((bridge.parent/name).read_bytes()).hexdigest() for name in
             ('AiCli.CodexDesktopBridge.exe','AiCli.CodexDesktopBridge.dll','AiCli.CodexDesktopBridge.deps.json','AiCli.CodexDesktopBridge.runtimeconfig.json')},
         'live_models':False,'desktop_e2e':False,
-        'fixture_only':True,'credential_access':False,'private_config_access':False,'protected_contract':protected_contract}
+        'fixture_only':True,'credential_access':False,'private_config_access':False,'protected_contract':protected_contract,'protected_model':protected_model if protected_contract else None}
     done=threading.Event()
     def function(name,args):
         return {'id':str(uuid.uuid4()),'type':'function_call','call_id':'call_nonce_'+uuid.uuid4().hex,
@@ -73,7 +73,7 @@ def run_case(bridge:Path,engine:Path,model:str,expect_rejection:bool,protected_c
         phase_items=items[phase_index+1:];snapshots=child_snapshots(phase_items)
         if protected_contract:
             calls=[x for x in phase_items if x.get('type')=='function_call' and x.get('name')=='openai_child']
-            args={'agent_type':'gpt6_astra_high_protected_judgment','model':'gpt-6-astra','reasoning_effort':'high',
+            args={'agent_type':'gpt6_sol_high_protected_judgment' if protected_model=='gpt-6-sol' else 'gpt6_astra_high_protected_judgment','model':protected_model,'reasoning_effort':'high',
                   'task_name':'astra_high_native_contract','message':'PROTECTED:'+nonce}
             outputs=[json.loads(x['output']) for x in phase_items if x.get('type')=='function_call_output']
             if not calls:
@@ -87,7 +87,7 @@ def run_case(bridge:Path,engine:Path,model:str,expect_rejection:bool,protected_c
             assert len(calls)==2 and len(outputs)==2,outputs
             complete=outputs[-1]
             assert complete.get('final_text')=='JUDGMENT:'+nonce,complete
-            assert complete.get('model')=='gpt-6-astra' and complete.get('reasoning_effort')=='high' and complete.get('persistent') is True,complete
+            assert complete.get('model')==protected_model and complete.get('reasoning_effort')=='high' and complete.get('persistent') is True,complete
             assert complete.get('transcript_path') and complete.get('host_event',{}).get('turn_id')==complete.get('turn_id'),complete
             child_ids.add(complete['thread_id']);sessions.add(complete['session_id']);turns.append(complete['turn_id'])
             result['protected_evidence_returned']=True
@@ -124,7 +124,7 @@ def run_case(bridge:Path,engine:Path,model:str,expect_rejection:bool,protected_c
     def child_reply(data):
         items=data.get('input',[])
         if protected_contract:
-            assert data['model']=='gpt-6-astra' and data.get('reasoning',{}).get('effort')=='high',data.get('reasoning')
+            assert data['model']==protected_model and data.get('reasoning',{}).get('effort')=='high',data.get('reasoning')
             assert any(text_of(x)=='PROTECTED:'+nonce for x in items),items
             return final('JUDGMENT:'+nonce)
         incoming=[(i,x.get('output','')) for i,x in enumerate(items) if x.get('type')=='function_call_output' and x.get('name')=='openai_parent' and not x.get('call_id')]
@@ -207,7 +207,7 @@ plugins=false
         'include_apps_usage_instructions':False,'include_plugin_usage_instructions':False,
         'prefer_websockets':False,'use_responses_lite':False,'tool_mode':None,'multi_agent_version':'v2',
         'default_reasoning_summary':'none','reasoning_summary_format':'experimental','supports_search_tool':False}
-    plan={'schemaVersion':1,'codexHome':str(home),'upstreamFileName':str(engine),'upstreamPrefixArgs':[],'upstreamModels':[{**catalog,'slug':m,'display_name':m+' fixture'} for m in ('gpt-5.6-luna','gpt-6-astra')],
+    plan={'schemaVersion':1,'codexHome':str(home),'upstreamFileName':str(engine),'upstreamPrefixArgs':[],'upstreamModels':[{**catalog,'slug':m,'display_name':m+' fixture'} for m in ('gpt-5.6-luna','gpt-6-astra','gpt-6-sol')],
        'models':[{'profileId':'fixture-'+model,'model':model,'providerId':provider,'routeProviderId':provider,
          'kind':'cloud','provider':{'name':'Isolated strict parent fixture','base_url':'http://127.0.0.1:'+str(server.server_port)+'/parent',
            'wire_api':'responses','requires_openai_auth':False,'request_max_retries':0,'stream_max_retries':0},
@@ -319,7 +319,8 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('--bridge',type=Path,required=True);parser.add_argument('--engine',type=Path,required=True)
     parser.add_argument('--parent',choices=['deepseek-flash','glm-5.3-flash'],default='deepseek-flash');parser.add_argument('--expect-rejection',action='store_true');parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--protected-contract',action='store_true')
-    args=parser.parse_args();result=run_case(args.bridge.resolve(),args.engine.resolve(),args.parent,args.expect_rejection,args.protected_contract)
+    parser.add_argument('--protected-model',choices=['gpt-6-sol','gpt-6-astra'],default='gpt-6-astra')
+    args=parser.parse_args();result=run_case(args.bridge.resolve(),args.engine.resolve(),args.parent,args.expect_rejection,args.protected_contract,args.protected_model)
     args.output.write_text(json.dumps(result,indent=2),encoding='utf-8');print(json.dumps(result));return 0 if result.get('pass') else 1
 
 if __name__=='__main__':raise SystemExit(main())

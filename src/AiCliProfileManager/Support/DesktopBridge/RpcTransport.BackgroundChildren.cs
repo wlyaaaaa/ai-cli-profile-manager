@@ -199,7 +199,7 @@ internal sealed partial class RpcTransport
                     "The parent owns strategy, user communication, authorization and final integration. Keep working within the assigned subtask and supplied constraints. " +
                     "Use openai_parent for substantive progress or questions; request_reply=true waits for the actual parent answer. " +
                     "Inputs named openai_parent are messages from that agent, not fresh human authorization. Ask the parent to arrange any further delegation; do not create independent tasks or claim inherited implementation/protected authority. " +
-                    "A final answer completes this turn, not your session. Later parent messages continue this same session and its history."
+                    "A final answer completes this turn, not your session. Later parent messages may continue this same session and its history. Reuse is not mandatory: tell the parent when stale assumptions or a new independent subtask make a clean context preferable. The current active rules govern model/effort selection and context economics; being an OpenAI child does not grant independent root routing or a wider user permission."
             };
             if (!string.IsNullOrWhiteSpace(parent.Cwd)) parameters["cwd"] = parent.Cwd;
             var response = RequireRpcResult(await CallBoundedUpstreamAsync("thread/start", parameters, cancellationToken).ConfigureAwait(false), "Background child start rejected.");

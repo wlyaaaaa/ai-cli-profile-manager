@@ -54,7 +54,7 @@ def main():
             'bridge_sha256':'a'*64,'compatible_expected_script_sha256':[],'installed_at_utc':datetime.now(timezone.utc).isoformat()}))
         (home/'models_cache.json').write_text(json.dumps({'models':[
             {'slug':model,'supported_reasoning_levels':[{'effort':level} for level in ['low','high','max']]}
-            for model in ['gpt-5.6-luna','gpt-5.6-sol']]}))
+            for model in ['gpt-5.6-luna','gpt-5.6-sol','gpt-6-sol','gpt-6-astra']]}))
         sessions=home/'sessions';sessions.mkdir()
         policy=module_at('scoped_fixture_policy',runtime)
         bindings=local/'Codex'/'native-economy-gate'/'thread-bindings'
@@ -70,17 +70,17 @@ def main():
             {'type':'turn_context','payload':{'turn_id':'fixture-root-turn','model':'glm-5.3-flash','effort':'max'}}]
         transcript.write_text(''.join(json.dumps(record)+'\n' for record in records),encoding='utf-8')
         grant_sequence=0
-        def grant(*,scope='task',mode='exact',expiry=None):
+        def grant(*,scope='task',mode='exact',expiry=None,models=None):
             nonlocal grant_sequence
             grant_sequence+=1
             source_id=f'msg_fixturegrant{grant_sequence:08d}'
-            source_quote=f'Synthetic new user permission {grant_sequence}: {scope}, Luna {mode} High, expiry={expiry}.'
+            source_quote=f'Synthetic new user permission {grant_sequence}: {scope}, models={models or {'gpt-5.6-luna':'high'}}, mode={mode}, expiry={expiry}.'
             with transcript.open('a',encoding='utf-8') as out:
                 out.write(json.dumps({'type':'response_item','payload':{'type':'message','role':'user','id':source_id,
                     'content':[{'type':'input_text','text':source_quote}],
                     'internal_chat_message_metadata_passthrough':{'content_item_kinds':['user.text']}}})+'\n')
             current=policy.load_routing_consent(bindings,parent)
-            return policy._write_routing_consent({'mode':'SetRouting','models':{'gpt-5.6-luna':'high'},
+            return policy._write_routing_consent({'mode':'SetRouting','models':models or {'gpt-5.6-luna':'high'},
                 'user_quote':source_quote,'source_message_id':source_id,'routing_scope':scope,'task_name':'luna_high_collaboration' if scope=='task' else '',
                 'effort_mode':mode,'expires_at_utc':expiry,'expected_sha256':current['binding_sha256'] if current else ''},
                 binding_root=bindings,thread_id=parent,transcript=transcript)
@@ -146,6 +146,17 @@ def main():
             if expired.get('state') in ('interrupted','stop_unconfirmed') or time.monotonic()>deadline:break
             time.sleep(.15)
         check('expiry interrupts the exact running child',ok and expired['state']=='interrupted',expired)
+        grant(scope='conversation',mode='ceiling',models={'gpt-6-sol':'max','gpt-6-astra':'high'})
+        for selected, effort in [('gpt-6-sol','low'),('gpt-6-sol','high'),('gpt-6-sol','max'),('gpt-6-astra','high')]:
+            ok, selected_child = tool('REMEMBER:exact-choice',model=selected,reasoning_effort=effort,
+                task_name='bounded_'+selected.replace('-','_')+'_'+effort)
+            check('ordinary current GPT6 choice reaches native host: '+selected+'/'+effort,
+                ok and selected_child.get('model')==selected and selected_child.get('reasoning_effort')==effort,selected_child)
+        for selected, effort in [('gpt-6-astra','max'),('gpt-6-luna','high')]:
+            count=client.request('test/state')['counts']['thread/start']
+            ok, outside = tool('RECALL',model=selected,reasoning_effort=effort)
+            check('ordinary explicit permission still bounds '+selected+'/'+effort,
+                not ok and 'AUTHORIZATION_DENIED' in outside['error'] and client.request('test/state')['counts']['thread/start']==count,outside)
         grant(scope='conversation')
         manifest.rename(manifest.with_suffix('.unavailable'))
         ok,missing=tool('RECALL')

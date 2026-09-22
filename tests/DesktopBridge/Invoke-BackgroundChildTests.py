@@ -146,8 +146,15 @@ def main():
         check('mid-turn parent update stays on active turn', ok and updated['final_text'] == 'UPDATED:new instruction' and updated['turn_id'] == active['turn_id'])
         ok, question = tool(parent, 'ASK:Which branch?', child)
         check('child can suspend for parent question', ok and question['state'] == 'waiting_for_parent' and len(question['pending_reply_ids']) == 1)
-        evt_state = c.request('test/state')
-        question_events = [e for e in evt_state['events'] if e['context_event'].get('event') == 'question']
+        # The child signals a pending question before the asynchronous parent
+        # injection completes. Observe delivery, not the earlier pending state.
+        delivery_deadline = time.monotonic() + 5
+        while True:
+            evt_state = c.request('test/state')
+            question_events = [e for e in evt_state['events'] if e['context_event'].get('event') == 'question']
+            if question_events or time.monotonic() >= delivery_deadline:
+                break
+            time.sleep(.02)
         check('question auto-delivered as native machine context, never fake human input', bool(question_events) and question_events[-1]['thread_id'] == parent and question_events[-1]['context_event']['provenance'] == 'background_agent_not_user_authorization' and all('internal_chat_message_metadata_passthrough' not in x for x in question_events[-1]['items']))
         ok, answered = tool(parent, 'feature/collaboration', child, reply_to=question['pending_reply_ids'][0])
         answer = terminal(parent, child)

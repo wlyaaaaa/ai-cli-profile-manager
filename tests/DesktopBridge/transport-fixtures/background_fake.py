@@ -101,6 +101,7 @@ for line in sys.stdin:
              'modelProvider': args.get('modelProvider', 'openai'),
              'cwd': args.get('cwd') or str(Path.cwd()), 'reasoningEffort': args.get('config', {}).get('model_reasoning_effort'),
              'ephemeral': args.get('ephemeral', False), 'threadSource': args.get('threadSource'),
+             'config': args.get('config', {}), 'developerInstructions': args.get('developerInstructions', ''),
              'status': {'type': 'idle'}, 'turns': [], 'tools': args.get('dynamicTools', [])}
         threads[tid] = t
         save()
