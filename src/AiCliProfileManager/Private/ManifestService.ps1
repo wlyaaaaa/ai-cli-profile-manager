@@ -105,6 +105,15 @@ function Assert-AiCliProfileDoesNotUseRetiredModel {
         [Parameter(Mandatory)]$Profile,
         [string]$Context = 'Profile'
     )
+    # Retired entry names cannot be reused to route an old command to another
+    # provider. Match complete IDs (case-insensitively, like Windows paths),
+    # while preserving ordinary custom aliases and current exact Profiles.
+    foreach ($field in @('id', 'templateId')) {
+        $profileId = [string](Get-AiCliProperty $Profile $field)
+        if ($profileId -in @('codex-deepseek', 'claude-deepseek', 'oi-deepseek')) {
+            throw "$Context 引用了已退役的 Profile ID $profileId；该入口不能重新绑定到其他模板或模型，请显式选择现行 Profile。原配置不会被修改。"
+        }
+    }
     $allowExactQwen37 = Test-AiCliQwen37Max0608ExactProfile -Profile $Profile
     $exactQwen37Model = 'qwen3.7-max-2026-06-08'
     $models = Get-AiCliProperty $Profile 'models'

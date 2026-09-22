@@ -8,6 +8,75 @@ BeforeAll {
 }
 
 Describe 'Retired provider identities' {
+    It 'rejects retired entry IDs even when rebound to an active model or missing models' {
+        InModuleScope AiCliProfileManager {
+            foreach ($id in @('codex-deepseek', 'claude-deepseek', 'oi-deepseek', 'CODEX-DEEPSEEK')) {
+                foreach ($template in @('codex-official', 'codex-deepseek-flash')) {
+                    $profile = @{ id = $id; templateId = $template; models = @{ primary = 'gpt-5.6-sol' } }
+                    { Assert-AiCliProfileDoesNotUseRetiredModel -Profile $profile } | Should -Throw '*已退役的 Profile ID*'
+                    $profile.Remove('models')
+                    { Assert-AiCliProfileDoesNotUseRetiredModel -Profile $profile } | Should -Throw '*已退役的 Profile ID*'
+                }
+                { Assert-AiCliProfileDoesNotUseRetiredModel -Profile @{ id = 'my-work'; templateId = $id } } |
+                    Should -Throw '*已退役的 Profile ID*'
+            }
+        }
+    }
+
+    It 'preserves ordinary aliases and active DeepSeek exact Profiles' {
+        InModuleScope AiCliProfileManager {
+            { Assert-AiCliProfileDoesNotUseRetiredModel -Profile @{
+                id = 'my-deepseek-work'; templateId = 'codex-official'; models = @{ primary = 'gpt-5.6-sol' }
+            } } | Should -Not -Throw
+            foreach ($id in @('codex-deepseek-flash', 'codex-deepseek-v4-pro')) {
+                { Assert-AiCliProfileDoesNotUseRetiredModel -Profile (Get-AiCliProviderManifest -Id $id) } |
+                    Should -Not -Throw
+            }
+        }
+    }
+
+    It 'rejects configuring a retired name before interaction, credentials or profile writes' {
+        InModuleScope AiCliProfileManager {
+            Mock Read-Host { throw 'unexpected interaction' }
+            Mock Get-AiCliUserProfile { throw 'unexpected user profile read' }
+            Mock Resolve-AiCliReusableSecretRef { throw 'unexpected credential access' }
+            Mock Save-AiCliUserProfile { throw 'unexpected profile write' }
+            foreach ($id in @('codex-deepseek', 'claude-deepseek', 'oi-deepseek')) {
+                { Invoke-AiCliProfileConfigure -TemplateId 'codex-official' -ProfileId $id } |
+                    Should -Throw '*已退役的 Profile ID*'
+            }
+            Should -Invoke Read-Host -Times 0
+            Should -Invoke Get-AiCliUserProfile -Times 0
+            Should -Invoke Resolve-AiCliReusableSecretRef -Times 0
+            Should -Invoke Save-AiCliUserProfile -Times 0
+        }
+    }
+
+    It 'rejects legacy show and start without changing the user file or listing it as available' {
+        $dataRoot = Join-Path $TestDrive 'retired-entry-rebound'
+        $profiles = Join-Path $dataRoot 'AppData/profiles'
+        $null = New-Item -ItemType Directory -Path $profiles -Force
+        $path = Join-Path $profiles 'codex-deepseek.json'
+        [IO.File]::WriteAllText($path, '{"schemaVersion":1,"id":"codex-deepseek","templateId":"codex-official","models":{"primary":"gpt-5.6-sol"}}')
+        $before = (Get-FileHash -LiteralPath $path).Hash
+        Invoke-AiCli -Tokens @('profile','show','codex-deepseek','--json') -DataRoot $dataRoot | Should -Be 4
+        Invoke-AiCli -Tokens @('start','codex-deepseek','--project',$dataRoot) -DataRoot $dataRoot | Should -Be 4
+        $writer = [IO.StringWriter]::new()
+        $oldOut = [Console]::Out
+        try {
+            [Console]::SetOut($writer)
+            $code = Invoke-AiCli -Tokens @('profile','list','--available','--json') -DataRoot $dataRoot
+        } finally {
+            [Console]::SetOut($oldOut)
+        }
+        $code | Should -Be 0
+        $list = $writer.ToString() | ConvertFrom-Json
+        $writer.Dispose()
+        @($list.profiles.id) | Should -Not -Contain 'codex-deepseek'
+        @($list.profiles.id) | Should -Contain 'codex-official'
+        (Get-FileHash -LiteralPath $path).Hash | Should -BeExactly $before
+    }
+
     It 'restores only the exact Qwen3.7 Max 06-08 Codex entry while old routes and Plus remain absent' {
         $manifest = InModuleScope AiCliProfileManager {
             Get-AiCliProviderManifest -Id 'codex-qwen3-7-max-paygo'

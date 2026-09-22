@@ -554,6 +554,7 @@ function Invoke-AiCliProfileConfigure {
     }
     $id = if ($ProfileId) { $ProfileId } else { $TemplateId }
     $null = Assert-AiCliSafeIdentifier -Id $id -Kind 'Profile ID'
+    Assert-AiCliProfileDoesNotUseRetiredModel -Profile @{ id = $id; templateId = $TemplateId } -Context '配置目标'
     $allTemplates = Import-AiCliProviderManifests
     if ($allTemplates.Contains($id) -and $id -cne $TemplateId) {
         throw "Profile ID $id 已由内置模板 $id 保留，不能绑定到 $TemplateId。"
