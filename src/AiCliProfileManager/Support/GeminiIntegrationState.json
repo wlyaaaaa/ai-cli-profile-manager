@@ -1,0 +1,7 @@
+{
+  "state": "frozen",
+  "reason": "user_requested_freeze_daily_use_not_delivered",
+  "decisionUtc": "2026-09-18T05:53:34Z",
+  "reopen": "Explicit user decision plus new evidence; not automatic on model or CLI updates.",
+  "schema": "aicli.gemini-integration-state.v1"
+}

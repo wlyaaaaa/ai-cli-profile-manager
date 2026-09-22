@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "id": "codex-gemini-3-8-flash",
+  "displayName": "Codex + Gemini 3.8 Flash",
+  "engine": "codex",
+  "provider": "google-antigravity",
+  "plan": "google-ai-pro",
+  "region": "global",
+  "transport": "managed-proxy",
+  "wireApi": "responses",
+  "endpoint": null,
+  "codexProviderId": "aicli_google_antigravity",
+  "codexModelCatalog": "gemini-3.8-flash-codex.json",
+  "codexAutoCompactTokenLimit": 943718,
+  "codexAutoCompactTokenLimitScope": "total",
+  "requiresSecret": false,
+  "virtualReady": false,
+  "auth": {
+    "type": "consumer-oauth",
+    "owner": "official-antigravity"
+  },
+  "models": {
+    "primary": "gemini-3.8-flash-high",
+    "small": "gemini-3.8-flash-high",
+    "candidates": [
+      "gemini-3.8-flash-high"
+    ]
+  },
+  "defaultEffort": "high",
+  "effortLevels": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "flexible": false,
+  "capabilities": {
+    "tools": true,
+    "effort": true,
+    "contextStats": true,
+    "streaming": true,
+    "images": false
+  },
+  "compatibility": {
+    "modelVersion": "gemini-3.8-flash-high",
+    "minCliVersion": "0.154.0",
+    "apiStatus": "experimental",
+    "antigravityVersion": "1.2.5",
+    "antigravitySha256": "fbb352d7a1c76d4681b2e0aac02618152b873ceaccf1dd5c6ef1afb5ca6a24d6",
+    "contextCapacityBasis": "model-set declaration; exact consumer-route acceptance is separate"
+  },
+  "dataDestination": "Google Antigravity via official consumer login; only Codex executes tools",
+  "notes": "Experimental until the actual Desktop acceptance passes. Text-only, explicit model/effort mapping, no fallback.",
+  "sources": [
+    "https://antigravity.google/docs/cli/headless/"
+  ]
+}

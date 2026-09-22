@@ -1,0 +1,45 @@
+{
+  "schema": "aicli.gemini-model-set.v1",
+  "defaultModel": "gemini-3.8-flash-high",
+  "cli": {
+    "approvedSha256": "fbb352d7a1c76d4681b2e0aac02618152b873ceaccf1dd5c6ef1afb5ca6a24d6",
+    "verifiedVersion": "1.2.5"
+  },
+  "models": [
+    {
+      "id": "gemini-3.8-flash",
+      "profileId": "codex-gemini-3-8-flash",
+      "displayName": "Gemini 3.8 Flash",
+      "menuModel": "gemini-3.8-flash-high",
+      "defaultEffort": "high",
+      "contextWindow": 1048576,
+      "autoCompactPercent": 90,
+      "inputModalities": [
+        "text"
+      ],
+      "supportsPublicSummary": true,
+      "supportsParallelToolCalls": true,
+      "efforts": [
+        {
+          "effort": "low",
+          "model": "gemini-3.8-flash-low",
+          "cliEffort": "low"
+        },
+        {
+          "effort": "medium",
+          "model": "gemini-3.8-flash-medium",
+          "cliEffort": "medium"
+        },
+        {
+          "effort": "high",
+          "model": "gemini-3.8-flash-high",
+          "cliEffort": "high"
+        }
+      ],
+      "evidence": {
+        "contextCapacity": "declared existing catalog; full-window E2E not yet established",
+        "modelIdentity": "existing exact live CLI invocation; all effort variants require their own acceptance"
+      }
+    }
+  ]
+}

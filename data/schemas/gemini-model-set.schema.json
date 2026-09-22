@@ -1,0 +1,23 @@
+{
+  "$schema":"http://json-schema.org/draft-07/schema#",
+  "title":"AICLI Gemini model set",
+  "type":"object","additionalProperties":false,
+  "required":["schema","defaultModel","cli","models"],
+  "properties":{
+    "schema":{"const":"aicli.gemini-model-set.v1"},
+    "defaultModel":{"$ref":"#/definitions/id"},
+    "cli":{"type":"object","additionalProperties":false,"required":["approvedSha256","verifiedVersion"],"properties":{"approvedSha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"verifiedVersion":{"type":"string","minLength":1,"maxLength":64}}},
+    "models":{"type":"array","minItems":1,"maxItems":128,"items":{"$ref":"#/definitions/model"}}
+  },
+  "definitions":{
+    "id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},
+    "effort":{"type":"object","additionalProperties":false,"required":["effort","model","cliEffort"],"properties":{"effort":{"$ref":"#/definitions/id"},"model":{"$ref":"#/definitions/id"},"cliEffort":{"$ref":"#/definitions/id"}}},
+    "model":{"type":"object","additionalProperties":false,"required":["id","profileId","displayName","menuModel","defaultEffort","contextWindow","autoCompactPercent","inputModalities","supportsPublicSummary","supportsParallelToolCalls","efforts"],"properties":{
+      "id":{"$ref":"#/definitions/id"},"profileId":{"$ref":"#/definitions/id"},"displayName":{"type":"string","minLength":1,"maxLength":128},"menuModel":{"$ref":"#/definitions/id"},"defaultEffort":{"$ref":"#/definitions/id"},
+      "contextWindow":{"type":"integer","minimum":1024,"maximum":16777216},"autoCompactPercent":{"const":90},
+      "inputModalities":{"type":"array","minItems":1,"maxItems":1,"items":{"const":"text"}},"supportsPublicSummary":{"type":"boolean"},"supportsParallelToolCalls":{"type":"boolean"},
+      "efforts":{"type":"array","minItems":1,"maxItems":12,"items":{"$ref":"#/definitions/effort"}},
+      "evidence":{"type":"object","additionalProperties":{"type":"string"}}
+    }}
+  }
+}

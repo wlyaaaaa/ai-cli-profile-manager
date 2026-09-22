@@ -649,6 +649,19 @@ public sealed class ModelRouter
         // Keep compaction within the selected model's declared capacity.
         var metadata = entry["catalogModel"]!;
         configuration["model_auto_compact_token_limit"] = metadata["auto_compact_token_limit"]?.DeepClone() ?? JsonValue.Create(window * 90 / 100);
+        if (Text(entry, "providerId") == "aicli_google_antigravity")
+        {
+            // Standard Responses summary items are already native summaries;
+            // Gemini needs no GLM raw-content projection or DeepSeek keepalive.
+            configuration["model_reasoning_summary"] = "detailed";
+            configuration["model_reasoning_effort"] = Text(entry, "defaultEffort") ?? "high";
+            // Replace only unavailable hosted search with a real Codex-managed
+            // MCP tool. This adapter never executes search on the model's behalf.
+            configuration["web_search"] = "disabled";
+            if (entry["managedPublicWebSearch"] is not JsonObject search)
+                throw new RpcException(-32602, "Gemini 的 Codex 搜索工具配置缺失；未开始模型请求。");
+            configuration["mcp_servers.aicli_public_web_search"] = search.DeepClone();
+        }
     }
 
     private void RejectCollision(string model)

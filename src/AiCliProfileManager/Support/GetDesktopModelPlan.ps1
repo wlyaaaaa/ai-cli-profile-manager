@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 [CmdletBinding()]
 param(
     [string[]]$ProfileId = @(),
@@ -164,6 +164,11 @@ $plan = & $module {
             contextWindow = [long]$info.context_window
             defaultEffort = [string]$info.default_reasoning_level
         })
+    }
+    if (-not $OnlyUpstream) {
+        foreach ($entry in @(Get-AiCliDesktopGeminiModels)) {
+            if ($seen.Add([string]$entry.model)) { $entries.Add($entry) }
+        }
     }
     if ($entries.Count -eq 0 -and -not $OnlyUpstream) { throw 'No desktop local models were selected.' }
     $codexHome = Get-AiCliCodexHome

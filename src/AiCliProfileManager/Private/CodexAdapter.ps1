@@ -667,6 +667,14 @@ function Build-AiCliCodexLaunchPlan {
         $notes += '本次使用上述 Profile 端点；本地模型请求保持直连。'
     }
     else {
+        $isGemini = $provider -ceq 'google-antigravity'
+        if ($isGemini) {
+            $connection = Start-AiCliGeminiBridge
+            # Runtime loopback address is never a Google endpoint or API key.
+            $runtimeProfile = $MergedProfile | ConvertTo-Json -Depth 100 | ConvertFrom-Json -AsHashtable -Depth 100
+            $runtimeProfile['endpoint'] = $connection.Endpoint
+            $MergedProfile = $runtimeProfile
+        }
         # Scrub parent hijacks so only profile provider base_url is used
         foreach ($v in $script:AiCliCodexProviderVars) { $removeEnv += $v }
         $removeEnv += @('OPENAI_BASE_URL')
@@ -686,7 +694,22 @@ function Build-AiCliCodexLaunchPlan {
         $cliArgs.Add('--profile') | Out-Null
         $cliArgs.Add($written.CliProfileName) | Out-Null
         $configFiles += $written.FilePath
-        if ((Get-AiCliProperty $MergedProfile 'secretConfigured') -or (Get-AiCliProperty $MergedProfile 'secretRef')) {
+        if ($isGemini) {
+            $envDelta['AICLI_CODEX_PROVIDER_KEY'] = Get-AiCliGeminiLocalToken
+            foreach ($setting in @(
+                'web_search="disabled"',
+                'model_reasoning_summary="detailed"',
+                "model_providers.$providerId.request_max_retries=0",
+                "model_providers.$providerId.stream_max_retries=0",
+                "model_providers.$providerId.stream_idle_timeout_ms=650000"
+            )) { $cliArgs.Add('-c'); $cliArgs.Add($setting) }
+            if (-not $MachineRun) {
+                $search = Get-AiCliGeminiCodexSearchConfiguration
+                $argsToml = '[' + (@($search.args | ForEach-Object { ConvertTo-AiCliTomlString ([string]$_) }) -join ',') + ']'
+                $mcpToml = '{command=' + (ConvertTo-AiCliTomlString ([string]$search.command)) + ',args=' + $argsToml + ',enabled=true,required=true,enabled_tools=["public_web_search"],startup_timeout_sec=15,tool_timeout_sec=30}'
+                $cliArgs.Add('-c'); $cliArgs.Add('mcp_servers.aicli_public_web_search=' + $mcpToml)
+            }
+        } elseif ((Get-AiCliProperty $MergedProfile 'secretConfigured') -or (Get-AiCliProperty $MergedProfile 'secretRef')) {
             $secret = Get-AiCliSecret -SecretId (Get-AiCliProperty $MergedProfile 'secretRef')
             $envDelta['AICLI_CODEX_PROVIDER_KEY'] = $secret
         } else {

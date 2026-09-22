@@ -21,3 +21,7 @@ export-*/
 .idea/
 Thumbs.db
 Desktop.ini
+
+# .NET generated build output
+**/bin/
+**/obj/

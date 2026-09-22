@@ -248,6 +248,16 @@ function Merge-AiCliProfile {
         $merged['configured'] = $exeOk -and $authOk
     }
 
+    if ([string](Get-AiCliProperty $Template 'provider') -ceq 'google-antigravity') {
+        if(Test-AiCliGeminiIntegrationFrozen){$merged['lifecycle']='frozen'}
+        # Installed adapter is configuration evidence, not a live OAuth/quota
+        # or user Desktop acceptance claim. Never read the login credentials.
+        $deployment = $null
+        try { $deployment = Get-AiCliGeminiDeployment } catch {}
+        $merged['configured'] = $null -ne $deployment
+        $merged['proxyInstalled'] = $null -ne $deployment
+        if ($null -ne $deployment) { $merged['endpoint'] = $deployment.Endpoint }
+    }
     $merged['profileFingerprint'] = Get-AiCliProfileFingerprint -Profile $merged
     $settings = Get-AiCliSettings
     $ver = $null
@@ -283,6 +293,7 @@ function Merge-AiCliProfile {
 
 function Resolve-AiCliProfileStatus {
     param($Merged)
+    if([string](Get-AiCliProperty $Merged 'lifecycle') -ceq 'frozen'){return '已冻结'}
     $configured = [bool](Get-AiCliProperty $Merged 'configured')
     if (-not $configured) { return '不可用' }
     $ver = Get-AiCliProperty $Merged 'verification'
@@ -373,6 +384,7 @@ function Get-AiCliProfileList {
     foreach ($uid in $userIds) {
         try {
             $r = Get-AiCliResolvedProfile -Id $uid
+            if(-not $Available -and [string](Get-AiCliProperty $r 'lifecycle') -ceq 'frozen'){continue}
             $result += $r
             $seen[$uid] = $true
         } catch [IO.InvalidDataException] {
