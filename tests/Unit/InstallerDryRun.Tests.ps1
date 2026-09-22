@@ -9,7 +9,8 @@ Describe 'Installer no-effect modes' {
         $result.schema|Should -BeExactly 'aicli.install-plan.v1'
         $result.write_mode|Should -BeExactly 'zero_write'
         $result.installed|Should -BeFalse
-        $result.version|Should -BeExactly '0.3.17'
+        $expectedVersion = (Import-PowerShellDataFile -LiteralPath (Join-Path $root 'src/AiCliProfileManager/AiCliProfileManager.psd1')).ModuleVersion
+        $result.version|Should -BeExactly $expectedVersion
     }
     It 'WhatIf never calls retirement migration' {
         $fixture=Join-Path $TestDrive 'source';$module=Join-Path $fixture 'src\AiCliProfileManager';$scripts=Join-Path $fixture 'scripts'

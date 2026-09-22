@@ -16,10 +16,11 @@ Describe 'Docs contract' {
         }
     }
 
-    It 'README mentions aicli and 0.3.12' {
+    It 'README mentions aicli and the current module version' {
         $readme = Get-Content (Join-Path $script:Root 'README.md') -Raw
         $readme | Should -Match 'aicli'
-        $readme | Should -Match '0\.3\.12'
+        $version = (Import-PowerShellDataFile -LiteralPath (Join-Path $script:Root 'src/AiCliProfileManager/AiCliProfileManager.psd1')).ModuleVersion
+        $readme | Should -Match ([regex]::Escape($version))
     }
 
     It 'no TODO placeholders in user docs' {
@@ -29,10 +30,16 @@ Describe 'Docs contract' {
         }
     }
 
-    It 'binds generated handbook PDFs to the current 0.3.12 main documentation' {
+    It 'binds generated handbook PDFs to the current main documentation' {
         $builder = Get-Content (Join-Path $script:Root 'scripts\Build-Pdfs.py') -Raw
         $playwrightHelper = Join-Path $script:Root 'scripts\Print-HtmlPdfPlaywright.js'
-        $builder | Should -Match 'VERSION\s*=\s*"0\.3\.12"'
+        foreach ($title in @('AI CLI Profile Manager 使用手册', 'Codex、Claude Code 与 Open Interpreter CLI 中文手册')) {
+            $source = [IO.File]::ReadAllText((Join-Path $script:UserDocs ($title + '.md'))).Replace("`r`n", "`n").Replace("`r", "`n")
+            $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($source))).ToLowerInvariant()
+            $pdf = [Text.Encoding]::Latin1.GetString([IO.File]::ReadAllBytes((Join-Path $script:Root ($title + '.pdf'))))
+            $pdf | Should -Match '/AICliSourceSHA256'
+            $pdf | Should -Match ([regex]::Escape($hash))
+        }
         $builder | Should -Match 'REPOSITORY_BLOB\s*=\s*"https://github\.com/wlyaaaaa/ai-cli-profile-manager/blob/main"'
         $builder | Should -Match 'render_with_playwright'
         Test-Path -LiteralPath $playwrightHelper -PathType Leaf | Should -BeTrue

@@ -18,7 +18,6 @@ import markdown
 from pypdf import PdfReader, PdfWriter
 
 
-VERSION = "0.3.12"
 REPOSITORY_BLOB = "https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main"
 DOCS = {
     "docs/user/AI CLI Profile Manager 使用手册.md": "AI CLI Profile Manager 使用手册",
@@ -217,7 +216,7 @@ def render_with_edge(edge: Path, html_path: Path, output_pdf: Path, profile_dir:
     print("PDF backend: Edge CLI fallback")
 
 
-def finalize_pdf(input_pdf: Path, output_pdf: Path, title: str, source_sha256: str) -> None:
+def finalize_pdf(input_pdf: Path, output_pdf: Path, title: str, source_sha256: str, version: str) -> None:
     reader = PdfReader(str(input_pdf))
     for page in reader.pages:
         for annotation_ref in page.get("/Annots", []):
@@ -231,7 +230,7 @@ def finalize_pdf(input_pdf: Path, output_pdf: Path, title: str, source_sha256: s
     metadata = dict(reader.metadata or {})
     metadata["/Title"] = title
     metadata["/Author"] = "AI CLI Profile Manager contributors"
-    metadata["/Subject"] = f"AI CLI Profile Manager {VERSION} 中文手册"
+    metadata["/Subject"] = f"AI CLI Profile Manager {version} 中文手册"
     metadata["/AICliSourceSHA256"] = source_sha256
     writer.add_metadata({str(k): str(v) for k, v in metadata.items() if v is not None})
     temp_target = output_pdf.with_name(output_pdf.name + ".new")
@@ -249,6 +248,11 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
     root = args.root.resolve()
+    manifest = (root / "src/AiCliProfileManager/AiCliProfileManager.psd1").read_text(encoding="utf-8-sig")
+    version_match = re.search(r"(?m)^\s*ModuleVersion\s*=\s*'([0-9]+\.[0-9]+\.[0-9]+)'", manifest)
+    if version_match is None:
+        raise ValueError("无法从模块清单读取发行版本")
+    version = version_match.group(1)
     edge = next((path for path in EDGE_CANDIDATES if path.exists()), None)
     if edge is None:
         raise FileNotFoundError("未找到 Microsoft Edge 或 Google Chrome")
@@ -273,7 +277,7 @@ def main() -> int:
             html_path.write_text(html, encoding="utf-8")
             render_with_edge(edge, html_path, raw_pdf, profile)
             final_pdf = root / f"{title}.pdf"
-            finalize_pdf(raw_pdf, final_pdf, title, source_sha256)
+            finalize_pdf(raw_pdf, final_pdf, title, source_sha256, version)
             print(f"OK {final_pdf.name}: {final_pdf.stat().st_size // 1024} KiB")
             shutil.rmtree(profile, ignore_errors=True)
     return 0

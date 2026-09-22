@@ -46,12 +46,20 @@ jobs:
               'AI CLI Profile Manager 使用手册.pdf',
               'Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf',
               'scripts\Install.ps1',
-              'scripts\Uninstall.ps1'
+              'scripts\Uninstall.ps1',
+              'scripts\Sync-LocalModelProfiles.ps1',
+              'scripts\Sync-LocalModelConfiguration.ps1',
+              'scripts\Set-CodexDesktopLocalModels.ps1',
+              'src\AiCliProfileManager\Support\DesktopBridge\DesktopBridge.csproj',
+              'src\AiCliProfileManager\Support\GeminiIntegrationState.json'
             )) {
               if ($entries -notcontains $required) { throw "Archive missing: $required" }
             }
             if ($entries | Where-Object { $_ -eq 'AGENTS.md' -or $_ -like 'docs\product\*' -or $_ -like 'docs\plans\*' }) {
               throw 'Archive contains internal project material.'
+            }
+            if ($entries | Where-Object { $_ -match '^src\\.*\\(?:bin|obj)\\' }) {
+              throw 'Archive contains generated .NET build output.'
             }
           } finally {
             $archive.Dispose()
@@ -67,6 +75,13 @@ jobs:
           $modulePath = Join-Path $work 'PowerShell\Modules'
           New-Item -ItemType Directory -Force -Path $extract,$modulePath | Out-Null
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extract
+          $preview = & (Join-Path $extract 'scripts\Sync-LocalModelProfiles.ps1') -Json | ConvertFrom-Json
+          if (-not $preview) { throw 'Packaged local profile preview returned no result.' }
+          $desktop = & (Join-Path $extract 'scripts\Set-CodexDesktopLocalModels.ps1') -Mode Status -InstallRoot (Join-Path $work 'desktop') -Json | ConvertFrom-Json
+          if (-not $desktop) { throw 'Packaged desktop Status returned no result.' }
+          $generatedFixture = Join-Path $extract 'src\AiCliProfileManager\Support\DesktopBridge\obj'
+          New-Item -ItemType Directory -Path $generatedFixture -Force | Out-Null
+          Set-Content -LiteralPath (Join-Path $generatedFixture 'must-not-install.txt') -Value 'Synthetic build cache'
           $oldModulePath = $env:PSModulePath
           try {
             $env:PSModulePath = "$modulePath;$oldModulePath"
@@ -74,6 +89,9 @@ jobs:
             $manifests = @(Get-ChildItem -LiteralPath (Join-Path $modulePath 'AiCliProfileManager') -Recurse -Filter AiCliProfileManager.psd1)
             if ($manifests.Count -ne 1) { throw "Expected one installed manifest, found $($manifests.Count)." }
             $manifest = $manifests[0]
+            if (Get-ChildItem -LiteralPath $manifest.DirectoryName -Directory -Recurse | Where-Object Name -In @('bin','obj')) {
+              throw 'Installed module contains generated .NET build output.'
+            }
             $shimDir = Join-Path $env:LOCALAPPDATA 'aicli\bin'
             if (-not (Test-Path -LiteralPath (Join-Path $shimDir 'aicli.cmd'))) { throw 'Default install did not create aicli.cmd.' }
             $userPath = [string][Environment]::GetEnvironmentVariable('Path', 'User')

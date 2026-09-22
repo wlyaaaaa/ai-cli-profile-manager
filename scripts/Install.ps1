@@ -213,7 +213,15 @@ $backupCreated = $false
 $candidatePromoted = $false
 try {
     New-Item -ItemType Directory -Force -Path $tempVer | Out-Null
-    Copy-Item -Path (Join-Path $src '*') -Destination $tempVer -Recurse -Force
+    # Preserve the module and bridge build sources, without carrying a local
+    # developer's generated .NET output into the installed module.
+    foreach ($file in Get-ChildItem -LiteralPath $src -Recurse -File -Force) {
+        $relative = [IO.Path]::GetRelativePath($src, $file.FullName)
+        if ($relative -match '(?i)(^|[\\/])(bin|obj)[\\/]') { continue }
+        $destination = Join-Path $tempVer $relative
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+        Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
+    }
     $dataSrc = Join-Path $SourceRoot 'data'
     if (Test-Path -LiteralPath $dataSrc) {
         Copy-Item -LiteralPath $dataSrc -Destination (Join-Path $tempVer 'data') -Recurse -Force

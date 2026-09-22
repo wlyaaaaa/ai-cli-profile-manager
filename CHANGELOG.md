@@ -1,18 +1,16 @@
 # 变更日志
 
-## 0.3.16
-
-- Own each native Codex app-server process group with a Windows job, confirm descendant cleanup after root exit, and preserve actionable GPU-owner errors without exposing private exception text.
-
-- 新增 `aicli run <profile> --stdin --json --dry-run`：复用真实参数解析器，只返回实际模型、Profile、模块来源和预算，不读取 stdin、消费模型凭据、创建运行目录或启动模型。
-- 机器能力声明区分结构化参数、权限、预算模式与原生图片支持。Toolkit 消费者采用结构化接口，预检不冒充真实任务验收。
-- 脱敏递归覆盖 PowerShell 对象与字典，保留数组形状和数值型 token 用量/上下文指标；凭据字段与错误类型的“存在性”字段仍脱敏。
-- 读取 settings 不再初始化应用目录，支持无副作用的调用预检。
-- 新增可执行预检及对象序列化回归；既有恢复控制器与安装事务保持独立。
-
 本项目遵循语义化版本。日期按 UTC+8 记录。
 
-## [Unreleased]
+## [0.3.18] - 2026-09-22
+
+### 本次发行收口
+
+- 把此前仅在源码和本机安装交付的 exact 模型、Toolkit 诊断及恢复改进纳入正式发行；完整保留各自权限、身份、账号和数据去向。
+- 三个退役 Profile ID 不再允许改绑到官方或其他模板；旧入口明确拒绝，原用户文件不迁移、不重写。
+- 发行包与源码安装排除 .NET bin/obj 缓存，补齐公开手册使用的本地模型同步及桌面配置脚本。
+- 用户手册同步实际模型标签与版本，PDF 版本来自模块清单，继续绑定对应 Markdown 哈希。
+- Gemini consumer 接入保持冻结；正式发行不代表该实验已恢复或通过日用验收。
 
 ### 新增
 
@@ -34,6 +32,16 @@
 - 安装切换使用同一模块父目录内的原子目录重命名；文件占用时保留完整旧安装，避免部分移动造成半套安装。
 - 退役预检现在与运行时一致地优先现有 `CODEX_HOME`。历史 managed state 只有在其直连 Junction、祖先链和唯一完整绝对目标均闭合到已验证真实 home 时才可与真实路径等价；旧记录路径只用于 Junction 元数据比对，退役产物的扫描、移动和存在性检查始终使用真实路径，显式或越界链接继续失败关闭。
 - 发布 smoke 保持离线，并验证无法联网确认更新时的 Limited / exit 3 语义；真实最新版本和模型能力仍单独验收。
+
+## 0.3.16
+
+- Own each native Codex app-server process group with a Windows job, confirm descendant cleanup after root exit, and preserve actionable GPU-owner errors without exposing private exception text.
+
+- 新增 `aicli run <profile> --stdin --json --dry-run`：复用真实参数解析器，只返回实际模型、Profile、模块来源和预算，不读取 stdin、消费模型凭据、创建运行目录或启动模型。
+- 机器能力声明区分结构化参数、权限、预算模式与原生图片支持。Toolkit 消费者采用结构化接口，预检不冒充真实任务验收。
+- 脱敏递归覆盖 PowerShell 对象与字典，保留数组形状和数值型 token 用量/上下文指标；凭据字段与错误类型的“存在性”字段仍脱敏。
+- 读取 settings 不再初始化应用目录，支持无副作用的调用预检。
+- 新增可执行预检及对象序列化回归；既有恢复控制器与安装事务保持独立。
 
 ## [0.3.12] - 2026-08-15
 

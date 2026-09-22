@@ -102,8 +102,18 @@ if (Test-Path -LiteralPath $stage) {
 }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-foreach ($dir in @('src','data','bin')) {
+foreach ($dir in @('data','bin')) {
     Copy-Item -LiteralPath (Join-Path $root $dir) -Destination (Join-Path $stage $dir) -Recurse -Force
+}
+# Source projects are shipped for the supported local bridge build. Their
+# generated bin/obj trees are not runtime payloads; the product's root bin is.
+$sourceRoot = Join-Path $root 'src'
+foreach ($file in Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Force) {
+    $relative = [IO.Path]::GetRelativePath($sourceRoot, $file.FullName)
+    if ($relative -match '(?i)(^|[\\/])(bin|obj)[\\/]') { continue }
+    $destination = Join-Path (Join-Path $stage 'src') $relative
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+    Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
 }
 New-Item -ItemType Directory -Force -Path (Join-Path $stage 'scripts') | Out-Null
 foreach ($script in @(
@@ -111,7 +121,10 @@ foreach ($script in @(
     'Uninstall.ps1',
     'Import-FromOpenClaw.ps1',
     'Invoke-AiCliRetirementMigration.ps1',
-    'Setup-Qwen38-27B256K.ps1'
+    'Setup-Qwen38-27B256K.ps1',
+    'Sync-LocalModelProfiles.ps1',
+    'Sync-LocalModelConfiguration.ps1',
+    'Set-CodexDesktopLocalModels.ps1'
 )) {
     Copy-Item -LiteralPath (Join-Path $root "scripts\$script") -Destination (Join-Path $stage "scripts\$script") -Force
 }
