@@ -207,16 +207,30 @@ if (-not $UpstreamOnly) {
     # No official model IDs are embedded here.
     $officialModels = $null
     $cachePath = Join-Path $plan.codexHome 'models_cache.json'
+    $refreshEngine = & $module {
+        $candidate = Resolve-AiCliLaunchExecutable -Name 'codex' -PreferNpmCodex
+        if ($null -eq $candidate -or [string]::IsNullOrWhiteSpace([string]$candidate.FileName)) { return $null }
+        [pscustomobject]@{
+            FileName = [string]$candidate.FileName
+            PrefixArgs = @($candidate.PrefixArgs | ForEach-Object { [string]$_ })
+        }
+    }
+    if ($null -eq $refreshEngine) {
+        $refreshEngine = [pscustomobject]@{
+            FileName = [string]$plan.upstreamFileName
+            PrefixArgs = @($plan.upstreamPrefixArgs | ForEach-Object { [string]$_ })
+        }
+    }
     for ($attempt = 0; $attempt -lt 3; $attempt++) {
         $start = [Diagnostics.ProcessStartInfo]::new()
-        $start.FileName = $plan.upstreamFileName
+        $start.FileName = $refreshEngine.FileName
         $start.UseShellExecute = $false
         $start.CreateNoWindow = $true
         $start.RedirectStandardOutput = $true
         $start.RedirectStandardError = $true
         $start.StandardOutputEncoding = $utf8
         $start.StandardErrorEncoding = $utf8
-        foreach ($arg in $plan.upstreamPrefixArgs) { $start.ArgumentList.Add([string]$arg) }
+        foreach ($arg in $refreshEngine.PrefixArgs) { $start.ArgumentList.Add([string]$arg) }
         $start.ArgumentList.Add('debug')
         $start.ArgumentList.Add('models')
         $process = [Diagnostics.Process]::Start($start)

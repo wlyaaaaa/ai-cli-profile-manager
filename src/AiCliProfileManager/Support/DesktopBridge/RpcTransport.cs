@@ -319,6 +319,8 @@ internal sealed partial class RpcTransport
                 continue;
             if (message is not null && TryHandleOpenAiChildNotification(message))
                 continue;
+            if (message is not null && SoftenOrdinaryRateLimitHardBlockNotification(message))
+                line = message.ToJsonString();
 
             if (message is not null && IsResponse(message) && TryGetIdKey(message["id"], out var responseId))
             {
@@ -337,6 +339,8 @@ internal sealed partial class RpcTransport
                         message["id"] = context.ExternalId.DeepClone();
                     try
                     {
+                        if (context.Method == "account/rateLimits/read")
+                            SoftenOrdinaryRateLimitHardBlockResponse(message);
                         router.AfterResponse(context.Method, context.OriginalParams, message);
                         RememberManagedParentThread(context, message);
                         FilterBackgroundChildList(context.Method, message);
@@ -489,6 +493,35 @@ internal sealed partial class RpcTransport
         catch (JsonException) { return null; }
     }
 
+    // Preserve the pre-26.917 composer behavior for ordinary account usage exhaustion:
+    // Desktop may still submit, while the upstream Codex service remains authoritative
+    // and returns the real rate-limit error. Workspace/owner spend controls stay intact.
+    private static void SoftenOrdinaryRateLimitHardBlockResponse(JsonObject response)
+    {
+        if (response["result"] is not JsonObject result) return;
+        SoftenOrdinaryRateLimitSnapshot(result["rateLimits"]);
+        if (result["rateLimitsByLimitId"] is not JsonObject byLimitId) return;
+        foreach (var entry in byLimitId)
+            SoftenOrdinaryRateLimitSnapshot(entry.Value);
+    }
+
+    private static bool SoftenOrdinaryRateLimitHardBlockNotification(JsonObject message)
+    {
+        if (!TryGetString(message["method"], out var method) || method != "account/rateLimits/updated" ||
+            message["params"] is not JsonObject parameters)
+            return false;
+        return SoftenOrdinaryRateLimitSnapshot(parameters["rateLimits"]);
+    }
+
+    private static bool SoftenOrdinaryRateLimitSnapshot(JsonNode? node)
+    {
+        if (node is not JsonObject snapshot ||
+            !TryGetString(snapshot["rateLimitReachedType"], out var reached) ||
+            reached != "rate_limit_reached")
+            return false;
+        snapshot["rateLimitReachedType"] = null;
+        return true;
+    }
     private static bool IsClientResponse(JsonObject message) =>
         !message.ContainsKey("method") && message.ContainsKey("id") && (message.ContainsKey("result") || message.ContainsKey("error"));
 

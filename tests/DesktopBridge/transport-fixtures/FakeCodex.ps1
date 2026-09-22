@@ -292,7 +292,34 @@ while ($null -ne ($requestLine = [Console]::In.ReadLine())) {
             $null = Write-FakeRpcLine ([ordered]@{ method = 'turn/completed'; params = @{ threadId = $threadId; turn = @{ id = $turnId; status = 'completed' } } })
             $null = Write-FakeRpcLine ([ordered]@{ jsonrpc = '2.0'; id = $request.id; result = @{ ok = $true } })
         }
-        'client/notice' {
+        'account/rateLimits/read' {
+            $null = Write-FakeRpcLine ([ordered]@{
+                jsonrpc = '2.0'
+                method = 'account/rateLimits/updated'
+                params = @{ rateLimits = @{
+                    rateLimitReachedType = 'rate_limit_reached'
+                    planType = 'pro'
+                    spendControlReached = $false
+                    primary = @{ usedPercent = 100; resetsAt = 1234567890 }
+                } }
+            })
+            $null = Write-FakeRpcLine ([ordered]@{
+                jsonrpc = '2.0'
+                id = $request.id
+                result = @{
+                    rateLimits = @{
+                        rateLimitReachedType = 'rate_limit_reached'
+                        planType = 'pro'
+                        spendControlReached = $false
+                        primary = @{ usedPercent = 100; resetsAt = 1234567890 }
+                    }
+                    rateLimitsByLimitId = @{
+                        ordinary = @{ rateLimitReachedType = 'rate_limit_reached'; primary = @{ usedPercent = 100 } }
+                        workspace = @{ rateLimitReachedType = 'workspace_member_usage_limit_reached'; primary = @{ usedPercent = 100 } }
+                    }
+                }
+            })
+        }        'client/notice' {
             $null = Write-FakeRpcLine ([ordered]@{
                 jsonrpc = '2.0'
                 method = 'engine/notice'

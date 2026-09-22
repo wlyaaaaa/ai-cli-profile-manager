@@ -254,6 +254,33 @@ $testContainer = {
             finally { Stop-BridgeProcess $process }
         }
 
+        It 'keeps ordinary account rate-limit exhaustion visible but does not hard-disable Desktop send' {
+            $root = New-TestRoot
+            $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-app-server' -ModelState Valid
+            $process = $null
+            try {
+                $process = New-BridgeProcess -Executable $script:BridgePath -PlanPath $plan.Path -Arguments @('app-server', '--stdio')
+
+                Write-BridgeLine $process '{"jsonrpc":"2.0","id":"limits","method":"account/rateLimits/read","params":{}}'
+                $notification = (Read-BridgeLine $process) | ConvertFrom-Json
+                $notification.method | Should -Be 'account/rateLimits/updated'
+                $notification.params.rateLimits.rateLimitReachedType | Should -BeNullOrEmpty
+                $notification.params.rateLimits.primary.usedPercent | Should -Be 100
+                $notification.params.rateLimits.spendControlReached | Should -BeFalse
+
+                $response = (Read-BridgeLine $process) | ConvertFrom-Json
+                $response.id | Should -Be 'limits'
+                $response.result.rateLimits.rateLimitReachedType | Should -BeNullOrEmpty
+                $response.result.rateLimits.primary.usedPercent | Should -Be 100
+                $response.result.rateLimitsByLimitId.ordinary.rateLimitReachedType | Should -BeNullOrEmpty
+                $response.result.rateLimitsByLimitId.workspace.rateLimitReachedType | Should -Be 'workspace_member_usage_limit_reached'
+
+                $process.StandardInput.Close()
+                $process.WaitForExit(10000) | Should -BeTrue
+                $process.ExitCode | Should -Be 0
+            }
+            finally { Stop-BridgeProcess $process }
+        }
         It 'keeps real DeepSeek summaries visible while structural reasoning bridges output gaps' {
             $root = New-TestRoot
             $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-app-server' -ModelState DeepSeek
