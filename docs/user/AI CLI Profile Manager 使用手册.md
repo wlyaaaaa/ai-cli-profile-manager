@@ -1,6 +1,6 @@
 # AI CLI Profile Manager 使用手册
 
-适用版本：`0.3.12`（源码与安装目标；发布、安装和 Live 证据须分别核对）
+适用版本：`0.3.18`（源码与安装目标；发布、安装和 Live 证据须分别核对）
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
@@ -19,7 +19,7 @@ AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter �
 
 ### 1.2 安装本工具
 
-`0.3.12` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
+`0.3.18` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
 
 ```powershell
 $version = '<从 Releases 页面选择的已发布版本>'
@@ -218,11 +218,9 @@ aicli profile remove qwen-work
 | Codex | 本机精确 main / 35B 交叉 / Qwen3.8-27B | `codex-ollama-main`、`codex-ollama-review`、`codex-ollama-qwen3-8-27b` |
 | OpenCode | 本机精确 main / Qwen3.8-27B | `opencode-ollama-main`、`opencode-ollama-qwen3-8-27b` |
 | Claude Code | Claude 官方登录 | `claude-official` |
-
 | Claude Code | 本机 Ollama | `claude-ollama` |
 | Claude Code | 自定义 Anthropic Messages 兼容端点 | `claude-custom` |
 | Claude Code | ChatGPT 第三方本地代理 | `claude-chatgpt-ccp`、`claude-chatgpt-cliproxy` |
-
 | Open Interpreter | 本机 Ollama | `oi-ollama` |
 
 `codex-deepseek-flash` 使用官方自动升级 ID `deepseek-flash`，`codex-deepseek-v4-pro` 使用固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`。两者均走官方 [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 的 Responses wire、1M context、`low` / `high` / `max`，用户默认 `max`，并拒绝模型、Provider 与 fallback 覆盖；V4 Pro 仅为 CLI-only。旧 `codex-deepseek` / `deepseek-v4-flash`、Claude Code 与 Open Interpreter 的 DeepSeek 模板均已退役。动态变化以 [DeepSeek Change Log](https://api-docs.deepseek.com/updates/) 为准。

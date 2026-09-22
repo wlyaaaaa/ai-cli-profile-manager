@@ -38,11 +38,12 @@ aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 | `codex-qwen3-8-max-paygo` | Codex CLI（百炼 Workspace） | Responses / `qwen3.8-max-0902` / requested `max` → effective `xhigh` |
 | `codex-deepseek-flash` | Codex CLI | Responses / `deepseek-flash` / 自动升级 Flash / 1M / `max` |
 | `codex-deepseek-v4-pro` | Codex CLI | Responses / `deepseek-v4-pro` / Pro 0813 / 1M / `max` |
-| `codex-ollama-main` | Codex CLI | `127.0.0.1:32100` / `qwen3.6-35b:256k` / 262144 / `max` |
-| `codex-ollama-qwen3-8-27b` | Codex CLI | `127.0.0.1:32100` / `aicli-qwen3.8-27b-256k:2026-08-14` / 262144 / `max` |
-| `claude-ollama-main` | Claude Code | 同上；MAX/AUTO 262144（Claude Code 2.1.193+） |
+| `codex-ollama-main` | Codex CLI | `127.0.0.1:32100` / `qwen3.8-27b:256k` / 262144 / `max` |
+| `codex-ollama-review` | Codex CLI | `127.0.0.1:32100` / `qwen3.6-35b:256k` / 262144 / `max` |
+| `codex-ollama-qwen3-8-27b` | Codex CLI | `127.0.0.1:32100` / `qwen3.8-27b:256k` / 262144 / `max` |
+| `claude-ollama-main` | Claude Code | `qwen3.8-27b:256k`；MAX/AUTO 262144（Claude Code 2.1.193+） |
 | `qwen-code-ollama-main` | Qwen Code | 同上 |
-| `opencode-ollama-main` | OpenCode | 同上；262144 context / 8192 output / 20000 compaction reserve |
+| `opencode-ollama-main` | OpenCode | 同上；262144 context/input / 32768 output / 20000 compaction reserve |
 | `opencode-ollama-qwen3-8-27b` | OpenCode | 同一 256K 运行标签/权重；262144 context/input / 32768 output / 20000 compaction reserve |
 
 安全边界：
@@ -64,7 +65,7 @@ aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 - 官方云端 Codex 可恢复 run 同时忽略用户配置和规则。run 独占的持久 `CODEX_HOME` 只复制现有 `auth.json`，不需要付费 API Key；不会复制用户 `config.toml`、rules、skills 或其他 sessions/history。状态终态后保留它是为了证据与显式恢复判断，不得当作通用聊天历史库。
 - Codex harness 本来就是全访问，因此应传入隔离 worktree 或暂存目录；canonical raw 数据和无关秘密应保留在边界外。AICLI 不自动 fallback 到另一个 Profile。
 - Qwen Code/OpenCode 是 machine-only；交互式 `start` 会拒绝这两个 Profile。
-- OpenCode 的 inline 配置只启用 `aicli_ollama`，主/小/压缩模型都固定为当前 exact Profile 的模型；`opencode-ollama-main` 使用 `qwen3.6-35b:256k`，`opencode-ollama-qwen3-8-27b` 使用固定 256K 运行标签。两者显式 `auto=true`、`prune=false`、20000 reserve、最近 4 轮/16384 token 原样保留。`agent.build.steps=maxSteps` 只是上游软收尾，`maxToolCalls` 仍未获得硬映射，不能标成 AICLI `hard`。
+- OpenCode 的 inline 配置只启用 `aicli_ollama`，主/小/压缩模型都固定为当前 exact Profile 的模型；`opencode-ollama-main` 使用 `qwen3.8-27b:256k`，`opencode-ollama-qwen3-8-27b` 使用固定 256K 运行标签。两者显式 `auto=true`、`prune=false`、20000 reserve、最近 4 轮/16384 token 原样保留。`agent.build.steps=maxSteps` 只是上游软收尾，`maxToolCalls` 仍未获得硬映射，不能标成 AICLI `hard`。
 - OpenCode 的 XDG config/data/cache/state 位于一次性 `.aicli-runtime-*` 并在结束时清理，所以 session summary/checkpoint 不能跨 run 继承。一个 run 只做一个里程碑；压缩前把目标与验收、约束/授权/owner、规则与关键文件、改动和脏改动归属、决定、测试/Live 缺口、阻塞与下一步写入项目已有状态，再开新 run。自动压缩后把摘要当线索，重读项目规则（`AGENTS.md`/`CLAUDE.md`）、状态文件和 `git status` / `git diff`；不得建立第二事实源。
 - Codex harness 以 npm `codex-cli 0.147.0` 为当前最低身份验证基线，由内部桥使用 app-server JSON-RPC v2 的 `thread/start`、`turn/start` 与通知流。CLI 更新后默认尝试运行，但每次仍严格验证初始化、actual identity、全访问权限、通知 allowlist、thread/turn 归属、item 生命周期、成功轮次 `status=completed` 和清理结果；必要协议缺失、结构漂移、歧义事件或清理不可靠就明确失败。
 - Codex 的 `max-steps` 采用 `distinct-non-output-thread-item-v2`：统计不同的推理、计划、工具、压缩等非输出 ThreadItem；公开 `agentMessage` 增量和最终消息不占用行动步骤，避免“一边汇报”挤掉实际执行预算。`max-tool-calls` 仍统计命令、文件、MCP、collab、web 等工具项；墙钟、输出上限和事件安全门也保持独立。machine run 逐行解析桥接后的安全事件并硬执行，越限会终止桥、app-server 和全部后代进程。
@@ -81,7 +82,7 @@ aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 - 其他 CLI 只有在自身回执能证明相同硬边界时才可被上层当作有限预算 runner；`upstream` 或 `not-enforced` 不能冒充 `hard`。
 - CLI 更新不应直接等同于受管 machine runtime 晋升。应先校验包内可执行文件与资源闭包、版本/协议、actual identity、全访问权限对象和少量 smoke，再按当前版本与 Profile 指纹重新验收。
 
-`0.3.12` 是当前源码与安装目标，包含 exact Qwen3.7 06-08/Qwen3.8/DeepSeek/local Codex Profile、Qwen3.8-27B 256K Codex/OpenCode Profile、MAX 映射、统一 `danger-full-access`、actual identity/no-reroute、同 thread 持久恢复、后台控制面、独立 verifier Agent 验收，以及同一未完成 item 的幂等 `item/started` 兼容。源代码验收必须明确使用仓库入口并在回执中保留来源；正式安装/晋升前，不得把 source 结果宣称为 installed 或 runtime current。
+`0.3.18` 是当前源码与安装目标，包含 exact Qwen3.7 06-08/Qwen3.8/DeepSeek/local Codex Profile、Qwen3.8-27B 256K Codex/OpenCode Profile、MAX 映射、统一 `danger-full-access`、actual identity/no-reroute、同 thread 持久恢复、后台控制面、独立 verifier Agent 验收，以及同一未完成 item 的幂等 `item/started` 兼容。源代码验收必须明确使用仓库入口并在回执中保留来源；正式安装/晋升前，不得把 source 结果宣称为 installed 或 runtime current。
 
 2026-07-29 的 Spark 源代码入口真实任务证明工作区写权限已生效；但 `code_repair` 在硬上限 `maxSteps=80` 下到达 `81/80` 并终止，确定性得分为 `2/9`。这属于模型/Agent 能力验收不通过，不是权限链仍然只读，也不应通过重复复测改变结论。
 

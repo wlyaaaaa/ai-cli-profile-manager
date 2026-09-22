@@ -1,6 +1,6 @@
 # Codex、Claude Code 与 Open Interpreter CLI 中文手册
 
-适用版本：AI CLI Profile Manager `0.3.12`（source/install/runtime/live 分层验收）
+适用版本：AI CLI Profile Manager `0.3.18`（source/install/runtime/live 分层验收）
 用途：帮助中文用户直接使用原生 Codex CLI、Claude Code 和当前官方 Rust Open Interpreter。
 
 > aicli 只负责选择 Profile 并启动原生 CLI。本手册保留上游英文命令，便于复制和搜索。上游版本会变化；某条命令不在当前 CLI 的 `/help` 或斜杠菜单中时，以当前官方界面为准。
@@ -72,7 +72,7 @@ DeepSeek Codex 当前使用两个隔离 Profile：`codex-deepseek-flash` 固定�
 
 Qwen 使用两个隔离 exact Codex Profile：`codex-qwen3-7-max-paygo` 固定 `qwen3.7-max-2026-06-08`，`codex-qwen3-8-max-paygo` 固定 `qwen3.8-max-0902`。两者均为北京 Workspace 按量 Responses、983616 context、95% 有效窗口、885254 token（最大上下文 90%）自动压缩阈值，用户 `max` 映射原生最高 `xhigh`。通用 alias、其他快照、preview、Plus、通用 DashScope、Token Plan 与 native model/fallback 参数继续失败关闭。
 
-本机 `Qwen/Qwen3.8-27B` 使用 `codex-ollama-qwen3-8-27b`，固定同权重运行标签 `aicli-qwen3.8-27b-256k:2026-08-14`、Responses、`num_ctx=262144`、`max` 和 no-fallback；OpenCode 对应 `opencode-ollama-qwen3-8-27b`，Desktop 显示 `Qwen3.8 27B MAX (256K)`。1M YaRN 是可选扩展模式，不是 32GB GPU 的默认运行合同。
+本机 `Qwen/Qwen3.8-27B` 使用 `codex-ollama-main`，兼容入口 `codex-ollama-qwen3-8-27b` 保留，固定同权重运行标签 `qwen3.8-27b:256k`、Responses、`num_ctx=262144`、`draft_num_predict=0`、`num_batch=128`、`max` 和 no-fallback；OpenCode 对应 `opencode-ollama-qwen3-8-27b`，Desktop 显示 `Qwen3.8 27B MAX (256K)`。1M YaRN 是可选扩展模式，不是 32GB GPU 的默认运行合同。
 
 ### 2.2 权限、沙箱和计划模式
 
@@ -338,7 +338,7 @@ Usage by model:
 - **原生 ChatGPT + Codex**：作为基准，使用上游默认机制，AICLI 不附加压缩限制。
 - **Codex + DeepSeek/千问**：自定义 Provider 没有 OpenAI 原生 remote compact；受管 model catalog 负责给出真实窗口，云千问为 983616，本地 `qwen3.6-35b:256k` 与 Qwen3.8-27B 256K 运行标签均为 262144，摘要仍由当前客户端/模型完成。
 - **Claude Code + 千问/本地 Qwen/自定义第三方模型**：AICLI 按最终有效模型设置 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 与 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`。不设置只能提前压缩的百分比覆盖，也不关闭自动溢出保护。未知模型不猜窗口，并清除父进程遗留的窗口/禁压缩变量。
-- **OpenCode + 本地千问**：`qwen3.6-35b:256k` 声明 262144 context / 8192 output，Qwen3.8-27B 256K 运行标签声明 262144 context/input / 32768 output；两者使用 20000 reserved，保留最近 4 轮/16384 token，并关闭有损 tool-output pruning。一次 `aicli run` 的 checkpoint 不跨 run 持久。
+- **OpenCode + 本地千问**：`opencode-ollama-main` 与兼容入口 `opencode-ollama-qwen3-8-27b` 均使用 `qwen3.8-27b:256k`，声明 262144 context/input / 32768 output；两者使用 20000 reserved，保留最近 4 轮/16384 token，并关闭有损 tool-output pruning。一次 `aicli run` 的 checkpoint 不跨 run 持久。
 
 聪明用法是一个会话/run 只做一个内聚里程碑；AICLI 的第三方连续性契约要求在自然边界把目标与验收、约束/授权/owner、规则与关键文件、改动文件及既有脏改动、决定、测试/Live 缺口、阻塞项和下一步写入项目已有 plan/progress/decision。接近真实窗口时优先拆任务或开 fresh session；确需压缩时先落盘。压缩后把摘要当线索，重新读取适用的 `AGENTS.md` / `CLAUDE.md`、状态文档以及 `git status` / `git diff`，再继续编辑；不得建立第二事实源。
 

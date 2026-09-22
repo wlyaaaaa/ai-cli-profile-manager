@@ -2,7 +2,7 @@
 
 面向 Windows 11 x64 的中文 PowerShell 工具：用统一 Profile 启动原生 Codex CLI、Claude Code、Qwen Code、OpenCode 和当前官方 Rust Open Interpreter，并提供 Provider 隔离、Doctor、显式 Live Test、Codex harness 与可选的第三方代理运维。
 
-命令：`aicli`　版本：`0.3.12`（`main` 源码；source/install/runtime/live 分层回读）　许可证：MIT
+命令：`aicli`　版本：`0.3.18`（`main` 源码；source/install/runtime/live 分层回读）　许可证：MIT
 
 它不是新的 Agent、聊天外壳或通用历史库，也不汉化上游 CLI。Codex harness 只额外保存恢复同一 thread 所需的身份、游标和哈希账本，不保存任务正文、隐藏推理或工具载荷。
 
@@ -17,7 +17,7 @@ aicli start codex-official
 
 目标版本已安装时，确认替换可加 `-Force`。安装后请新开 PowerShell 7，再运行 `aicli version`。
 
-从 `0.3.11` 或更早版本升级到 `0.3.12` 时，安装器继续先只读预检 Qwen3.7 遗留入口，再把身份与哈希闭合的旧 Profile、旧受管 Codex 文件和旧模块版本移入 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。新 `codex-qwen3-7-max-paygo`、其 exact 06-08 TOML 与被引用目录会被明确保留。迁移不读取、移动或删除 SecretRef/密钥；未知或被修改的遗留物会在安装变更前阻断。
+从旧版本升级到 `0.3.18` 时，安装器继续先只读预检 Qwen3.7 遗留入口，再把身份与哈希闭合的旧 Profile、旧受管 Codex 文件和旧模块版本移入 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。新 `codex-qwen3-7-max-paygo`、其 exact 06-08 TOML 与被引用目录会被明确保留。迁移不读取、移动或删除 SecretRef/密钥；未知或被修改的遗留物会在安装变更前阻断。
 
 不安装的开发入口：
 
@@ -30,10 +30,10 @@ pwsh -File .\bin\aicli.ps1 doctor
 
 | 引擎 | 已实现的公开路径 | 验收口径 |
 |------|------------------|----------|
-| Codex CLI | 官方登录、精确 Qwen3.7 Max 06-08 / Qwen3.8 Max Workspace 按量、DeepSeek Flash（`deepseek-flash`）/ V4 Pro CLI-only、本机 qwen-main/review / Qwen3.8-27B | 当前 source/static；安装与 Live 只认同提交、同指纹回执 |
+| Codex CLI | 官方登录、精确 Qwen3.7 Max 06-08 / Qwen3.8 Max Workspace 按量、DeepSeek Flash（`deepseek-flash`）/ V4 Pro CLI-only、本机 Qwen3.8 27B / Qwen3.6 35B | 当前 source/static；安装与 Live 只认同提交、同指纹回执 |
 | Claude Code | 官方登录、Ollama、自定义 Anthropic Messages | DeepSeek 与 Qwen3.7 Max/Plus 云模板已移除 |
-| Qwen Code | 本机 Ollama `qwen-main-v1` machine run | 仅机器入口 |
-| OpenCode | 本机 Ollama `qwen-main-v1` / Qwen3.8-27B 256K machine run；Desktop 目录可见 | 仅机器入口 |
+| Qwen Code | 本机 Ollama `qwen3.8-27b:256k` machine run | 仅机器入口 |
+| OpenCode | 本机 Ollama `qwen3.8-27b:256k` machine run；Desktop 目录可见 | 仅机器入口 |
 | Open Interpreter | 当前官方 Rust `0.0.21+`：Ollama | DeepSeek / Qwen3.7 云模板已移除；旧 Python `0.4.x` 不支持 |
 | ChatGPT → Claude | `raine/claude-code-proxy`、`CLIProxyAPI` | 可选第三方通道；本轮未完成 OAuth 与端到端 Live 验收 |
 
@@ -41,11 +41,11 @@ DeepSeek 当前主入口是 `codex-deepseek-flash` → 官方自动升级 ID `de
 
 Qwen 云端使用两个互相隔离的 exact Profile：`codex-qwen3-7-max-paygo` 只固定 `qwen3.7-max-2026-06-08`，`codex-qwen3-8-max-paygo` 只固定 `qwen3.8-max-0902`；两者都只接受北京百炼 Workspace 按量 Responses endpoint，使用 983616 context、95% 有效窗口、885254 token（最大上下文 90%）自动压缩阈值，用户 `max` 映射为原生最高 `xhigh`。通用 alias、05-20、preview、Plus、通用 DashScope、Token Plan、模型覆盖和 fallback 都不进入这两个入口。Codex 桌面桥接会在启动时读取原生 OpenAI 模型目录，再合并已配置的 0902 快照与本地模型；不会把官方模型写成静态白名单。
 
-本机新模型使用两个隔离入口：`codex-ollama-qwen3-8-27b` 与 `opencode-ollama-qwen3-8-27b` 都固定同一个 `aicli-qwen3.8-27b-256k:2026-08-14` 运行标签。该标签复用官方 `qwen3.8:27b` Q4_K_M 模型/视觉权重，只增加 `num_ctx 262144` 参数层；运行前执行 `scripts\Setup-Qwen38-27B256K.ps1`，还会把 `Qwen3.8 27B MAX (256K)` 注册到既有 OpenCode Desktop 本机 Provider。Codex 继续使用 Responses、`max`、单候选和 no-fallback；OpenCode 使用同一权重与一次性 pure 配置。运行需要 Ollama 0.32.12 或更高。
+本机 Qwen3.8 27B 的两个兼容入口：`codex-ollama-qwen3-8-27b` 与 `opencode-ollama-qwen3-8-27b` 都固定同一个 `qwen3.8-27b:256k` 运行标签。该标签复用官方 `qwen3.8:27b` Q4_K_M 模型/视觉权重，使用包含 `num_ctx 262144`、`draft_num_predict 0` 与 `num_batch 128` 的受管参数层；运行前执行 `scripts\Setup-Qwen38-27B256K.ps1`，还会把 `Qwen3.8 27B MAX (256K)` 注册到既有 OpenCode Desktop 本机 Provider。Codex 继续使用 Responses、`max`、单候选和 no-fallback；OpenCode 使用同一权重与一次性 pure 配置。运行需要 Ollama 0.32.12 或更高。
 
 DeepSeek API Key 仍由 Windows CurrentUser DPAPI 保存，Codex 受管配置只写 `env_key` 引用；不复制官方示例中的明文 `experimental_bearer_token`，也不写入 `preferred_auth_method`。Qwen Code `0.21` 与 OpenCode `1.18.8` 虽有上游 DeepSeek 原生接入方式，但 AICLI 当前 machine-only 外层沙箱断网，且尚无把真实 Key 与远程 egress 隔离开的 relay；因此不开放这两条远程模板，也不生成看似可用的假 Profile。
 
-Qwen3.7 只恢复上述单一 exact Codex 快照。旧 `codex-qwen-paygo` 等 Profile、Qwen3.7 Plus、其他 Max alias/snapshot、Claude/OI 路线和导入入口继续退役；旧用户 Profile 或原生 `--model` / `--fallback-model` 会失败关闭，不会自动改投新入口或 Qwen3.8。本地备用交叉入口 `codex-ollama-review` 现使用 `qwen-main-v1`（Qwen3.6 35B）；旧 `qwen-review-v1`/Qwen3.6 27B 身份已退役并失败关闭。
+Qwen3.7 只恢复上述单一 exact Codex 快照。旧 `codex-qwen-paygo` 等 Profile、Qwen3.7 Plus、其他 Max alias/snapshot、Claude/OI 路线和导入入口继续退役；旧用户 Profile 或原生 `--model` / `--fallback-model` 会失败关闭，不会自动改投新入口或 Qwen3.8。本地备用交叉入口 `codex-ollama-review` 现使用 `qwen3.6-35b:256k`（Qwen3.6 35B）；旧 `qwen-review-v1`/Qwen3.6 27B 身份已退役并失败关闭。
 
 2026-07-14（UTC+8）曾完成 Claude Code / Rust Open Interpreter → `deepseek-v4-pro` 的文本验收；之后两条路径曾短暂切到旧 V4 Flash，但现在 Claude Code / Open Interpreter 的 DeepSeek 模板已整体退役。上述旧 Profile 指纹均只保留为历史证据，不能证明当前 `codex-deepseek-flash` 或 V4 Pro CLI Profile。逐项状态见兼容性页。
 
@@ -84,11 +84,11 @@ machine child 的父环境按运行时 allowlist 重建，不继承无关凭据�
 
 除 `codex-qwen3-7-max-paygo` → exact 06-08 外，Qwen3.7 Cloud Agent route、兼容 ID 和历史 Flash/Plus 入口均已退役；历史记录只保留在变更史，不能启动、导入或作为当前证据。
 
-本机 Codex 预置三个精确 Profile：`codex-ollama-main` → `qwen-main-v1`、`codex-ollama-review` → `qwen-main-v1`（Qwen3.6 35B 交叉模型）、`codex-ollama-qwen3-8-27b` → `aicli-qwen3.8-27b-256k:2026-08-14`，均固定 `127.0.0.1:32100`、Responses、最高 `max` 且无 fallback。旧泛型 `codex-ollama` 已从公开目录隐藏。另有显式 opt-in 的 `codex-spark-xhigh`，精确选择 `gpt-5.3-codex-spark` 与默认 `xhigh`。所有 Profile 都不自动 fallback，上层调用者仍负责选择、额度失败后的显式重提、隔离工作区和最终验收。
+本机 Codex 预置三个精确 Profile：`codex-ollama-main` → `qwen3.8-27b:256k`、`codex-ollama-review` → `qwen3.6-35b:256k`（Qwen3.6 35B 交叉模型）、`codex-ollama-qwen3-8-27b` → `qwen3.8-27b:256k`，均固定 `127.0.0.1:32100`、Responses、最高 `max` 且无 fallback。旧泛型 `codex-ollama` 已从公开目录隐藏。另有显式 opt-in 的 `codex-spark-xhigh`，精确选择 `gpt-5.3-codex-spark` 与默认 `xhigh`。所有 Profile 都不自动 fallback，上层调用者仍负责选择、额度失败后的显式重提、隔离工作区和最终验收。
 
 上层若考虑免费本地模型或订阅内 Spark，唯一收益口径是减少边际付费 token/API 成本；简单、低风险、可验证且净节省为正时才值得委派。疑难任务、授权、高风险动作和最终判断保留给顶级模型，亲自完成不是故障。
 
-`0.3.12` 的 source/static/install/runtime/live 必须分开报告。旧安装态、旧受管 TOML 或旧回执不是本版本证据；只有从最终提交安装并固定路径回读后才能声明 installed current。云 Live 只在现有授权与 SecretRef 下各执行一次，失败不自动重试。
+`0.3.18` 的 source/static/install/runtime/live 必须分开报告。旧安装态、旧受管 TOML 或旧回执不是本版本证据；只有从最终提交安装并固定路径回读后才能声明 installed current。云 Live 只在现有授权与 SecretRef 下各执行一次，失败不自动重试。
 
 已有 OpenClaw DeepSeek 配置时，可先安全预览再导入；脚本可生成 Codex Flash 0731、Codex Pro 0813、Claude Flash、OI Flash 四个 Profile。Qwen3.7 配置不会由导入器读取、复制或迁移；06-08 必须显式配置新 exact Profile：
 
@@ -109,7 +109,7 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 
 4. [Codex harness / machine run](docs/user/MACHINE-RUN.md)：stdin/JSON 协议、全访问合同、运行时身份与能力限制。
 
-根目录同时保留两本可打印手册；PDF 只在由当前 `0.3.12` Markdown 重新生成并完成视觉验收后才算 current：
+根目录同时保留两本可打印手册；PDF 只在由当前 `0.3.18` Markdown 重新生成并完成视觉验收后才算 current：
 
 - 《[AI CLI Profile Manager 使用手册（PDF）](<AI CLI Profile Manager 使用手册.pdf>)》
 - 《[Codex、Claude Code 与 Open Interpreter CLI 中文手册（PDF）](<Codex、Claude Code 与 Open Interpreter CLI 中文手册.pdf>)》
