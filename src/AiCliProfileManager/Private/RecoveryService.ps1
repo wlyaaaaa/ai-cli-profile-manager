@@ -1844,7 +1844,7 @@ function Publish-AiCliRunControlReceipt {
     if (-not (Test-Path -LiteralPath $parent -PathType Container)) { throw 'Run control receipt parent must exist.' }
     $current = $parent
     while ($current) {
-        if ((Get-Item -LiteralPath $current).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        if ((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
             throw 'Run control receipt cannot traverse a reparse point.'
         }
         $next = Split-Path -Parent $current

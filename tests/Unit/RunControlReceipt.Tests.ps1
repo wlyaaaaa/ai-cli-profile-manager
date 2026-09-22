@@ -2,6 +2,7 @@
 Describe 'Immutable run control receipts' {
     BeforeAll {
         $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+        Get-Module AiCliProfileManager -All -ErrorAction SilentlyContinue | Remove-Module -Force
         Import-Module (Join-Path $root 'src\AiCliProfileManager\AiCliProfileManager.psd1') -Force
     }
     It 'publishes only the owning run identity, once' {
@@ -21,6 +22,25 @@ Describe 'Immutable run control receipts' {
             {Publish-AiCliRunControlReceipt -Path $path -RunId ('a'*32)}|Should -Throw '*already exists*'
             (Get-Content -LiteralPath $path -Raw)|Should -BeExactly $text
             @(Get-ChildItem -LiteralPath $Work -Filter '*.tmp').Count|Should -Be 0
+        }
+    }
+    It 'publishes below a normal hidden Windows ancestor' {
+        InModuleScope AiCliProfileManager -Parameters @{Work=$TestDrive} {
+            Mock Get-AiCliRecoverableRunState {
+                [pscustomobject]@{sessionMeta=@{profileId='fixture';model='fixture-model';workspace=$Work}}
+            }
+            $hidden = Join-Path $Work 'hidden-parent'
+            $leaf = Join-Path $hidden 'receipts'
+            $null = New-Item -ItemType Directory -Path $leaf -Force
+            $attributes = [IO.File]::GetAttributes($hidden)
+            try {
+                [IO.File]::SetAttributes($hidden, ($attributes -bor [IO.FileAttributes]::Hidden))
+                $path = Join-Path $leaf 'control.json'
+                Publish-AiCliRunControlReceipt -Path $path -RunId ('a'*32)
+                (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json).run_id | Should -BeExactly ('a'*32)
+            } finally {
+                [IO.File]::SetAttributes($hidden, $attributes)
+            }
         }
     }
     It 'does not create directories and rejects relative receipt paths' {
