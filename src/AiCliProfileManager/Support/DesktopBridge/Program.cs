@@ -253,7 +253,16 @@ internal sealed class DesktopPlan
         }
     }
 
-    private static async Task<string> ExportPlanAsync(string scriptPath, bool upstreamOnly)
+    public static async Task<DesktopPlan> ReloadAsync(CancellationToken cancellationToken)
+    {
+        var fixture = Environment.GetEnvironmentVariable(Program.PlanFixtureEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(fixture))
+            return Parse(await File.ReadAllTextAsync(fixture, cancellationToken).ConfigureAwait(false));
+        var script = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "GetDesktopModelPlan.ps1"));
+        return Parse(await ExportPlanAsync(script, false, cancellationToken).ConfigureAwait(false));
+    }
+
+    private static async Task<string> ExportPlanAsync(string scriptPath, bool upstreamOnly, CancellationToken cancellationToken = default)
     {
         if (!File.Exists(scriptPath))
             throw new FileNotFoundException("The desktop launch-plan script is unavailable.");
@@ -297,9 +306,9 @@ internal sealed class DesktopPlan
             var stderrTask = process.StandardError.ReadToEndAsync();
             try
             {
-                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
             }
-            catch (TimeoutException)
+            catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
             {
                 Program.KillProcessTree(process);
                 throw new TimeoutException("The launch-plan script exceeded its startup limit.");

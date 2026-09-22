@@ -20,6 +20,7 @@ internal sealed partial class RpcTransport
 
     private readonly Process process;
     private readonly ModelRouter router;
+    private LiveModelCatalog? liveModelCatalog;
     private readonly Stream childInput;
     private readonly Stream clientOutput;
     private readonly SemaphoreSlim childWriteLock = new(1, 1);
@@ -84,6 +85,8 @@ internal sealed partial class RpcTransport
             }
 
             var transport = new RpcTransport(process, router, TryGetString(plan["codexHome"], out var home) ? home : Environment.GetEnvironmentVariable("CODEX_HOME"));
+            if (router.StartupCatalogPath is not null)
+                transport.liveModelCatalog = new LiveModelCatalog(plan);
             return await transport.RunStartedAsync(lifetime).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -232,7 +235,10 @@ internal sealed partial class RpcTransport
         JsonObject? routed;
         try
         {
-            routed = await router.BeforeRequestAsync(request, CallUpstreamAsync).ConfigureAwait(false);
+            routed = method == "model/list" && liveModelCatalog is not null
+                ? await liveModelCatalog.ListAsync(originalParams,
+                    (name, parameters) => CallUpstreamAsync(name, parameters, cancellationToken), cancellationToken).ConfigureAwait(false)
+                : await router.BeforeRequestAsync(request, CallUpstreamAsync).ConfigureAwait(false);
         }
         catch (RpcException ex)
         {

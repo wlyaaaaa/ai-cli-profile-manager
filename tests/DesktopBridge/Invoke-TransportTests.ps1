@@ -254,6 +254,78 @@ $testContainer = {
             finally { Stop-BridgeProcess $process }
         }
 
+        It 'refreshes official membership without restarting or dropping managed models and pins pagination' {
+            $root = New-TestRoot
+            $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-app-server' -ModelState Valid
+            $data = Get-Content $plan.Path -Raw | ConvertFrom-Json -AsHashtable
+            $official = $data.models[0].catalogModel | ConvertTo-Json -Depth 50 | ConvertFrom-Json -AsHashtable
+            $official.slug = 'official-before'
+            $official.display_name = 'Official Before'
+            $data.upstreamModels = @($official)
+            [IO.File]::WriteAllText($plan.Path, ($data | ConvertTo-Json -Depth 100 -Compress), $script:Utf8NoBom)
+            $process = $null
+            try {
+                $process = New-BridgeProcess -Executable $script:BridgePath -PlanPath $plan.Path -Arguments @('app-server', '--stdio')
+                $originalPid = $process.Id
+                Write-BridgeLine $process '{"id":"old-page","method":"model/list","params":{"includeHidden":true,"limit":1}}'
+                $before = Read-BridgeLine $process | ConvertFrom-Json
+                $before.result.data[0].id | Should -Be 'official-before'
+                $cursor = $before.result.nextCursor
+                $cursor | Should -Not -BeNullOrEmpty
+
+                $official.slug = 'official-after'
+                $official.display_name = 'Official After'
+                $hidden = $official | ConvertTo-Json -Depth 50 | ConvertFrom-Json -AsHashtable
+                $hidden.slug = 'official-hidden'
+                $hidden.visibility = 'hide'
+                $data.upstreamModels = @($official, $hidden)
+                $data.models = @() # refreshed official discovery cannot erase startup managed models
+                [IO.File]::WriteAllText($plan.Path, ($data | ConvertTo-Json -Depth 100 -Compress), $script:Utf8NoBom)
+                Write-BridgeLine $process '{"id":"new-page","method":"model/list","params":{"includeHidden":true}}'
+                $after = Read-BridgeLine $process | ConvertFrom-Json
+                $after.result.data.id | Should -Contain 'official-after'
+                $after.result.data.id | Should -Contain 'official-hidden'
+                $after.result.data.id | Should -Contain 'local-model'
+                $after.result.data.id | Should -Not -Contain 'official-before'
+                @($after.result.data).Count | Should -Be 3
+                $after.result.nativeFutureMetadata | Should -Be 'unchanged'
+                @($after.result.data | Where-Object id -eq 'local-model')[0].nativeFutureField.preserved | Should -BeTrue
+                $process.Id | Should -Be $originalPid
+                $process.HasExited | Should -BeFalse
+
+                $request = @{id='old-next';method='model/list';params=@{includeHidden=$true;cursor=$cursor;limit=10}} | ConvertTo-Json -Compress
+                Write-BridgeLine $process $request
+                $oldNext = Read-BridgeLine $process | ConvertFrom-Json
+                @($oldNext.result.data).Count | Should -Be 1
+                $oldNext.result.data[0].id | Should -Be 'local-model'
+                Write-BridgeLine $process '{"id":"visible","method":"model/list","params":{}}'
+                $visible = Read-BridgeLine $process | ConvertFrom-Json
+                $visible.result.data.id | Should -Not -Contain 'official-hidden'
+                $visible.result.data.id | Should -Contain 'local-model'
+
+                # Collision and corrupt/empty discovery preserve the last complete generation.
+                foreach ($bad in @('collision', 'empty', 'corrupt')) {
+                    if ($bad -eq 'corrupt') { $json = '{bad-json' }
+                    else {
+                        if ($bad -eq 'collision') { $official.slug = 'local-model'; $data.upstreamModels = @($official) }
+                        else { $data.upstreamModels = @() }
+                        $json = $data | ConvertTo-Json -Depth 100 -Compress
+                    }
+                    [IO.File]::WriteAllText($plan.Path, $json, $script:Utf8NoBom)
+                    Write-BridgeLine $process '{"id":"fallback","method":"model/list","params":{"includeHidden":true}}'
+                    $fallback = Read-BridgeLine $process | ConvertFrom-Json
+                    ($fallback.result.data | ConvertTo-Json -Depth 50 -Compress) | Should -Be ($after.result.data | ConvertTo-Json -Depth 50 -Compress)
+                }
+                Write-BridgeLine $process '{"id":"bad-cursor","method":"model/list","params":{"cursor":"invalid"}}'
+                $invalid = Read-BridgeLine $process | ConvertFrom-Json
+                $invalid.error.code | Should -Be -32602
+                $process.StandardInput.Close()
+                $process.WaitForExit(10000) | Should -BeTrue
+                $process.ExitCode | Should -Be 0
+            }
+            finally { Stop-BridgeProcess $process }
+        }
+
         It 'keeps ordinary account rate-limit exhaustion visible but does not hard-disable Desktop send' {
             $root = New-TestRoot
             $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-app-server' -ModelState Valid

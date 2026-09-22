@@ -74,6 +74,26 @@ while ($null -ne ($requestLine = [Console]::In.ReadLine())) {
         continue
     }
     switch ([string]$request.method) {
+        'model/list' {
+            $catalogArg = @($forwardedArgs | Where-Object { $_ -like 'model_catalog_json=*' } | Select-Object -Last 1)
+            $catalog = $null
+            if ($catalogArg.Count) {
+                $catalogPath = ([string]$catalogArg[0]).Substring('model_catalog_json='.Length) | ConvertFrom-Json
+                $catalog = Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json
+            }
+            $rows = @($catalog.models | ForEach-Object {
+                [ordered]@{
+                    id = $_.slug
+                    model = $_.slug
+                    displayName = $_.display_name
+                    hidden = $_.visibility -eq 'hide'
+                    isDefault = $false
+                    supportedReasoningEfforts = @(@{ reasoningEffort = $_.default_reasoning_level; description = 'Native fixture effort' })
+                    nativeFutureField = @{ preserved = $true }
+                }
+            })
+            $null = Write-FakeRpcLine @{ id = $request.id; result = @{ data = $rows; nextCursor = $null; nativeFutureMetadata = 'unchanged' } }
+        }
         'test/startup' {
             $catalogArg = @($forwardedArgs | Where-Object { $_ -like 'model_catalog_json=*' } | Select-Object -Last 1)
             $catalog = $null
