@@ -129,6 +129,38 @@ Describe 'User-visible summary presentation' {
         { & (Join-Path $script:CodexCommunicationRepoRoot 'scripts/Build-DeepSeekCodexCatalog.ps1') -SourceCatalog $badPath -OutputCatalog $output } | Should -Throw '*baseline mismatch*'
     }
 
+    It 'preserves catalog bytes and vendor text with a <Ending> script checkout' -TestCases @(
+        @{ Ending = 'LF'; Newline = "`n" },
+        @{ Ending = 'CRLF'; Newline = "`r`n" }
+    ) {
+        param($Ending, $Newline)
+        $checkout = Join-Path $TestDrive $Ending
+        New-Item -ItemType Directory -Path $checkout | Out-Null
+        foreach ($name in @('CodexUserCommunicationPolicy.ps1', 'Build-DeepSeekCodexCatalog.ps1')) {
+            $text = [IO.File]::ReadAllText((Join-Path $script:CodexCommunicationRepoRoot ('scripts/' + $name)))
+            $text = ($text -replace "`r`n?", "`n").Replace("`n", $Newline)
+            [IO.File]::WriteAllText((Join-Path $checkout $name), $text, [Text.UTF8Encoding]::new($true))
+        }
+        $source = Join-Path $script:CodexCommunicationRepoRoot 'data/model-catalogs/deepseek-flash.json'
+        # Vary only JSON formatting newlines, leaving escaped vendor strings intact.
+        $sourceCopy = Join-Path $checkout 'source.json'
+        $json = ([IO.File]::ReadAllText($source) -replace "`r`n?", "`n").Replace("`n", $Newline)
+        [IO.File]::WriteAllText($sourceCopy, $json, [Text.UTF8Encoding]::new($false))
+        $output = Join-Path $checkout 'generated.json'
+        & (Join-Path $checkout 'Build-DeepSeekCodexCatalog.ps1') -SourceCatalog $sourceCopy -OutputCatalog $output | Out-Null
+        (Get-FileHash $output).Hash | Should -BeExactly (Get-FileHash $source).Hash
+
+        & {
+            . (Join-Path $checkout 'CodexUserCommunicationPolicy.ps1')
+            $entry = (Get-Content $source -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100).models[0]
+            $entry.base_instructions.Contains((Get-AiCliCodexUserCommunicationPolicy), [StringComparison]::Ordinal) | Should -BeTrue
+            $entry.base_instructions.Contains((Get-AiCliCodexSummaryPresentationPolicy -Provider deepseek), [StringComparison]::Ordinal) | Should -BeTrue
+            $vendorText = "Vendor first line`r`nVendor second line`r`n"
+            $managed = Add-AiCliCodexUserCommunicationPolicy -BaseInstructions $vendorText
+            (Remove-AiCliCodexUserCommunicationPolicy -BaseInstructions $managed) | Should -BeExactly $vendorText
+        }
+    }
+
     It 'does not leak the selected-provider presentation policy into Qwen generation' {
         $output = Join-Path $TestDrive 'qwen-regenerated.json'
         & (Join-Path $script:CodexCommunicationRepoRoot 'scripts/Build-QwenCodexCatalog.ps1') -OutputCatalog $output | Out-Null

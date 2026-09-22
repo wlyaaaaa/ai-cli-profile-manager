@@ -14,7 +14,8 @@ function Get-AiCliCodexUserCommunicationPolicy {
     [OutputType([string])]
     param()
 
-    return $script:AiCliCodexUserCommunicationPolicy
+    # Here-strings inherit checkout line endings; managed catalog text is LF.
+    return ($script:AiCliCodexUserCommunicationPolicy -replace "`r`n?", "`n")
 }
 
 function Remove-AiCliCodexUserCommunicationPolicy {
@@ -88,7 +89,7 @@ function Get-AiCliCodexSummaryPresentationPolicy {
     if ($Provider -eq 'deepseek') {
         $policy += "`n多步任务尤其要补足中间的实质发现：除了开场和收尾，查证中出现了会影响结论的新信息，就向用户解释其具体意义，再继续工作；不要把本应展开的说明压成一句笼统过渡语。目标是让用户看懂处理过程，而不是增加思维链长度或凑段落。"
     }
-    return $policy
+    return ($policy -replace "`r`n?", "`n")
 }
 
 $script:AiCliCodexPublicThinkingStart = "# AICLI public thinking-panel language`n"
