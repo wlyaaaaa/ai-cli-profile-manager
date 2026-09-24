@@ -1,4 +1,4 @@
-# Versioned, exact-model Codex Agent acceptance.
+﻿# Versioned, exact-model Codex Agent acceptance.
 
 function New-AiCliAgentAcceptanceFixture {
     [CmdletBinding()]

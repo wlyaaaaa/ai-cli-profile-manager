@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 <#
 .SYNOPSIS
   Preview or synchronize local model declarations from the existing Codex manifest.

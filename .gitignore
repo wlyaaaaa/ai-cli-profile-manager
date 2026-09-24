@@ -24,4 +24,5 @@ Desktop.ini
 
 # .NET generated build output
 **/bin/
+!/bin/
 **/obj/

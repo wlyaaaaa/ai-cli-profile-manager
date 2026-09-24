@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$CandidateDirectory,[Parameter(Mandatory)][string]$IsolationReceiptPath,[string]$AgyExecutable,[string]$OutputReceiptPath,[int]$PerRequestTimeoutSeconds=360,[Alias('MaxLocationAttempts')][ValidateRange(1,3)][int]$MaxOperationalAttempts=1)
 $ErrorActionPreference='Stop'

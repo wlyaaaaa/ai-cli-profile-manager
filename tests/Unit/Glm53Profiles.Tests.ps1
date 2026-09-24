@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     $script:GlmRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
     Remove-Module AiCliProfileManager -Force -ErrorAction SilentlyContinue
     Import-Module (Join-Path $script:GlmRepoRoot 'src\AiCliProfileManager\AiCliProfileManager.psd1') -Force

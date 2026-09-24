@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 
 Describe 'Desktop enable UTF-8 discovery handoff' {
     BeforeAll {

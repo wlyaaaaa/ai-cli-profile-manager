@@ -1,4 +1,4 @@
-#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
+﻿#Requires -Modules @{ ModuleName = 'Pester'; ModuleVersion = '5.0.0' }
 
 BeforeAll {
     $script:Qwen38LocalRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
