@@ -1,54 +1,30 @@
-# AI CLI Profile Manager 项目规则
+# AICLI 项目规则
 
-## 1. 事实源与工作阶段
+## 范围与事实源
 
-- 默认使用简体中文。
-- 维护与发布前读取 `docs/maintainer/项目设计与实施归档.md`；它是合并后的产品范围、决策、合同与实施事实源。
-- 本机 `docs/research-inputs/*.txt` 只是被 Git 排除的讨论输入，存在截断和过时信息，不能作为实现真相。
-- 产品名 AI CLI Profile Manager、模块名和命令 `aicli` 应集中定义；不要把品牌字符串散落在代码里。
-- 阶段由用户指令决定。产品设计完成不自动授权创建远端、发布、推送或 Release。
+- 只支持 Windows 11 x64、PowerShell 7；保留原生 Codex、Claude Code、Qwen Code、OpenCode 与官方 Rust Open Interpreter 的交互，不做另一套 GUI、PTY、Agent 或通用聊天历史库，不汉化上游本体。
+- Provider 差异放数据 Manifest 和适配器，品牌集中定义。型号、窗口、档位和启用集合查 `data/providers`、`data/model-catalogs`、`data/local-model-set.json`，不把旧验收记录当现行身份。
+- [维护契约](docs/maintainer/项目设计与实施归档.md)保留跨模块合同和本人已定取舍；[machine run](docs/user/MACHINE-RUN.md)与[Toolkit 接口](docs/maintainer/Toolkit-reliability.md)供跨库调用。研究输入和历史回执不是当前能力证明。
+- 用户首页保持五项简短说明。两本完整手册及 PDF 目前是打包、帮助与测试的依赖，保留源文/PDF哈希一致；不再把贡献指南、过程记录复制成另一套规则。
 
-## 2. 产品硬边界
+## 不可偷换的产品行为
 
-- 只做 Windows 11、PowerShell 7。
-- 这是原生 Codex CLI / Claude Code 的 Profile、启动、代理运维、Doctor、自检和中文手册层；不做 GUI、TUI、PTY 外壳、自研 Agent 或通用聊天历史库。Codex harness 允许维护最小、root-owned、不可变分段的 app-server 恢复账本，只用于证明同 thread exact resume，不保存任务正文、隐藏推理或工具载荷。
-- 不汉化或修改上游 CLI 本体；原生终端交互、上下文和会话由上游负责。AICLI 的 Codex harness 对所有当前和未来模型统一固定原生 `danger-full-access`，不得按 Profile/Provider 降权或静默改写；交互式 `start` 仍由上游 Codex 权限界面负责。
-- AICLI 的 Codex harness 对所有当前和未来模型默认注册受管 `public_web_search` dynamic tool，不维护模型 allowlist；只允许固定 HTTPS RSS provider、拒绝重定向/任意 endpoint/Header/凭据，公开事件不得包含 query/result。必须保留显式 `--no-web-search`，但关闭搜索不得改变 `danger-full-access` 权限。
-- 所有 Codex harness Profile 必须共用持久恢复合同：只允许 app-server `thread/resume` 复用已记录的 exact thread/session，并回读同一 workspace、Profile 指纹、model/provider、requested/effective effort 和权限身份。新 thread、身份漂移、不可验证事件/receipt、迟到终态或重放覆盖必须失败关闭；禁止把旧上下文重提到新会话冒充恢复。
-- Codex 公开第三方路径只接受上游已明确支持的 Responses Provider。Qwen 云端只开放两个隔离 exact Workspace paygo Profile：`codex-qwen3-7-max-paygo` → `qwen3.7-max-2026-06-08` 与 `codex-qwen3-8-max-paygo` → `qwen3.8-max-0902`。Qwen3.7 的通用 alias、05-20、preview、Plus、旧 Profile ID 与 native model/fallback 绕过继续退役；06-08 只能经新 exact Profile 进入。Qwen3.8 的可变 alias、preview、Token Plan 与额外 Profile 不进入 exact 入口。GLM 只开放中国区 `https://open.bigmodel.cn/api/v1` 上的 `codex-glm-5-3` → `glm-5.3` 与 `codex-glm-5-3-flash` → `glm-5.3-flash` 两个隔离 exact Responses Profile。DeepSeek 主入口为 `codex-deepseek-flash` → 官方自动升级 ID `deepseek-flash`；`codex-deepseek-v4-pro` → `deepseek-v4-pro` 仅保留为独立 CLI Profile，不进入桌面模型菜单。旧 `codex-deepseek`、`deepseek-v4-flash` 及其他 V4 alias/version/reserved/fallback 必须失败关闭。不得把 Chat Completions 端点伪装成 Codex Responses。
-- 上述远端 Responses 限制不禁止 AICLI 自己在 loopback 上实现真实 Responses 语义的受管 managed-proxy。当前 Gemini consumer → Codex 路线已按用户 2026-09-18 明确决定冻结，日用交付未完成；禁止自动安装、启用、换型上线、Live Test 或续作调试，只有新的明确用户重启决定与新证据才能重开。仅本 Gemini 接入冻结，不冻结 AICLI、其他 Provider 或官方 Antigravity CLI。冻结现状见 `docs/maintainer/Gemini-integration-freeze.md`；保留的历史设计候选为 D-036 V2（`docs/maintainer/designs/D-036-v2-frozen.md`）：Google AI Pro / Antigravity → 初始 Gemini 3.8 Flash High；后续 Gemini 型号由 `data/gemini-models.json` 的显式身份/档位资料管理，经对应兼容性验收后增删，不重指向旧 ID、不凭版本名猜能力。它必须让原生 Codex Harness 保持唯一工具/历史/权限执行者，Antigravity 只作 consumer OAuth 模型后端；不得把 Google Chat/Agent endpoint 冒充 Responses、不得执行 Antigravity 工具、不得使用逆向 OAuth 或自动 fallback。完成 D-036 V2 对应 Windows 真实验证前只能标实验/设计，不能公开为可用 Provider。
-- Claude Code 与 Open Interpreter 不再公开 DeepSeek 模板；旧 `claude-deepseek`、`oi-deepseek` 与 V4 Flash 用户 Profile 必须失败关闭，不得借旧验收记录或 SecretRef 静默恢复。任何旧 Qwen3.7 用户 Profile、非 06-08 模型参数或生成物同样必须失败关闭，不得自动迁移到新 Profile 或 Qwen3.8。
-- 原生 ChatGPT/Codex 与官方 Claude Profile 是连续性基准，不附加第三方模型目录或压缩策略。AICLI 自行接入的非 OpenAI Codex 模型统一在各自最大上下文的 90% 自动压缩；第三方 Claude/OpenCode 的窗口与自动压缩仍以受管 modelMetadata 和客户端原生能力为准。未知第三方 Claude 模型不猜容量，并清除继承的窗口、提前压缩与禁压缩变量。不得关闭溢出保护。AICLI 的 `aicli.third-party-continuity.v1` 契约要求有损压缩前把最小 checkpoint 写入项目已有状态，压缩后重读项目规则、状态文档与 diff，不建立第二事实源。
-- 未完成当期 Windows 11 真实验证的 Provider 不得标成 `可用`。
+- Codex harness 所有当前和未来模型统一用原生 `danger-full-access`，不按厂商降权；交互式 `start` 的权限交给上游。默认注册 `public_web_search`，保留 `--no-web-search`；关闭搜索不改变权限。搜索只用固定 HTTPS RSS provider，不允许任意地址、重定向、凭据或公开查询正文。
+- 持久恢复仅用 app-server `thread/resume` 继续同一个真实 thread/session，并核对 workspace、Profile 指纹、实际 model/provider、requested/effective effort 和权限；新会话、身份漂移、重放或损坏证据不能冒充恢复。恢复账本只存必要身份、游标与哈希，不存正文、隐藏推理或工具载荷。
+- 云端 Codex 只开放上游真实支持的 Responses；本机 managed-proxy 也必须实现真实协议，不能把 Chat Completions 或另一家 Agent 接口改名冒充。exact Profile 固定模型、套餐和端点，不自动 fallback，不把退役 ID 改绑给新型号；精确允许集合与退役例外见维护契约。
+- 原生 ChatGPT/Codex 和官方 Claude 是连续性基准，不附加第三方目录或压缩策略。AICLI 接入的非 OpenAI Codex 在真实最大上下文 90% 自动压缩；本地窗口保持 262144。未知 Claude 模型不猜容量，并清除继承的压缩/窗口变量。
+- `aicli.third-party-continuity.v1`：有损压缩前写项目既有状态，恢复后重读规则、状态和 diff；不建立第二事实源，不关闭溢出保护。
+- Gemini consumer → Codex 已由本人明确冻结，日用接入未交付；不自动安装、启用、换型实测或续作调试。仅该接入冻结，其他 Provider 与官方 Antigravity 不受影响。重开须本人明确决定及新证据，详见[冻结与恢复边界](docs/maintainer/Gemini-integration-freeze.md)。
+- 本地模型按需使用，不代替原生委派策略。日常增减只走 `scripts/Sync-LocalModelConfiguration.ps1`，保留各引擎专有参数；普通同步做必要读回，实际故障再定向验证，不机械要求全客户端实跑。
+- 菜单、默认项和启动提示显示真实模型名称，不出现 main、local-default、主用/复核等内部别名。兼容入口去重仍记住实际选中的稳定 ID，不暗中重路由。
+- Desktop 桥沿用官方动态模型目录及官方引擎发现，未知通知和请求透传；不靠固定版本白名单阻止官方升级。机器安装、已加载进程和用户验收分别核实。
 
-## 3. 安全与隔离
+## 配置、恢复与验证
 
-- 不永久写全局 Provider 环境变量，不覆盖用户基础 `config.toml`、`settings.json` 或官方登录。
-- 密钥不得出现在 Git、命令参数、PowerShell 历史、日志、Doctor JSON、异常文本、导出脚本和测试快照中。
-- 使用 Windows CurrentUser 范围安全存储；只把必要秘密放进目标子进程环境。禁止 `Invoke-Expression` 和字符串拼接执行用户参数。
-- 自定义远程明文 HTTP 默认拒绝；受管代理只监听 `127.0.0.1`。
-- 代理端口严格遵守维护者归档中的端口合同；不得杀未知占用者、修改系统端口范围/排除、防火墙或要求管理员权限来抢端口。
-- 第三方代理可执行文件必须命中产品批准的固定 SHA256/可信发布者签名；发现未知新版本不授权执行。
-- Live Tool Test 只能暴露隔离的单用途 nonce 工具；无法证明其他工具与私人配置已隔离时跳过并报告限制。
-- Codex 只在真实 `CODEX_HOME` 写入身份可验证的受管派生 Profile；未知或用户修改文件不覆盖、不误删。
-- 普通卸载不删除上游 CLI、官方登录、本地模型或用户 Profile/秘密；彻底清理必须显式选择并准确列出范围。
-- 删除本地代理 OAuth 文件不等于远程撤销；输出和手册必须分别报告。
-
-## 4. 实施与验证
-
-- 外部 CLI、模型、端点、套餐、代理版本和参数属于动态事实；实现和发布验收时重新核对官方文档与精确上游仓库。
-- Provider 定义采用无执行能力的数据 Manifest；厂商差异放适配器，不散落在通用启动逻辑。
-- 本地模型是低频、按需能力，不因可用就替代原生子代理。未来换型以现有 Codex main/review Manifest 与对应 catalog 为入口；`scripts/Sync-LocalModelProfiles.ps1` 显式同步其他 main 引擎的共同模型字段，保留各引擎输出、压缩和启动参数。固定型号的兼容 Profile 独立保留；测试比较实际身份与能力，不把当前主/复核型号永久写成路由规则。上下文继续保持 262144。当前启用集合由 data/local-model-set.json 管理，日常统一运行 scripts/Sync-LocalModelConfiguration.ps1；普通增减做配置同步与必要读回，实际故障再定向验证，不机械要求全客户端 E2E。
-- 面向用户的 Profile 名称以真实模型名称为主，可保留引擎和必要套餐信息；`main`、`local-default`、主用、辅助、复核等内部识别不得出现在菜单、最近/默认项、启动提示或普通列表。稳定 Profile ID、Provider、wire、模型参数和 JSON 机器字段继续保留；同一用户可见本地模型的兼容入口在菜单去重时必须记住实际选中的 ID，不能重路由。
-- 所有路径通过 Windows Known Folders 计算，不硬编码本机用户名或盘符。
-- 含中文常量的 `.ps1` 使用 UTF-8 BOM，并显式处理 PowerShell/外部进程编码；JSON/Markdown 默认 UTF-8 无 BOM。
-- 自动测试使用 Pester，覆盖中文/空格路径、参数原样透传、秘密脱敏、子进程环境隔离、原子写入、端口竞争、代理身份和卸载恢复。
-- CI 不使用真实用户密钥、不运行付费 Live Test；真实 Provider 验收只在临时空目录按矩阵人工执行。
-- 阶段性任务是一次实施内部的顺序，不是反复向用户申请开工。遇到纯技术问题按最优解修订计划并记录；只有改变产品范围、公开动作或不可逆风险时才询问。
-
-## 5. 文档与公开准备
-
-- 用户手册正文必须符合维护者归档中的手册合同：先讲功能、命令、效果，CLI 学习篇放在后面。
-- README、示例和帮助只能描述真实存在且已验证的命令。
-- 公开候选内容不得包含本机绝对私人路径、密钥、OAuth 数据、原始诊断、聊天归档或未脱敏截图。
-- 未经用户明确授权，不创建 GitHub 远端、不 push、不发 PR、不发布 Release。
+- 不永久写全局 Provider 变量，不覆盖用户基础 config/settings 或官方登录；只在真实 CODEX_HOME 维护身份可验证的派生配置，保留未知或用户改过的文件。
+- 密钥使用 Windows CurrentUser 安全存储，只注入必要子进程；不进入参数、Git、日志、异常、导出或快照。禁止字符串执行用户参数。受管代理只监听 127.0.0.1；自定义远端明文 HTTP 默认拒绝。
+- 端口分配遵守维护契约，不杀未知占用者、不改系统端口范围、防火墙或提权抢端口。第三方代理执行文件必须匹配已批准哈希或发布者签名。
+- 普通卸载保留上游 CLI、登录、本地模型、Profile 和秘密；彻底清理另列准确范围。删除本地 OAuth 文件不代表远端撤销；模块更新不顺手替换独立登记的 Desktop 桥。
+- Windows 路径用 Known Folders；中文 PowerShell 脚本用 UTF-8 BOM，Markdown/JSON 用 UTF-8 无 BOM。
+- 离线验证：`pwsh -File scripts/Test-Release.ps1`、Pester 5.5+ 的 `Invoke-Pester -Path tests`；发行再跑 `scripts/Build.ps1`。覆盖参数、中文路径、隔离、原子写入、端口竞争和恢复。
+- CI 不读取真实 Key，不跑付费 Live。Live Tool Test 仅开放隔离 nonce 工具，隔离不能证明就报告限制；未完成当期真实验证不能标 Provider 可用。两本 PDF 变动时由 `scripts/Build-Pdfs.py` 生成并验版，源文哈希必须匹配。
