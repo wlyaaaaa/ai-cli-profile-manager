@@ -7,4 +7,4 @@
 - **让 AI 做什么：**帮我选配置、检查故障和更新工具，保留已有登录、模型选择和原会话。
 
 首次安装：在本目录运行 `pwsh -File .\scripts\Install.ps1`，新开 PowerShell 7 后运行 `aicli setup`。
-源码版本：0.3.18；接入成功与否以实际任务为准，Gemini 接入目前停用。
+当前版本 0.3.18。Gemini 暂时停用。
