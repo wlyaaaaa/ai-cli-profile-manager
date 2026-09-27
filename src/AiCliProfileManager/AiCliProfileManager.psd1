@@ -16,7 +16,7 @@
             Tags         = @('Codex', 'Claude', 'QwenCode', 'OpenCode', 'OpenInterpreter', 'Ollama', 'Qwen', 'DeepSeek', 'CLI', 'Windows', 'Profile', 'Sandbox')
             LicenseUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/LICENSE'
             ProjectUri   = 'https://github.com/wlyaaaaa/ai-cli-profile-manager'
-            ReleaseNotes = '0.3.18：发布当前 exact 模型与恢复合同、Toolkit 诊断；封闭已退役 Profile ID 改绑入口。'
+            ReleaseNotes = '0.3.19：按厂商引用密码中心凭据；CLI 和 Desktop 即时交付；模型选择与取密解耦。'
         }
     }
 }
