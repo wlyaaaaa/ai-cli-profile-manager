@@ -325,12 +325,14 @@ function Invoke-AiCliProfileCommand {
         'configure' {
             $pos = Assert-AiCliTokenShape -Tokens $rest -MinPositionals 1 -MaxPositionals 1 `
                 -Switches @('--reuse-existing-secret') `
-                -ValueOptions @('--id','--reuse-secret-from')
+                -ValueOptions @('--id','--reuse-secret-from','--model','--model-catalog')
             $newId = Get-AiCliFlagValue -Tokens $rest -Name '--id'
             $reuseSecretFrom = Get-AiCliFlagValue -Tokens $rest -Name '--reuse-secret-from'
             Invoke-AiCliProfileConfigure `
                 -TemplateId $pos[0] `
                 -ProfileId $newId `
+                -Model (Get-AiCliFlagValue -Tokens $rest -Name '--model') `
+                -ModelCatalog (Get-AiCliFlagValue -Tokens $rest -Name '--model-catalog') `
                 -ReuseExistingSecret:(Test-AiCliHasFlag $rest '--reuse-existing-secret') `
                 -ReuseSecretFrom $reuseSecretFrom | Out-Null
             return (Get-AiCliExitCode Success)

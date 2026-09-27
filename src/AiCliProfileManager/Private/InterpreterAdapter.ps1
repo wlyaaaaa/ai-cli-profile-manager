@@ -219,7 +219,7 @@ function Build-AiCliInterpreterLaunchPlan {
             if (-not $templateId) { $templateId = $id }
             throw "Profile $id requires an API key. Run: aicli profile configure $templateId"
         }
-        $envDelta['AICLI_OI_PROVIDER_KEY'] = Get-AiCliSecret -SecretId $secretRef
+        $envDelta['AICLI_OI_PROVIDER_KEY'] = Get-AiCliProfileSecret -Profile $MergedProfile
     }
 
     $configArgs = [System.Collections.Generic.List[string]]::new()

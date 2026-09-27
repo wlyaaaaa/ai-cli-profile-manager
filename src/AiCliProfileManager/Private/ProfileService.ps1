@@ -54,6 +54,7 @@ function Test-AiCliSecretReferencedByAnotherProfile {
         [Parameter(Mandatory)][string]$SecretId,
         [string]$ExceptProfileId
     )
+    if ($SecretId -match '^passwordcenter:') { return $true }
     $null = Assert-AiCliSecretIdentifier -Id $SecretId
     $paths = Initialize-AiCliDirectories
     foreach ($file in @(Get-ChildItem -LiteralPath $paths.ProfilesDir -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
@@ -133,7 +134,7 @@ function Assert-AiCliExactCodexUserProfileCompatible {
 
     $templateModels = Get-AiCliProperty $Template 'models'
     $userModels = Get-AiCliProperty $UserProfile 'models'
-    if ($null -ne $userModels) {
+    if ($null -ne $userModels -and -not (Get-AiCliProperty $UserProfile 'modelOverride')) {
         foreach ($field in @('primary','small')) {
             $userModel = [string](Get-AiCliProperty $userModels $field)
             $templateModel = [string](Get-AiCliProperty $templateModels $field)
@@ -175,7 +176,7 @@ function Merge-AiCliProfile {
         Assert-AiCliExactCodexUserProfileCompatible -Template $Template -UserProfile $UserProfile
     }
     $merged = [ordered]@{}
-    foreach ($k in @('schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','proxyRef','capabilities','compatibility','sources','deprecation','codexProviderId','codexModelCatalog','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope','interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','env','defaultModel','modelPrefix','defaultEffort','effortLevels','effortMap','flexible','workspaceBaseUrlRequired')) {
+    foreach ($k in @('schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','proxyRef','capabilities','compatibility','sources','deprecation','codexProviderId','codexModelCatalog','desktopReasoningMode','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope','interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','env','defaultModel','modelPrefix','defaultEffort','effortLevels','effortMap','flexible','workspaceBaseUrlRequired')) {
         $v = Get-AiCliProperty $Template $k
         if ($null -ne $v) { $merged[$k] = $v }
     }
@@ -230,6 +231,26 @@ function Merge-AiCliProfile {
         $needs = [bool](Get-AiCliProperty $Template 'requiresSecret' $false)
         $virt = [bool](Get-AiCliProperty $Template 'virtualReady' $false)
         $merged['configured'] = $virt -or (-not $needs)
+    }
+
+    $vendorReference = Get-AiCliVendorSecretRef -Profile $merged
+    if ($vendorReference) {
+        $merged['secretRef'] = $vendorReference
+        $merged['secretConfigured'] = $true
+        $merged['configured'] = -not ([bool](Get-AiCliProperty $Template 'workspaceBaseUrlRequired' $false) -and
+            [string]::IsNullOrWhiteSpace([string](Get-AiCliProperty $merged 'endpoint')))
+    }
+    $modelOverride = [string](Get-AiCliProperty $UserProfile 'modelOverride')
+    if ($modelOverride) {
+        if (-not $vendorReference -or $merged.id -ceq $merged.templateId) { throw 'A custom vendor model needs its own Profile ID.' }
+        $merged['modelOverride'] = $modelOverride
+        $merged['models'] = @{ primary=$modelOverride; small=$modelOverride; candidates=@($modelOverride) }
+        $merged['displayName'] = 'Codex + ' + $modelOverride
+        $merged['codexProviderId'] = 'aicli_' + ($merged.id -replace '-', '_')
+        $merged['codexModelCatalog'] = [string](Get-AiCliProperty $UserProfile 'modelCatalog')
+        $merged['modelMetadata'] = $null
+        $merged['codexAutoCompactTokenLimit'] = $null
+        $merged['codexAutoCompactTokenLimitScope'] = $null
     }
 
     # Managed-proxy readiness applies equally to virtual templates and to a
@@ -304,7 +325,7 @@ function Resolve-AiCliProfileStatus {
 function Get-AiCliProfileFingerprint {
     param([Parameter(Mandatory)]$Profile)
     $stable = [ordered]@{}
-    foreach ($key in @('schemaVersion','id','templateId','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','capabilities','codexProviderId','codexModelCatalog','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope','compatibility','defaultEffort','effortLevels','effortMap','flexible','workspaceBaseUrlRequired','requiresSecret','proxyRef','preferences','secretRef')) {
+    foreach ($key in @('schemaVersion','id','templateId','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','capabilities','codexProviderId','codexModelCatalog','desktopReasoningMode','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope','compatibility','defaultEffort','effortLevels','effortMap','flexible','workspaceBaseUrlRequired','requiresSecret','proxyRef','preferences','secretRef')) {
         $value = Get-AiCliProperty $Profile $key
         if ($null -ne $value) { $stable[$key] = $value }
     }
@@ -536,7 +557,9 @@ function Invoke-AiCliProfileConfigure {
         [Parameter(Mandatory)][string]$TemplateId,
         [string]$ProfileId,
         [switch]$ReuseExistingSecret,
-        [string]$ReuseSecretFrom
+        [string]$ReuseSecretFrom,
+        [string]$Model,
+        [string]$ModelCatalog
     )
     $template = Get-AiCliProviderManifest -Id $TemplateId
     if (Get-AiCliProperty $template 'hidden' $false) {
@@ -556,6 +579,14 @@ function Invoke-AiCliProfileConfigure {
     if ($dest) { Write-AiCliWarn ("数据去向：{0}" -f $dest) }
 
     $existing = Get-AiCliUserProfile -Id $id
+    if (-not $Model -and $existing) { $Model = [string](Get-AiCliProperty $existing 'modelOverride') }
+    if (-not $ModelCatalog -and $existing) { $ModelCatalog = [string](Get-AiCliProperty $existing 'modelCatalog') }
+    if ($Model) {
+        if (-not (Get-AiCliVendorSecretRef -Profile $template) -or $id -ceq $TemplateId) {
+            throw 'Use --id with a separate vendor Profile when specifying --model.'
+        }
+        if ([string]::IsNullOrWhiteSpace($Model) -or $Model.IndexOf([char]0) -ge 0) { throw 'Model name is required.' }
+    }
     $region = Get-AiCliProperty $template 'region'
     $models = Get-AiCliProperty $template 'models'
     $endpoint = Get-AiCliProperty $template 'endpoint'
@@ -627,13 +658,14 @@ function Invoke-AiCliProfileConfigure {
         }
     }
 
-    $secretRef = Resolve-AiCliReusableSecretRef `
+    $vendorReference = Get-AiCliVendorSecretRef -Profile $template
+    $secretRef = if ($vendorReference) { $vendorReference } else { Resolve-AiCliReusableSecretRef `
         -Template $template `
         -ProfileId $id `
         -ExistingProfile $existing `
         -ReuseExistingSecret:$ReuseExistingSecret `
         -ReuseSecretFrom $ReuseSecretFrom `
-        -TargetEndpoint ([string]$endpoint)
+        -TargetEndpoint ([string]$endpoint) }
     $oldSecretRef = if ($existing) { Get-AiCliProperty $existing 'secretRef' } else { $null }
     $createdNewSecret = $false
     if ($secretRef) {
@@ -663,6 +695,11 @@ function Invoke-AiCliProfileConfigure {
         secretRef     = $secretRef
         updatedUtc    = (Get-Date).ToUniversalTime().ToString('o')
     }
+    if ($Model) {
+        $userProf['modelOverride'] = $Model
+        $userProf['modelCatalog'] = $ModelCatalog
+        $userProf['models'] = @{ primary=$Model; small=$Model; candidates=@($Model) }
+    }
     try {
         Save-AiCliUserProfile -Profile $userProf
     } catch {
@@ -671,7 +708,7 @@ function Invoke-AiCliProfileConfigure {
         }
         throw
     }
-    if ($oldSecretRef -and $oldSecretRef -ne $secretRef -and
+    if (-not $vendorReference -and $oldSecretRef -and $oldSecretRef -ne $secretRef -and
         -not (Test-AiCliSecretReferencedByAnotherProfile -SecretId $oldSecretRef -ExceptProfileId $id)) {
         Remove-AiCliSecret -SecretId $oldSecretRef
     }

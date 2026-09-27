@@ -146,7 +146,7 @@ function Assert-AiCliManifestCore {
         'schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi',
         'endpoint','models','auth','proxyRef','capabilities','compatibility','sources','codexProviderId',
         'interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','modelMetadata',
-        'defaultEffort','effortLevels','effortMap','flexible','autoRun','modelPrefix','codexModelCatalog',
+        'defaultEffort','effortLevels','effortMap','flexible','autoRun','modelPrefix','codexModelCatalog','desktopReasoningMode',
         'workspaceBaseUrlRequired','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope'
     )
     foreach ($key in $M.Keys) {

@@ -120,6 +120,7 @@ foreach ($script in @(
     'Install.ps1',
     'Uninstall.ps1',
     'Import-FromOpenClaw.ps1',
+    'Set-AiCliVendorCredentialReferences.ps1',
     'Invoke-AiCliRetirementMigration.ps1',
     'Setup-Qwen38-27B256K.ps1',
     'Sync-LocalModelProfiles.ps1',

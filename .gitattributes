@@ -1,2 +1,5 @@
 # Content-addressed catalog artifacts must have the same bytes on every checkout.
 data/model-catalogs/*.json text eol=lf
+src/AiCliProfileManager/Support/GetDesktopModelPlan.ps1 text eol=lf
+src/AiCliProfileManager/Support/GetDesktopProviderToken.ps1 text eol=lf
+src/AiCliProfileManager/Support/ResolveDesktopEngine.ps1 text eol=lf

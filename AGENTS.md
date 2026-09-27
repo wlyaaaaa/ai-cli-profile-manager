@@ -11,7 +11,7 @@
 
 - Codex harness 所有当前和未来模型统一用原生 `danger-full-access`，不按厂商降权；交互式 `start` 的权限交给上游。默认注册 `public_web_search`，保留 `--no-web-search`；关闭搜索不改变权限。搜索只用固定 HTTPS RSS provider，不允许任意地址、重定向、凭据或公开查询正文。
 - 持久恢复仅用 app-server `thread/resume` 继续同一个真实 thread/session，并核对 workspace、Profile 指纹、实际 model/provider、requested/effective effort 和权限；新会话、身份漂移、重放或损坏证据不能冒充恢复。恢复账本只存必要身份、游标与哈希，不存正文、隐藏推理或工具载荷。
-- 云端 Codex 只开放上游真实支持的 Responses；本机 managed-proxy 也必须实现真实协议，不能把 Chat Completions 或另一家 Agent 接口改名冒充。exact Profile 固定模型、套餐和端点，不自动 fallback，不把退役 ID 改绑给新型号；精确允许集合与退役例外见维护契约。
+- 云端 Codex 只开放上游真实支持的 Responses；本机 managed-proxy 也必须实现真实协议，不能把 Chat Completions 或另一家 Agent 接口改名冒充。exact 预设保留其模型、套餐和端点，不自动 fallback、不改绑退役 ID；同厂商显式 --model 或自定义 Profile 可以换模型，模型目录不是凭据白名单。
 - 原生 ChatGPT/Codex 和官方 Claude 是连续性基准，不附加第三方目录或压缩策略。AICLI 接入的非 OpenAI Codex 在真实最大上下文 90% 自动压缩；本地窗口保持 262144。未知 Claude 模型不猜容量，并清除继承的压缩/窗口变量。
 - `aicli.third-party-continuity.v1`：有损压缩前写项目既有状态，恢复后重读规则、状态和 diff；不建立第二事实源，不关闭溢出保护。
 - 本地模型按需使用，不代替原生委派策略。日常增减只走 `scripts/Sync-LocalModelConfiguration.ps1`，保留各引擎专有参数；普通同步做必要读回，实际故障再定向验证，不机械要求全客户端实跑。
@@ -21,7 +21,7 @@
 ## 配置、恢复与验证
 
 - 不永久写全局 Provider 变量，不覆盖用户基础 config/settings 或官方登录；只在真实 CODEX_HOME 维护身份可验证的派生配置，保留未知或用户改过的文件。
-- 密钥使用 Windows CurrentUser 安全存储，只注入必要子进程；不进入参数、Git、日志、异常、导出或快照。禁止字符串执行用户参数。受管代理只监听 127.0.0.1；自定义远端明文 HTTP 默认拒绝。
+- Qwen/GLM/DeepSeek 使用 passwordcenter:厂商 引用密码中心已有凭据，不按 Profile 创建 DPAPI 副本；其他已有凭据存储保持兼容。值只进入一次性管道或必要客户端子进程；不进入参数、Git、日志、异常、导出或快照。禁止字符串执行用户参数。受管代理只监听 127.0.0.1；自定义远端明文 HTTP 默认拒绝。
 - 端口分配遵守维护契约，不杀未知占用者、不改系统端口范围、防火墙或提权抢端口。第三方代理执行文件必须匹配已批准哈希或发布者签名。
 - 普通卸载保留上游 CLI、登录、本地模型、Profile 和秘密；彻底清理另列准确范围。删除本地 OAuth 文件不代表远端撤销；模块更新不顺手替换独立登记的 Desktop 桥。
 - Windows 路径用 Known Folders；中文 PowerShell 脚本用 UTF-8 BOM，Markdown/JSON 用 UTF-8 无 BOM。

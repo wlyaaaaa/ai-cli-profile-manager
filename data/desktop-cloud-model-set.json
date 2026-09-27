@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    "codex-qwen3-8-max-paygo",
+    "codex-glm-5-3",
+    "codex-glm-5-3-flash",
+    "codex-deepseek-flash"
+  ]
+}

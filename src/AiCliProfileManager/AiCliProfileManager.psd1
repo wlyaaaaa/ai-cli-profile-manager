@@ -1,6 +1,6 @@
 ﻿@{
     RootModule        = 'AiCliProfileManager.psm1'
-    ModuleVersion     = '0.3.18'
+    ModuleVersion     = '0.3.19'
     GUID              = 'a1c11c11-0a11-4c11-b111-a1c110110011'
     Author            = 'AI CLI Profile Manager Contributors'
     CompanyName       = 'Independent'

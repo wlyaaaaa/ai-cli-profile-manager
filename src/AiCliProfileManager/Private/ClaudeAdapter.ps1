@@ -174,7 +174,7 @@ function Build-AiCliClaudeLaunchPlan {
         Assert-AiCliEndpointSafe -Url $endpoint
         $envDelta['ANTHROPIC_BASE_URL'] = $endpoint
         if ((Get-AiCliProperty $MergedProfile 'secretRef')) {
-            $secret = Get-AiCliSecret -SecretId (Get-AiCliProperty $MergedProfile 'secretRef')
+            $secret = Get-AiCliProfileSecret -Profile $MergedProfile
             $envDelta['ANTHROPIC_API_KEY'] = $secret
         } elseif ([bool](Get-AiCliProperty $MergedProfile 'requiresSecret' $true)) {
             $tid = Get-AiCliProperty $MergedProfile 'templateId'

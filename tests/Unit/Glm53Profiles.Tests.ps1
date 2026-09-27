@@ -61,14 +61,14 @@ Describe 'Exact GLM-5.3 Codex Profiles' {
         }
     }
 
-    It 'keeps GLM desktop authentication on the registered Password Center blind target' {
+    It 'keeps model selection in data and vendor authentication independent of model IDs' {
         $plan = Get-Content -LiteralPath (Join-Path $script:GlmRepoRoot 'src\AiCliProfileManager\Support\GetDesktopModelPlan.ps1') -Raw
         $token = Get-Content -LiteralPath (Join-Path $script:GlmRepoRoot 'src\AiCliProfileManager\Support\GetDesktopProviderToken.ps1') -Raw
-        $plan | Should -Match "'codex-glm-5-3'"
-        $plan | Should -Match "'codex-glm-5-3-flash'"
-        $plan | Should -Match '\$blindProvision'
-        $token | Should -Match "'AgentSecretRef'"
-        $token | Should -Match "'aicli-glm-codex-profile-import'"
-        $token | Should -Not -Match 'experimental_bearer_token|AllowPlaintextOutput|Reveal'
+        $set = Get-Content -LiteralPath (Join-Path $script:GlmRepoRoot 'data\desktop-cloud-model-set.json') -Raw | ConvertFrom-Json
+        $set.profiles | Should -Contain 'codex-glm-5-3'
+        $set.profiles | Should -Contain 'codex-glm-5-3-flash'
+        $plan | Should -Match 'desktop-cloud-model-set.json'
+        $token | Should -Match 'Get-AiCliProfileSecret'
+        $token | Should -Not -Match 'ValidateSet|New-AiCliSecret|codex-glm-5-3|experimental_bearer_token|AllowPlaintextOutput|Reveal'
     }
 }

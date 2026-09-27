@@ -127,7 +127,7 @@ Describe 'Profile' {
         }
     }
 
-    It 'preserves a matching DeepSeek exact Profile SecretRef without allowing route drift' {
+    It 'uses the vendor reference for a matching DeepSeek profile without altering the legacy saved copy' {
         InModuleScope AiCliProfileManager {
             Mock Test-AiCliSecretExists { $true }
             $template = Get-AiCliProviderManifest -Id 'codex-deepseek-flash'
@@ -148,7 +148,8 @@ Describe 'Profile' {
             $merged = Merge-AiCliProfile -Template $template -UserProfile $user
             $merged.endpoint | Should -Be 'https://api.deepseek.com'
             $merged.models.primary | Should -Be 'deepseek-flash'
-            $merged.secretRef | Should -Be 'opaque-existing-secret-ref'
+            $merged.secretRef | Should -Be 'passwordcenter:deepseek'
+            $user.secretRef | Should -Be 'opaque-existing-secret-ref'
         }
     }
 

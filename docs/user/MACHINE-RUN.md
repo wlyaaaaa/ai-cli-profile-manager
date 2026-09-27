@@ -58,7 +58,7 @@ aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 - `approvalPolicy=never` 表示 harness 不等待权限弹窗；它不会缩小 `danger-full-access`，也不能被描述成沙箱或只读隔离。调用方应只传可信工作区与任务，并对可能产生的全部本机副作用负责。
 - 所有当前和未来 Codex harness 默认在 `thread/start.dynamicTools` 注册受管函数 `public_web_search`；无需按模型逐项登记。它只访问固定的 `https://cn.bing.com/search` RSS，拒绝重定向、Cookie、模型指定 URL/Header/Key，并将结果标为不可信公共文本。Windows 系统代理仅用于固定 HTTPS 出口且不带默认凭据。显式 `--no-web-search` 可关闭本次 run；不会改变 `danger-full-access` 权限。
 - 运行时身份是独立硬门：app-server 的 `thread/start` 结果必须提供 exact actual model、modelProvider、CLI version、`activePermissionProfile=:danger-full-access` 与 `sandbox.type=dangerFullAccess`；公开回执同时必须证明 `requested_policy=danger-full-access`。缺失、错配或随后收到 `model/rerouted` 时整次 run 失败。
-- `codex-deepseek-flash` 只允许官方自动升级 ID `deepseek-flash`；`codex-deepseek-v4-pro` 只允许 `deepseek-v4-pro` 且仅作为 CLI-only Profile。旧 `codex-deepseek` / `deepseek-v4-flash` 失败关闭。Qwen3.7 Max 06-08 与 Qwen3.8 Max 各自只允许自己的 Workspace paygo route。Key 由 DPAPI 解封后仅以 `env_key` 对应环境变量注入目标 Codex 子进程，不进入参数或模型目录。
+- `codex-deepseek-flash` 只允许官方自动升级 ID `deepseek-flash`；`codex-deepseek-v4-pro` 只允许 `deepseek-v4-pro` 且仅作为 CLI-only Profile。旧 `codex-deepseek` / `deepseek-v4-flash` 失败关闭。Qwen3.7 Max 06-08 与 Qwen3.8 Max 各自只允许自己的 Workspace paygo route。Qwen、GLM、DeepSeek 的 Key 从密码中心按厂商即时交付，仅以 `env_key` 对应环境变量注入目标 Codex 子进程，不进入参数或模型目录。同厂商显式换模型不重新录入或复制 Key；exact 预设身份仍保留。
 - 除 `codex-qwen3-7-max-paygo` → exact 06-08 外，Qwen3.7 Max/Plus 的 Cloud Agent route、Profile、目录和导入入口均已退役；旧身份记录不能通过 native model/fallback 参数恢复。
 - 本地 Ollama 的 Codex harness 同样使用全访问；LocalGpuBroker 的 lease/capability 绑定仍负责证明请求确实命中 exact 本地模型，但不再被表述为文件系统权限沙箱。
 - machine child 的父环境从 Windows、PowerShell、Node/TLS 运行所需的 allowlist 重建，不继承完整父环境或调试变量。受管运行计划仍可通过 `EnvironmentDelta` 显式注入目标 Profile 必需的 Provider/运行时变量，因此调用方不得把无关变量放入该显式增量。
@@ -89,3 +89,21 @@ aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 产品边界：aicli 只启动、约束并在 exact identity 闭合时恢复同一 thread，不判断低级模型是否胜任，也不在额度、限流或失败时 fallback 到其他 Profile/model/thread。上层模型应给出确定性验收器，依据最终文件、exit code、墙钟时间和结果回执裁决；若必须新建 attempt，使用新工作区从头执行并保留两份回执，旧 partial 不得并入结果。可以持续读取上述安全公共事件，但不要读取、保存或伪装隐藏思考流。
 
 上下文边界：原生 ChatGPT + Codex 保持上游默认。DeepSeek/千问/本地 Qwen 的第三方 Codex/Claude 路径不要主动压缩；受管目录或逐模型元数据只负责声明真实窗口和保留溢出保护，不把客户端摘要变成无损或远程压缩。未知第三方 Claude 模型会清除继承的上下文控制变量，避免沿用上一模型容量。
+
+## 厂商凭据与显式型号
+
+Qwen、GLM、DeepSeek 的 `secretRef` 是 `passwordcenter:qwen|glm|deepseek`。
+配置 Profile 不录入 Key，旧 DPAPI 文件在迁移期保留，但运行时不回退读取。
+`configured` 表示引用和路由已配置，真实账号权限须以实际请求判断。
+
+同厂商换型可在交互启动时显式传 `-- --model <厂商型号>`；保存新型号用独立 Profile：
+
+```powershell
+aicli profile configure codex-glm-5-3 --id codex-vendor-new-model --model <厂商型号>
+```
+
+已有 exact 预设 ID 保留其默认身份，自定义 ID 可重新 configure 换模型，仍用同一厂商引用。
+未知型号不继承旧型号的上下文容量或目录能力。需要在 Desktop 显示新型号时，在普通
+`data/model-catalogs` 准备已核实元数据，并配置 `--model-catalog <文件名.json>`；它是模型
+展示数据，不是取密名单。Desktop 默认集合在 `data/desktop-cloud-model-set.json`。
+修改这些数据不重发桥、不重录 Key；修改真正的凭据交付 helper 才需要新桥版本。

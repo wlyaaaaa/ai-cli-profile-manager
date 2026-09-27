@@ -48,5 +48,6 @@
     "https://api-docs.deepseek.com/updates/",
     "https://api-docs.deepseek.com/quick_start/agent_integrations/codex/",
     "https://api-docs.deepseek.com/guides/responses_api/"
-  ]
+  ],
+  "desktopReasoningMode": "deepseek"
 }

@@ -49,7 +49,7 @@ JsonObject CloudModel() => new()
 };
 JsonObject GlmModel() => new()
 {
-    ["profileId"] = "codex-glm-5-3-flash", ["model"] = "glm-5.3-flash",
+    ["reasoningMode"] = "raw", ["profileId"] = "codex-glm-5-3-flash", ["model"] = "glm-5.3-flash",
     ["providerId"] = "aicli_glm_5_3_flash", ["routeProviderId"] = "aicli_glm_5_3_flash", ["kind"] = "cloud",
     ["provider"] = new JsonObject
     {
@@ -68,7 +68,7 @@ JsonObject GlmModel() => new()
 };
 JsonObject DeepSeekModel() => new()
 {
-    ["profileId"] = "codex-deepseek-flash", ["model"] = "deepseek-flash",
+    ["reasoningMode"] = "deepseek", ["profileId"] = "codex-deepseek-flash", ["model"] = "deepseek-flash",
     ["providerId"] = "aicli_deepseek_flash", ["routeProviderId"] = "aicli_deepseek_flash", ["kind"] = "cloud",
     ["provider"] = new JsonObject
     {

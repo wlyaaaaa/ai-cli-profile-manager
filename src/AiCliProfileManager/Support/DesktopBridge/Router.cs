@@ -49,10 +49,10 @@ public sealed class ModelRouter
                 throw new InvalidOperationException("A managed desktop model has no provider definition.");
             modelProviders[model] = routeProvider;
             managedProviders[routeProvider] = 0;
-            var profileId = Text(entry, "profileId");
-            if (profileId is "codex-glm-5-3" or "codex-glm-5-3-flash" or "codex-deepseek-flash")
+            var reasoningMode = Text(entry, "reasoningMode");
+            if (reasoningMode is "raw" or "deepseek")
                 rawReasoningProviders[routeProvider] = 0;
-            if (profileId == "codex-deepseek-flash")
+            if (reasoningMode == "deepseek")
                 deepSeekReasoningProviders[routeProvider] = 0;
             if (rawReasoningProviders.ContainsKey(routeProvider) &&
                 ((Text(entry["catalogModel"], "base_instructions") ?? "").Contains(PublicSummaryProjection.PolicyMarker, StringComparison.Ordinal) ||

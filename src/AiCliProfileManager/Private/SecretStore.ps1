@@ -136,6 +136,7 @@ function Get-AiCliSecret {
 
 function Test-AiCliSecretExists {
     param([string]$SecretId)
+    if ($SecretId -match '^passwordcenter:(qwen|glm|deepseek)$') { return $true }
     if ([string]::IsNullOrWhiteSpace($SecretId)) { return $false }
     try { $safeId = Assert-AiCliSecretIdentifier -Id $SecretId } catch { return $false }
     $paths = Get-AiCliAppPaths
@@ -145,6 +146,7 @@ function Test-AiCliSecretExists {
 function Remove-AiCliSecret {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$SecretId)
+    if ($SecretId -match '^passwordcenter:') { return }
     $safeId = Assert-AiCliSecretIdentifier -Id $SecretId
     $paths = Get-AiCliAppPaths
     $file = Join-Path $paths.SecretsDir "$safeId.json"

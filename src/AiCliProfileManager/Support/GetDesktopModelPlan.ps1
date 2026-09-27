@@ -2,12 +2,7 @@
 [CmdletBinding()]
 param(
     [string[]]$ProfileId = @(),
-    [string[]]$CloudProfileId = @(
-        'codex-qwen3-8-max-paygo',
-        'codex-glm-5-3',
-        'codex-glm-5-3-flash',
-        'codex-deepseek-flash'
-    ),
+    [string[]]$CloudProfileId = @(),
     [string]$ModulePath = (Join-Path $PSScriptRoot '..\AiCliProfileManager.psd1'),
     [switch]$UpstreamOnly
 )
@@ -27,6 +22,12 @@ if ($ProfileId.Count -eq 0 -and -not $UpstreamOnly) {
     $set = Get-Content -LiteralPath $setPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 20
     $ProfileId = @($set.profiles | ForEach-Object { [string]$_ })
     if ($ProfileId.Count -eq 0) { throw 'Desktop local model set is empty.' }
+}
+if ($CloudProfileId.Count -eq 0 -and -not $UpstreamOnly) {
+    $cloudSetPath = & $module { Get-AiCliDataPath -Relative 'desktop-cloud-model-set.json' }
+    $cloudSet = Get-Content -LiteralPath $cloudSetPath -Raw -Encoding utf8 | ConvertFrom-Json
+    $customIds = & $module { @(Get-AiCliProfileList | Where-Object { (Get-AiCliProperty $_ 'modelOverride') -and (Get-AiCliProperty $_ 'codexModelCatalog') } | ForEach-Object id) }
+    $CloudProfileId = @(@($cloudSet.profiles) + @($customIds) | Select-Object -Unique)
 }
 $engineResolver = Join-Path $PSScriptRoot 'ResolveDesktopEngine.ps1'
 $plan = & $module {
@@ -84,18 +85,14 @@ $plan = & $module {
     foreach ($id in $(if ($OnlyUpstream) { @() } else { $CloudIds })) {
         $profile = Get-AiCliResolvedProfile -Id $id
         $cloudProvider = [string](Get-AiCliProperty $profile 'provider')
-        $blindProvision = $cloudProvider -eq 'glm' -and
-            $id -in @('codex-glm-5-3','codex-glm-5-3-flash')
-        if (-not [bool](Get-AiCliProperty $profile 'configured' $false) -and
-            -not $blindProvision) { continue }
+        if (-not [bool](Get-AiCliProperty $profile 'configured' $false)) { continue }
         if ((Get-AiCliProperty $profile 'engine') -ne 'codex' -or
             $cloudProvider -notin @('qwen','glm','deepseek') -or
             (Get-AiCliProperty $profile 'transport') -ne 'responses') {
             throw "Desktop cloud model profile must use an approved Codex Responses provider: $id"
         }
         if ((Get-AiCliProperty (Get-AiCliProperty $profile 'auth') 'type') -ne 'api-key' -or
-            (-not [bool](Get-AiCliProperty $profile 'secretConfigured' $false) -and
-                -not $blindProvision)) {
+            -not [bool](Get-AiCliProperty $profile 'secretConfigured' $false)) {
             throw "Desktop cloud model profile has no configured API key: $id"
         }
         $endpoint = [string](Get-AiCliProperty $profile 'endpoint')
@@ -147,6 +144,7 @@ $plan = & $module {
             providerId = $providerId
             routeProviderId = $providerId
             kind = 'cloud'
+            reasoningMode = [string](Get-AiCliProperty $profile 'desktopReasoningMode' '')
             provider = [ordered]@{
                 name = $displayName
                 base_url = $endpoint
@@ -155,7 +153,7 @@ $plan = & $module {
                 auth = [ordered]@{
                     command = 'pwsh'
                     args = @('-NoProfile', '-NonInteractive', '-File', $tokenScript, '-ProfileId', $id)
-                    timeout_ms = 10000
+                    timeout_ms = 45000
                     refresh_interval_ms = 0
                 }
             }
@@ -185,6 +183,9 @@ $plan = & $module {
     . $EngineResolver
     $upstream = Resolve-AiCliDesktopEngine
     if ($null -eq $upstream) { throw 'The installed Codex engine could not be resolved.' }
+    foreach ($entry in $entries) {
+        if ($entry.kind -eq 'cloud') { $entry.provider.auth.args += @('-ClientPath', [string]$upstream.FileName) }
+    }
     [ordered]@{
         schemaVersion = 1
         codexHome = $codexHome

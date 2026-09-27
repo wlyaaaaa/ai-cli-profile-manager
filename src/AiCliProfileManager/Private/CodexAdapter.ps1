@@ -518,7 +518,7 @@ function Resolve-AiCliCodexModel {
         $null = Assert-AiCliModelId -Model $model
     }
     $catalogName = [string](Get-AiCliProperty $MergedProfile 'codexModelCatalog')
-    if ($catalogName) {
+    if ($catalogName -and -not (Get-AiCliVendorSecretRef -Profile $MergedProfile)) {
         $models = Get-AiCliProperty $MergedProfile 'models'
         $allowed = @((Get-AiCliProperty $models 'candidates') | Where-Object { $_ } | ForEach-Object { [string]$_ })
         if ($allowed -notcontains $model) {
@@ -586,6 +586,14 @@ function Build-AiCliCodexLaunchPlan {
     $requestedEffort = Resolve-AiCliCodexEffort -MergedProfile $MergedProfile -NativeArgs $NativeArgs
     $effort = Resolve-AiCliCodexEffectiveEffort -MergedProfile $MergedProfile -RequestedEffort $requestedEffort
     $model = Resolve-AiCliCodexModel -MergedProfile $MergedProfile -NativeArgs $NativeArgs
+    if ((Get-AiCliVendorSecretRef -Profile $MergedProfile) -and
+        $model -cne [string](Get-AiCliProperty (Get-AiCliProperty $MergedProfile 'models') 'primary')) {
+        $copy = [ordered]@{}
+        foreach ($key in $MergedProfile.Keys) { $copy[$key] = $MergedProfile[$key] }
+        $copy['models'] = @{ primary=$model; small=$model; candidates=@($model) }
+        foreach ($key in @('codexModelCatalog','modelMetadata','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope')) { $copy[$key] = $null }
+        $MergedProfile = $copy
+    }
 
     if ($provider -eq 'openai' -or $id -eq 'codex-official') {
         foreach ($v in $script:AiCliCodexProviderVars) { $removeEnv += $v }
@@ -687,7 +695,7 @@ function Build-AiCliCodexLaunchPlan {
         $cliArgs.Add($written.CliProfileName) | Out-Null
         $configFiles += $written.FilePath
         if ((Get-AiCliProperty $MergedProfile 'secretConfigured') -or (Get-AiCliProperty $MergedProfile 'secretRef')) {
-            $secret = Get-AiCliSecret -SecretId (Get-AiCliProperty $MergedProfile 'secretRef')
+            $secret = Get-AiCliProfileSecret -Profile $MergedProfile
             $envDelta['AICLI_CODEX_PROVIDER_KEY'] = $secret
         } else {
             throw "Profile $id 需要 API Key。请运行: aicli profile configure $id"

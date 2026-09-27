@@ -49,5 +49,6 @@
   "sources": [
     "https://docs.bigmodel.cn/cn/coding-plan/tool/codex",
     "https://docs.z.ai/guides/llm/glm-5.3"
-  ]
+  ],
+  "desktopReasoningMode": "raw"
 }
