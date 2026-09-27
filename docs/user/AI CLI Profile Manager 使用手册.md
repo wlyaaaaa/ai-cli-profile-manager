@@ -1,6 +1,6 @@
 # AI CLI Profile Manager 使用手册
 
-适用版本：`0.3.18`（源码与安装目标；发布、安装和 Live 证据须分别核对）
+适用版本：`0.3.19`（源码与安装目标；发布、安装和 Live 证据须分别核对）
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
@@ -19,7 +19,7 @@ AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter �
 
 ### 1.2 安装本工具
 
-`0.3.18` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
+`0.3.19` 是当前源码与安装目标；源码提交、GitHub Release、已安装 payload 和 Live 回执不是同一层证据。从源码工作树安装时直接使用本节后面的 `scripts\Install.ps1`。使用正式发布版时，从 [GitHub Releases](https://github.com/wlyaaaaa/ai-cli-profile-manager/releases/latest) 下载同一版本的 ZIP 和 `.sha256.json`。下面的命令会先核对发布清单，再解除这个已核对 ZIP 的 Internet 阻止标记；不需要也不应该全局放宽 ExecutionPolicy：
 
 ```powershell
 $version = '<从 Releases 页面选择的已发布版本>'
@@ -200,7 +200,7 @@ aicli profile remove qwen-work
 | `profile list` | 显示可直接启动或已经配置的 Profile | 立即 |
 | `profile list --available` | 显示全部公开模板和当前状态 | 立即 |
 | `profile show` | 脱敏显示 Provider、端点、模型、密钥是否存在和数据去向 | 立即 |
-| `profile configure` | 保存用户 Profile；需要时无回显录入 Key并用 DPAPI 加密 | 下次启动 |
+| `profile configure` | 保存用户 Profile；三家受管厂商只存密码中心引用，其他本地密钥接法保持兼容 | 下次启动 |
 | `profile set-default` | 设置无参数入口优先使用的 Profile | 下次无参数运行 |
 | `profile remove` | 删除用户实例；不删除内置模板 | 立即 |
 
@@ -234,13 +234,17 @@ aicli profile remove qwen-work
 `codex-glm-5-3` 与 `codex-glm-5-3-flash` 使用智谱中国区 `https://open.bigmodel.cn/api/v1` Responses 端点，分别固定模型 ID `glm-5.3` 与 `glm-5.3-flash`，不使用 alias（动态别名）或 fallback（后备模型）。两者均声明 1048576 token 上下文、95% 有效窗口、943718 token（最大上下文 90%）自动压缩线和 `low` / `high` / `max` 推理档位；Flash 在 Codex 桌面目录中声明文本与图像输入。根任务和子代理默认使用简体中文，思考摘要与进度重点解释与你的目标有关的发现、原因和影响；需要调查或分步处理时，开始前会主动说明准备解决的问题，过程中在重要发现、阶段进展或调整方向时继续解释，不把说明全部留到结束。不固定行数，用你关心的目的和影响解释内部操作，也不为增加篇幅凑话。最终答复按问题需要展开，让必要细节足够清楚。两项 GLM 模型使用 Codex 的延迟工具搜索，插件工具按需加载；智谱 Responses 返回原始 reasoning content 时，桌面桥会把同一内容映射为可见思考。两个 Profile 共享 Password Center 的 `zhipu-glm-api` 凭据来源，但各自保留独立 Provider 与模型目录，切换不同服务的历史任务时仍需新建任务。
 
 同一套“开始前说明、多步过程中讲清重要发现和影响、最终答复保留必要解释”的表达方式也用于 AICLI 受管的本地 Qwen、云端 Qwen 和 DeepSeek Codex 模型。它不会改变你在菜单中选择的模型、模型速度、上下文长度或 OpenAI 官方模型；OpenAI 模型仍由 Codex 自己动态更新。其他模型的实际表达效果会随模型本身而不同，当前已由实际使用验收的是 GLM。
-首次在重启后的 Codex Desktop 选择任一 GLM 模型时，command-backed auth 会调用 Password Center 的固定 `aicli-glm-codex-profile-import` 目标完成盲注入，再读取 CurrentUser DPAPI 运行副本；用户不重复输入 Key，秘密不进入对话、标准输出或明文配置。Password Center 只接受命中受保护发行哈希清单的单层桌面桥进程链。
+Qwen、GLM 和 DeepSeek 的 Key 按厂商保存在密码中心，Profile 只引用 `passwordcenter:<厂商>`。CLI 在每次使用时通过一次性本机管道接收值，再注入实际客户端子进程环境；新版 Codex Desktop 的 command-backed auth 经桌面身份入口取值，原生认证管道不会把 Key 写入模型目录或普通配置。旧桌面桥按名字加载 0.3.19 模块时，其 `Get-AiCliSecret` 调用会转到同一厂商的普通终端交付，不再执行 `aicli-glm-codex-profile-import`，也不创建 DPAPI 副本。正在运行的旧桥可以继续取 key，不必为这次模块兼容改动重发旧桥。
+
+只配置引用不证明密码库已有可用 key。`profile show`、列表和 `doctor` 明确显示“引用已配置，密钥未验证”；真实调用成功才构成可用证据。桌面 auth.command 刷新间隔为 0，每轮可能重新解开密码库，验收应跑两轮并记录耗时。
+
+这三家厂商的本机交付允许明文返回到当前用户调用进程链上的上级进程。撤销 Claude/Codex 的桌面主体不能禁用普通终端取这三把 key；关闭这项能力要撤销受信设备或删除厂商登记，已交出的明文不能撤回。现有主体撤销还会推进共享撤销 epoch，使旧受信设备封套暂时返回 `trusted_device_unlock_rebind_required`；这不等于为原生交付建立了按主体的权限隔离。合法重绑受信设备后，该路径仍不检查被撤销的桌面主体。本次未放宽这个 epoch 校验。官方主机检查不按 API 路径限制合法用法；持钥传输默认校验 TLS、不跟随跳转，原生客户端获得 Key 后由客户端负责后续网络行为。
 
 旧 Claude Code DeepSeek 内置 Profile 已退役。Claude 的第三方上下文窗口只接受当前 Profile 显式声明的 modelMetadata；未知或自定义模型不猜测容量，且 AICLI 不设置会提前压缩的 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`，也不默认禁用自动/手动压缩。
 
 本机主用入口 `codex-ollama-main`、`claude-ollama-main`、`opencode-ollama-main`、`qwen-code-ollama-main` 统一使用 Qwen3.8 27B 的受管运行标签 `qwen3.8-27b:256k`，保留 262144（256K）最大上下文。Codex 使用 Responses、`max` 和独立受管目录；原显式 27B Profile 保留兼容。运行标签复用官方 `qwen3.8:27b` 的 Q4_K_M 权重，固定 `num_ctx 262144` 与 `draft_num_predict 0`，避免 Ollama 0.33.1 的 MTP 草稿上下文初始化崩溃，不降低模型思考等级。先运行 `scripts\Setup-Qwen38-27B256K.ps1` 安装并回读；它可更新 OpenCode Desktop 的现有 27B 目录项。`codex-ollama-review` 继续使用 Qwen3.6 35B 的独立复核路线。
 
-Codex 的 DeepSeek Key 与其他云端 Profile 一样由 Windows CurrentUser DPAPI 保存。受管 Codex TOML 只写 `env_key`，不会复制官方手工示例中的明文 `experimental_bearer_token` 或 `preferred_auth_method`。Qwen Code 0.21 与 OpenCode 1.18.8 虽有上游原生 DeepSeek 接入，但 AICLI 当前只为它们提供禁网的 machine-only 沙箱，且尚无隔离真实 Key 的远程 egress relay；因此不提供这两类 DeepSeek Profile。
+Codex 的 DeepSeek Key 与 Qwen、GLM 一样按厂商引用密码中心，不在 AICLI 内另存 Profile DPAPI 副本。受管 Codex TOML 只写 `env_key`，不会复制官方手工示例中的明文 `experimental_bearer_token` 或 `preferred_auth_method`。Qwen Code 0.21 与 OpenCode 1.18.8 虽有上游原生 DeepSeek 接入，但 AICLI 当前只为它们提供禁网的 machine-only 沙箱，且尚无隔离真实 Key 的远程 egress relay；因此不提供这两类 DeepSeek Profile。
 
 以后更换本地模型时，由维护者先准备 `data/providers/codex-ollama-main.json` 和新模型的独立 catalog，再在仓库根运行：
 
@@ -272,7 +276,7 @@ aicli profile configure codex-deepseek-flash
 aicli profile configure codex-deepseek-v4-pro --reuse-secret-from codex-deepseek-flash
 ```
 
-配置过程中会先显示引擎、Provider、套餐和数据去向，再无回显读取 Key。秘密使用 Windows DPAPI CurrentUser 保存，不写入 Git、日志、`profile show`、`native` 或 `eject`。
+配置过程中先显示引擎、Provider、套餐和数据去向。Qwen、GLM、DeepSeek 直接保存厂商引用，不询问或复制 Key；保留的其他本地密钥接法仍使用 CurrentUser 存储。秘密不写入 Git、日志、`profile show`、`native` 或 `eject`。
 
 ### 3.4 启动、查看与导出
 
@@ -322,7 +326,7 @@ pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
 pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply -Force
 ```
 
-脚本只接受能由 HTTPS 主机名证明身份的 DeepSeek 配置，并要求主机为 `api.deepseek.com`。当前只导入 `codex-deepseek-flash`；V4 Pro、Claude Code、Open Interpreter、Qwen3.7、Qwen Code 与 OpenCode 都不会由该脚本自动创建。未知/OpenAI Base URL 会被拒绝，避免把某家的 Key 误送到另一家。导入的 Key 立即使用 Windows CurrentUser DPAPI 保存；输出、Profile JSON 和日志中都不出现明文。导入后运行 `aicli doctor codex-deepseek-flash`，需要真实连通证据时再显式执行 Live Test。
+脚本只接受能由 HTTPS 主机名证明身份的 DeepSeek 配置，并要求主机为 `api.deepseek.com`。当前只导入 `codex-deepseek-flash`；V4 Pro、Claude Code、Open Interpreter、Qwen3.7、Qwen Code 与 OpenCode 都不会由该脚本自动创建。未知/OpenAI Base URL 会被拒绝，避免把某家的 Key 误送到另一家。导入的 Key 立即使用 Windows CurrentUser DPAPI 保存；输出、Profile JSON 和日志中都不出现明文。该脚本用于历史环境维护；它产生的旧 DPAPI 副本不会覆盖密码中心的厂商登记，也不是 0.3.19 三家厂商的取密来源。当前版本应直接配置厂商引用；不同 DeepSeek 条目未经确认不合并。需要真实连通证据时再显式执行 Live Test。
 
 ## 4. Doctor 与 Live Test
 

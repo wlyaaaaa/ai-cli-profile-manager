@@ -236,7 +236,13 @@ function Merge-AiCliProfile {
     $vendorReference = Get-AiCliVendorSecretRef -Profile $merged
     if ($vendorReference) {
         $merged['secretRef'] = $vendorReference
+        # Legacy Desktop helpers use this boolean to decide whether to invoke
+        # their retired copy-import route. For them it means a delivery source
+        # is configured, not that a key was fetched or verified. New diagnostic
+        # surfaces consume the explicit evidence fields below instead.
         $merged['secretConfigured'] = $true
+        $merged['referenceConfigured'] = $true
+        $merged['keyAvailability'] = 'not-checked'
         $merged['configured'] = -not ([bool](Get-AiCliProperty $Template 'workspaceBaseUrlRequired' $false) -and
             [string]::IsNullOrWhiteSpace([string](Get-AiCliProperty $merged 'endpoint')))
     }

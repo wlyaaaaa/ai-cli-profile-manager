@@ -82,7 +82,7 @@ function Protect-AiCliObject {
             # AICLI_OI_PROVIDER_KEY must be redacted too. Boolean presence flags stay booleans.
             $isPresenceMetadata = $InputObject[$k] -is [bool] -and $keyStr -in @('secretPresence','secretConfigured','requiresSecret','localClientKeyPresent')
             # Preserve only the closed public display enum emitted by Format-AiCliSecretPresence.
-            $isPresenceMetadata = $isPresenceMetadata -or ($keyStr -eq 'secretPresence' -and $InputObject[$k] -is [string] -and $InputObject[$k] -cin @('已配置','未配置'))
+            $isPresenceMetadata = $isPresenceMetadata -or ($keyStr -eq 'secretPresence' -and $InputObject[$k] -is [string] -and $InputObject[$k] -cin @('已配置','未配置','引用已配置，密钥未验证'))
             $isUsageMetadata = Test-AiCliUsageMetric -Name $keyStr -Value $InputObject[$k]
             $isSecretField = (-not $isPresenceMetadata) -and (-not $isUsageMetadata) -and (
                 ($SecretKeys -contains $keyStr) -or

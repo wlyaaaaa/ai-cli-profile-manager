@@ -1,6 +1,6 @@
 # Codex、Claude Code 与 Open Interpreter CLI 中文手册
 
-适用版本：AI CLI Profile Manager `0.3.18`（source/install/runtime/live 分层验收）
+适用版本：AI CLI Profile Manager `0.3.19`（source/install/runtime/live 分层验收）
 用途：帮助中文用户直接使用原生 Codex CLI、Claude Code 和当前官方 Rust Open Interpreter。
 
 > aicli 只负责选择 Profile 并启动原生 CLI。本手册保留上游英文命令，便于复制和搜索。上游版本会变化；某条命令不在当前 CLI 的 `/help` 或斜杠菜单中时，以当前官方界面为准。
@@ -68,7 +68,7 @@ aicli start codex-official -- --model gpt-5.6-sol
 
 第三方 Codex Profile 的 Provider 配置由 aicli 管理。不要透传 `-c`、`--config` 或 `--profile` 覆盖 Provider；这些参数与启动计划冲突，会被拒绝。
 
-DeepSeek Codex 当前使用两个隔离 Profile：`codex-deepseek-flash` 固定官方自动升级模型 ID `deepseek-flash`，`codex-deepseek-v4-pro` 固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813` 且仅供 CLI 使用。两者都是 Responses、1M context、默认用户档 `max`，且不接受模型、Provider 或 fallback 覆盖；Desktop 只显示“DeepSeek Flash”，不把 V4 Pro 加进模型菜单。AICLI 用 DPAPI 保存 Key，受管配置只写 `env_key`；不要照抄官方示例里的明文 `experimental_bearer_token`。旧 `codex-deepseek` / `deepseek-v4-flash` 已退役并失败关闭。
+DeepSeek Codex 当前使用两个隔离 Profile：`codex-deepseek-flash` 固定官方自动升级模型 ID `deepseek-flash`，`codex-deepseek-v4-pro` 固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813` 且仅供 CLI 使用。两者都是 Responses、1M context、默认用户档 `max`，预设保留默认身份，显式模型参数或独立自定义 Profile 可换同厂商型号，Provider 与 fallback 约束保持；Desktop 只显示“DeepSeek Flash”，不把 V4 Pro 加进模型菜单。AICLI 按厂商引用密码中心已有 Key，不建立 Profile DPAPI 副本；受管配置只写 `env_key`；不要照抄官方示例里的明文 `experimental_bearer_token`。旧 `codex-deepseek` / `deepseek-v4-flash` 已退役并失败关闭。
 
 Qwen 使用两个隔离 exact Codex Profile：`codex-qwen3-7-max-paygo` 固定 `qwen3.7-max-2026-06-08`，`codex-qwen3-8-max-paygo` 固定 `qwen3.8-max-0902`。两者均为北京 Workspace 按量 Responses、983616 context、95% 有效窗口、885254 token（最大上下文 90%）自动压缩阈值，用户 `max` 映射原生最高 `xhigh`。通用 alias、其他快照、preview、Plus、通用 DashScope、Token Plan 与 native model/fallback 参数继续失败关闭。
 
@@ -348,7 +348,7 @@ Usage by model:
 
 1. 上游官方登录和主配置。
 2. aicli 随版本发布的 Provider 模板。
-3. 你保存的用户 Profile 与 DPAPI 秘密引用。
+3. 你保存的用户 Profile 与凭据引用；Qwen、GLM、DeepSeek 引用密码中心厂商条目，其他已有接法保持兼容。
 4. 本次启动计划和子进程环境。
 5. 会话内模型、权限和临时命令。
 

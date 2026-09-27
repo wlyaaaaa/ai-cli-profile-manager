@@ -262,7 +262,7 @@ function Invoke-AiCliProfileCommand {
                         effectiveEffort = $effectiveEffort
                         status = (Get-AiCliProperty $_ 'status')
                         configured = (Get-AiCliProperty $_ 'configured')
-                        secretPresence = (Format-AiCliSecretPresence ([bool](Get-AiCliProperty $_ 'secretConfigured')))
+                        secretPresence = (Get-AiCliProfileCredentialState -Profile $_).Presence
                     }
                 })
                 Write-AiCliJson (New-AiCliResult -Command 'profile list' -OverallStatus '通过' -Extra @{ profiles = $rows })
@@ -297,13 +297,17 @@ function Invoke-AiCliProfileCommand {
             $pos = Assert-AiCliTokenShape -Tokens $rest -MinPositionals 1 -MaxPositionals 1 -Switches @('--json')
             $p = Get-AiCliResolvedProfile -Id $pos[0]
             $view = Protect-AiCliObject -InputObject $p
-            $hasSecret = [bool](Get-AiCliProperty $p 'secretConfigured')
-            if ($view -is [System.Collections.IDictionary]) {
-                $view['secretRef'] = Format-AiCliSecretPresence $hasSecret
-                $view['secretConfigured'] = Format-AiCliSecretPresence $hasSecret
-            } else {
-                $view | Add-Member -NotePropertyName secretRef -NotePropertyValue (Format-AiCliSecretPresence $hasSecret) -Force
-                $view | Add-Member -NotePropertyName secretConfigured -NotePropertyValue (Format-AiCliSecretPresence $hasSecret) -Force
+            $credentialState = Get-AiCliProfileCredentialState -Profile $p
+            $publicState = [ordered]@{
+                secretRef = $credentialState.Presence
+                secretConfigured = $(if ($credentialState.Source -eq 'passwordcenter') { $null } else { [bool](Get-AiCliProperty $p 'secretConfigured') })
+                secretPresence = $credentialState.Presence
+                referenceConfigured = $credentialState.ReferenceConfigured
+                keyAvailability = 'not-checked'
+            }
+            foreach ($name in $publicState.Keys) {
+                if ($view -is [System.Collections.IDictionary]) { $view[$name] = $publicState[$name] }
+                else { $view | Add-Member -NotePropertyName $name -NotePropertyValue $publicState[$name] -Force }
             }
             if (Test-AiCliHasFlag $rest '--json') {
                 Write-AiCliJson (New-AiCliResult -Command 'profile show' -OverallStatus (Get-AiCliProperty $p 'status') -Extra @{ profile = $view })
@@ -312,7 +316,7 @@ function Invoke-AiCliProfileCommand {
                 Write-Host ("名称: {0}" -f (Get-AiCliProperty $p 'displayName'))
                 Write-Host ("引擎: {0}  Provider: {1}  套餐: {2}" -f (Get-AiCliProperty $p 'engine'), (Get-AiCliProperty $p 'provider'), (Get-AiCliProperty $p 'plan'))
                 Write-Host ("状态: {0}" -f (Get-AiCliProperty $p 'status'))
-                Write-Host ("密钥: {0}" -f (Format-AiCliSecretPresence ([bool](Get-AiCliProperty $p 'secretConfigured'))))
+                Write-Host ("密钥: {0}" -f (Get-AiCliProfileCredentialState -Profile $p).Presence)
                 $ep = Get-AiCliProperty $p 'endpoint'
                 if (-not $ep -and (Get-AiCliProperty $p 'proxyRef')) {
                     $ep = "managed-proxy:$([string](Get-AiCliProperty $p 'proxyRef'))"

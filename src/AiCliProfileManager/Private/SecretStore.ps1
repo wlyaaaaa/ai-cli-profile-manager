@@ -112,6 +112,12 @@ function New-AiCliSecret {
 function Get-AiCliSecret {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$SecretId)
+    # Old Desktop releases import the newest module by name and call this
+    # function with the resolved reference. Keep that call shape compatible.
+    if ($SecretId -match '^passwordcenter:(qwen|glm|deepseek)$') {
+        $vendor = $Matches[1]
+        return Request-AiCliVendorCredential -Vendor $vendor -Endpoint (Get-AiCliVendorDefaultEndpoint -Vendor $vendor)
+    }
     $safeId = Assert-AiCliSecretIdentifier -Id $SecretId
     $paths = Get-AiCliAppPaths
     $file = Join-Path $paths.SecretsDir "$safeId.json"
@@ -136,7 +142,9 @@ function Get-AiCliSecret {
 
 function Test-AiCliSecretExists {
     param([string]$SecretId)
-    if ($SecretId -match '^passwordcenter:(qwen|glm|deepseek)$') { return $true }
+    # A reference cannot prove that the vault contains a usable key. No fetch
+    # is performed by this local-presence probe; null explicitly means unknown.
+    if ($SecretId -match '^passwordcenter:(qwen|glm|deepseek)$') { return $null }
     if ([string]::IsNullOrWhiteSpace($SecretId)) { return $false }
     try { $safeId = Assert-AiCliSecretIdentifier -Id $SecretId } catch { return $false }
     $paths = Get-AiCliAppPaths

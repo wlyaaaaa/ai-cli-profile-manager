@@ -1,4 +1,4 @@
-# Vendor references are metadata. Values are delivered once through a local pipe.
+﻿# Vendor references are metadata. Values are delivered once through a local pipe.
 function Get-AiCliVendorSecretRef {
     param($Profile)
     $provider = [string](Get-AiCliProperty $Profile 'provider')
@@ -11,6 +11,30 @@ function Get-AiCliVendorSecretRef {
 
 function Get-AiCliVendorBrokerPath {
     return Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PCConfig\AuthorityHost\tools\Invoke-PasswordCenterVendor.ps1'
+}
+
+function Get-AiCliVendorDefaultEndpoint {
+    param([Parameter(Mandatory)][ValidateSet('qwen','glm','deepseek')][string]$Vendor)
+    $hostRoot = Split-Path (Split-Path (Get-AiCliVendorBrokerPath) -Parent) -Parent
+    try {
+        $registry = Get-Content -LiteralPath (Join-Path $hostRoot 'registries/secret_broker.json') -Raw -Encoding utf8 |
+            ConvertFrom-Json -AsHashtable -Depth 100 -ErrorAction Stop
+        $endpoint = [string]$registry.api_vendors[$Vendor].origins.http
+        $uri = [Uri]$endpoint
+        if (-not $uri.IsAbsoluteUri -or $uri.Scheme -cne 'https' -or -not $uri.Host) { throw 'invalid' }
+        return $endpoint
+    } catch { throw 'Password Center: vendor_registration_unavailable' }
+}
+
+function Get-AiCliProfileCredentialState {
+    param([Parameter(Mandatory)]$Profile)
+    if ([string](Get-AiCliProperty $Profile 'secretRef') -match '^passwordcenter:(qwen|glm|deepseek)$') {
+        return [pscustomobject]@{ Source='passwordcenter'; ReferenceConfigured=$true; ValueVerified=$null;
+            Presence='引用已配置，密钥未验证'; Status='可用但有限制' }
+    }
+    $present = [bool](Get-AiCliProperty $Profile 'secretConfigured')
+    return [pscustomobject]@{ Source='local'; ReferenceConfigured=$present; ValueVerified=$null;
+        Presence=(Format-AiCliSecretPresence $present); Status=$(if($present){'通过'}else{'不可用'}) }
 }
 
 function Get-AiCliVendorDeliveryError {

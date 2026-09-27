@@ -1,10 +1,42 @@
-BeforeAll {
+﻿BeforeAll {
     $script:Repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
     Remove-Module AiCliProfileManager -Force -ErrorAction SilentlyContinue
     Import-Module (Join-Path $script:Repo 'src/AiCliProfileManager/AiCliProfileManager.psd1') -Force
 }
 
 Describe 'Vendor credential references' {
+    It 'does not turn a configured vendor reference into verified key presence' {
+        InModuleScope AiCliProfileManager {
+            Mock Get-AiCliUserProfile { $null }
+            Mock Get-AiCliSettings { @{ verification=@{} } }
+            Mock Request-AiCliVendorCredential { throw 'diagnostic must not fetch a key' }
+            Test-AiCliSecretExists 'passwordcenter:glm' | Should -BeNullOrEmpty
+            $profile = Get-AiCliResolvedProfile 'codex-glm-5-3'
+            $profile.secretConfigured | Should -BeTrue -Because 'legacy Desktop helpers require a configured delivery source'
+            $profile.referenceConfigured | Should -BeTrue
+            $profile.keyAvailability | Should -BeExactly 'not-checked'
+            $state = Get-AiCliProfileCredentialState $profile
+            $state.ValueVerified | Should -BeNullOrEmpty
+            $state.Status | Should -BeExactly '可用但有限制'
+            $state.Presence | Should -BeExactly '引用已配置，密钥未验证'
+            (Protect-AiCliObject @{secretPresence=$state.Presence}).secretPresence | Should -BeExactly $state.Presence
+            Should -Invoke Request-AiCliVendorCredential -Times 0
+        }
+    }
+
+    It 'routes the old Get-AiCliSecret call through the registered vendor origin' {
+        InModuleScope AiCliProfileManager {
+            Mock Get-AiCliVendorDefaultEndpoint { 'https://api.deepseek.com' }
+            Mock Request-AiCliVendorCredential { 'synthetic-legacy-key' }
+            Mock Unprotect-AiCliSecretBytes { throw 'must not read DPAPI' }
+            $value = Get-AiCliSecret 'passwordcenter:deepseek'
+            ($value -ceq 'synthetic-legacy-key') | Should -BeTrue
+            Should -Invoke Request-AiCliVendorCredential -Times 1 -ParameterFilter {
+                $Vendor -eq 'deepseek' -and $Endpoint -eq 'https://api.deepseek.com' -and -not $Desktop
+            }
+            Should -Invoke Unprotect-AiCliSecretBytes -Times 0
+        }
+    }
     It 'reports only a bounded Broker error when trusted-device material is missing' {
         InModuleScope AiCliProfileManager {
             Get-AiCliVendorDeliveryError '{"schema":"pcconfig.secret-broker-result.v1","error":"trusted_device_unlock_missing"}' | Should -BeExactly 'trusted_device_unlock_missing'

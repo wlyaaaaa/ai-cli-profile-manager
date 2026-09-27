@@ -139,8 +139,8 @@ function Invoke-AiCliDoctor {
             if (-not $tmpl) { try { $tmpl = Get-AiCliProviderManifest -Id $ProfileId } catch {} }
             if ($tmpl) { $needs = [bool](Get-AiCliProperty $tmpl 'requiresSecret' $false) }
             if ($needs) {
-                $sc = [bool](Get-AiCliProperty $merged 'secretConfigured')
-                $checks.Add((New-AiCliCheck -Id 'profile.secret' -Status $(if ($sc) { '通过' } else { '不可用' }) -Summary ("密钥: {0}" -f (Format-AiCliSecretPresence $sc)))) | Out-Null
+                $credentialState = Get-AiCliProfileCredentialState -Profile $merged
+                $checks.Add((New-AiCliCheck -Id 'profile.secret' -Status $credentialState.Status -Summary ("密钥: {0}" -f $credentialState.Presence))) | Out-Null
             } else {
                 $checks.Add((New-AiCliCheck -Id 'profile.secret' -Status '通过' -Summary '此 Profile 不需要本工具管理的 API Key（官方登录或本地）')) | Out-Null
             }
