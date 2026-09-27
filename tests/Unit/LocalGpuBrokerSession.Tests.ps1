@@ -915,6 +915,20 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
 }
 
 Describe 'LocalGpuBroker machine-run timeout ordering' {
+    # Real recovery helpers used by routing tests must never reach the user store.
+    BeforeEach {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $script:BrokerTestPreviousDataRoot = $script:AiCliDataRootOverride
+            Set-AiCliDataRootOverride -Path (Join-Path $Work 'aicli-data')
+        }
+    }
+
+    AfterEach {
+        InModuleScope AiCliProfileManager {
+            Set-AiCliDataRootOverride -Path $script:BrokerTestPreviousDataRoot
+        }
+    }
+
     It 'routes the static Toolkit ABI without enabling step or tool budgets' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             Mock New-AiCliRecoverableRun {
@@ -1115,6 +1129,8 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
 
     It 'redacts exact close-failure variants from Router JSON and still clears session state and runtime' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            (Get-AiCliAppPaths).IsTestRoot | Should -BeTrue
+            (Get-AiCliRecoveryStoreRoot) | Should -Be (Join-Path $Work 'aicli-data\Local\state\recoverable-runs')
             $script:FinalizationOrder = [Collections.Generic.List[string]]::new()
             $capability = 'Az09-_Capability_Exact_1234567890XYZQ' + [char]0x0F80
             $utf8Bytes = [Text.Encoding]::UTF8.GetBytes($capability)

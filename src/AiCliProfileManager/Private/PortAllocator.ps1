@@ -13,13 +13,13 @@ function Get-AiCliPortPoolConfig {
     return [ordered]@{
         schemaVersion = 1
         pool          = @(43192..43209)
-        preferred     = [ordered]@{ ccp = 43197; cliproxy = 43198; antigravity = 43199 }
+        preferred     = [ordered]@{ ccp = 43197; cliproxy = 43198 }
     }
 }
 
 function Get-AiCliCandidatePorts {
     param(
-        [Parameter(Mandatory)][ValidateSet('ccp','cliproxy','antigravity')][string]$ProxyId,
+        [Parameter(Mandatory)][ValidateSet('ccp','cliproxy')][string]$ProxyId,
         [int]$UserPort = 0
     )
     if ($UserPort -gt 0) {
@@ -32,7 +32,7 @@ function Get-AiCliCandidatePorts {
     # Normalize to [int] — JSON numbers may deserialize as Int64 and break IndexOf equality
     $pool = @((Get-AiCliProperty $cfg 'pool') | ForEach-Object { [int]$_ })
     if ($pool.Count -eq 0) { $pool = @(43192..43209) }
-    $defaults = @{ ccp = 43197; cliproxy = 43198; antigravity = 43199 }
+    $defaults = @{ ccp = 43197; cliproxy = 43198 }
     $pref = [int]$defaults[$ProxyId]
     $preferred = Get-AiCliProperty $cfg 'preferred'
     if ($null -ne $preferred) {
@@ -223,12 +223,12 @@ function Test-AiCliPortCandidate {
 
 function Test-AiCliPortReservedByOtherProxy {
     param(
-        [Parameter(Mandatory)][ValidateSet('ccp','cliproxy','antigravity')][string]$ProxyId,
+        [Parameter(Mandatory)][ValidateSet('ccp','cliproxy')][string]$ProxyId,
         [Parameter(Mandatory)][int]$Port
     )
     $settings = Get-AiCliSettings
     $ports = Get-AiCliProperty $settings 'proxyPorts'
-    foreach ($otherId in @('ccp','cliproxy','antigravity')) {
+    foreach ($otherId in @('ccp','cliproxy')) {
         if ($otherId -eq $ProxyId) { continue }
         $otherPort = Get-AiCliProperty $ports $otherId
         if ($null -ne $otherPort -and [int]$otherPort -eq $Port) { return $true }
@@ -238,7 +238,7 @@ function Test-AiCliPortReservedByOtherProxy {
 
 function Select-AiCliProxyPort {
     param(
-        [Parameter(Mandatory)][ValidateSet('ccp','cliproxy','antigravity')][string]$ProxyId,
+        [Parameter(Mandatory)][ValidateSet('ccp','cliproxy')][string]$ProxyId,
         [int]$UserPort = 0,
         [switch]$PreferPersisted,
         [int[]]$ExcludePorts = @()
@@ -278,7 +278,7 @@ function Select-AiCliProxyPort {
 
 function Save-AiCliProxyPort {
     param(
-        [ValidateSet('ccp','cliproxy','antigravity')][string]$ProxyId,
+        [ValidateSet('ccp','cliproxy')][string]$ProxyId,
         [int]$Port
     )
     $s = Get-AiCliSettings

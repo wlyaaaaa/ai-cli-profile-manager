@@ -50,8 +50,7 @@ jobs:
               'scripts\Sync-LocalModelProfiles.ps1',
               'scripts\Sync-LocalModelConfiguration.ps1',
               'scripts\Set-CodexDesktopLocalModels.ps1',
-              'src\AiCliProfileManager\Support\DesktopBridge\DesktopBridge.csproj',
-              'src\AiCliProfileManager\Support\GeminiIntegrationState.json'
+              'src\AiCliProfileManager\Support\DesktopBridge\DesktopBridge.csproj'
             )) {
               if ($entries -notcontains $required) { throw "Archive missing: $required" }
             }

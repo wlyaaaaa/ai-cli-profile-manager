@@ -25,8 +25,7 @@ continues to fail closed, and cancellation cannot turn an invalid identity into 
 valid one. Closed capture error categories expose no arbitrary exception payload.
 
 The Desktop bridge is independently content-addressed and registered by PCConfig.
-A normal module update must not rebuild, downgrade, enable or replace that release,
-nor activate the frozen Gemini integration. Existing concurrent source work is
+A normal module update must not rebuild, downgrade, enable or replace that release. Existing concurrent source work is
 not silently included in an installation or public Git commit.
 
 Focused checks: `RuntimeDiagnostics.Tests.ps1`, `RunControlReceipt.Tests.ps1`,

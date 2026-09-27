@@ -19,7 +19,6 @@ $privateOrder = @(
     'LocalGpuBrokerSession.ps1',
     'MachineRuntime.ps1',
     'PortAllocator.ps1',
-    'GeminiBridgeService.ps1',
     'ProcessIdentity.ps1',
     'CodexAdapter.ps1',
     'ClaudeAdapter.ps1',
