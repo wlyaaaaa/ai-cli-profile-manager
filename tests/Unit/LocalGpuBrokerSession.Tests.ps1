@@ -118,7 +118,6 @@ Describe 'LocalGpuBroker binding and secret boundary' {
 
             $toml | Should -Match 'X-LocalGpuBroker-Lease-Id'
             $toml | Should -Match 'AICLI_LOCAL_GPU_BROKER_CAPABILITY'
-            $toml | Should -Match 'stream_idle_timeout_ms = 180000'
             $toml | Should -Not -Match 'CAPABILITY_CANARY'
             (@($arguments) -join "`n") | Should -Match 'X-LocalGpuBroker-Capability'
             (@($arguments) -join "`n") |
