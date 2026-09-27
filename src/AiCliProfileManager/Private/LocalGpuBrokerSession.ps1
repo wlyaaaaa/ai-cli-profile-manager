@@ -1,4 +1,4 @@
-# Opt-in LocalGpuBroker session binding for Codex machine runs.
+﻿# Opt-in LocalGpuBroker session binding for Codex machine runs.
 
 $script:AiCliLocalGpuBrokerBindingSchema = 'aicli.local-gpu-broker-binding.v1'
 $script:AiCliLocalGpuBrokerBindingObservationSchema = 'aicli.local-gpu-broker-binding-observation.v1'
@@ -426,7 +426,8 @@ function Invoke-AiCliLocalGpuBrokerHttp {
         [Parameter(Mandatory)][ValidateSet('GET', 'POST')][string]$Method,
         [Parameter(Mandatory)][string]$ManagementOrigin,
         [Parameter(Mandatory)][string]$Path,
-        $Body = $null
+        $Body = $null,
+        [ValidateRange(1, 5000)][int]$TimeoutMs = 5000
     )
 
     if ($Path -notmatch '^/_gpu_broker/ollama-session/(?:acquire|renew|close|status)(?:\?lease_id=[a-f0-9]{32})?$') {
@@ -444,7 +445,7 @@ function Invoke-AiCliLocalGpuBrokerHttp {
     $handler.AllowAutoRedirect = $false
     $handler.UseProxy = $false
     $client = [Net.Http.HttpClient]::new($handler, $true)
-    $client.Timeout = [TimeSpan]::FromSeconds(5)
+    $client.Timeout = [TimeSpan]::FromMilliseconds($TimeoutMs)
     $request = [Net.Http.HttpRequestMessage]::new(
         [Net.Http.HttpMethod]::$Method,
         ($ManagementOrigin.TrimEnd('/') + $Path)
@@ -468,7 +469,11 @@ function Invoke-AiCliLocalGpuBrokerHttp {
             }
             if (-not $response.IsSuccessStatusCode) {
                 $reason = [string](Get-AiCliProperty $payload 'reason' 'request_failed')
-                throw "LocalGpuBroker management request failed: $reason"
+                $failure = [InvalidOperationException]::new(
+                    "LocalGpuBroker management request failed: $reason"
+                )
+                $failure.Data['LocalGpuBrokerReason'] = $reason
+                throw $failure
             }
             return $payload
         } finally {
@@ -476,6 +481,53 @@ function Invoke-AiCliLocalGpuBrokerHttp {
         }
     } finally {
         $request.Dispose()
+        $client.Dispose()
+    }
+}
+
+function Get-AiCliLocalGpuBrokerWaitingRequests {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ManagementOrigin)
+
+    $originUri = $null
+    if (-not [Uri]::TryCreate($ManagementOrigin, [UriKind]::Absolute, [ref]$originUri) -or
+        $originUri.Scheme -cne 'http' -or
+        $originUri.Host -cne '127.0.0.1' -or
+        $originUri.AbsolutePath -cne '/' -or
+        -not [string]::IsNullOrEmpty($originUri.Query) -or
+        -not [string]::IsNullOrEmpty($originUri.Fragment)) {
+        return $null
+    }
+    $handler = [Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.UseProxy = $false
+    $client = [Net.Http.HttpClient]::new($handler, $true)
+    $client.Timeout = [TimeSpan]::FromMilliseconds(250)
+    try {
+        $response = $client.GetAsync(
+            $ManagementOrigin.TrimEnd('/') + '/_gpu_broker/status'
+        ).GetAwaiter().GetResult()
+        try {
+            if ([int]$response.StatusCode -eq 404) { return $null }
+            if (-not $response.IsSuccessStatusCode) { return -1L }
+            $payload = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult() |
+                ConvertFrom-Json -AsHashtable -Depth 10
+            if ((Get-AiCliProperty $payload 'ok') -ne $true) { return -1L }
+            $waiting = Get-AiCliProperty $payload 'waiting_ollama_requests'
+            if ($null -eq $waiting) {
+                return $null
+            }
+            if ($waiting -isnot [long] -and $waiting -isnot [int]) {
+                return -1L
+            }
+            if ([long]$waiting -lt 0) { return -1L }
+            return [long]$waiting
+        } finally {
+            $response.Dispose()
+        }
+    } catch {
+        return -1L
+    } finally {
         $client.Dispose()
     }
 }
@@ -760,15 +812,59 @@ function Open-AiCliLocalGpuBrokerSession {
         -Plan $Plan -RequestText $RequestText -OwnerPid $ownerPid
     $binding = Get-AiCliLocalGpuBrokerBinding -Plan $Plan `
         -ExecutionBinding $executionBinding
-    $acquired = Invoke-AiCliLocalGpuBrokerHttp -Method POST `
-        -ManagementOrigin $binding.ManagementOrigin `
-        -Path '/_gpu_broker/ollama-session/acquire' `
-        -Body ([ordered]@{
-            owner = 'aicli-machine-run'
-            owner_pid = $ownerPid
-            binding_sha256 = $binding.Sha256
-            ttl_seconds = 30
-        })
+    $waitLimitMs = if ($TimeoutMs -gt 0) {
+        [Math]::Min(90000, $TimeoutMs)
+    } else {
+        90000
+    }
+    $waited = $false
+    $waitClock = [Diagnostics.Stopwatch]::StartNew()
+    while ($true) {
+        $remainingMs = $waitLimitMs - $waitClock.ElapsedMilliseconds
+        if ($remainingMs -le 0) {
+            [Console]::Error.WriteLine('AICLI：等待显卡超时，请稍后重试。')
+            throw [InvalidOperationException]::new(
+                "LocalGpuBroker GPU remained busy after $waitLimitMs ms."
+            )
+        }
+        try {
+            $acquired = Invoke-AiCliLocalGpuBrokerHttp -Method POST `
+                -ManagementOrigin $binding.ManagementOrigin `
+                -Path '/_gpu_broker/ollama-session/acquire' `
+                -TimeoutMs ([int][Math]::Min(5000, $remainingMs)) `
+                -Body ([ordered]@{
+                    owner = 'aicli-machine-run'
+                    owner_pid = $ownerPid
+                    binding_sha256 = $binding.Sha256
+                    ttl_seconds = 30
+                })
+            break
+        } catch {
+            $reason = [string]$_.Exception.Data['LocalGpuBrokerReason']
+            if ($reason -notin @(
+                'gpu_lease_active', 'ollama_request_active', 'ollama_session_active'
+            )) {
+                throw
+            }
+            if (-not $waited) {
+                [Console]::Error.WriteLine(
+                    "AICLI：显卡正由其他任务使用，最多等待 $([Math]::Ceiling($waitLimitMs / 1000)) 秒。"
+                )
+                $waited = $true
+            }
+            $remainingMs = $waitLimitMs - $waitClock.ElapsedMilliseconds
+            if ($remainingMs -le 0) {
+                [Console]::Error.WriteLine('AICLI：等待显卡超时，请稍后重试。')
+                throw [InvalidOperationException]::new(
+                    "LocalGpuBroker GPU remained busy after $waitLimitMs ms."
+                )
+            }
+            Start-Sleep -Milliseconds ([int][Math]::Min(500, $remainingMs))
+        }
+    }
+    if ($waited) {
+        [Console]::Error.WriteLine('AICLI：显卡已可用，继续启动本地模型。')
+    }
     $null = Assert-AiCliLocalGpuBrokerResponse -Response $acquired `
         -BindingSha256 $binding.Sha256 -OwnerPid $ownerPid
     $capability = [string](Get-AiCliProperty $acquired 'capability')
@@ -803,9 +899,18 @@ function Open-AiCliLocalGpuBrokerSession {
         86400
     }
     try {
+        $renewTimeoutMs = if ($TimeoutMs -gt 0) {
+            [int][Math]::Min(5000, $TimeoutMs - $waitClock.ElapsedMilliseconds)
+        } else { 5000 }
+        if ($renewTimeoutMs -le 0) {
+            throw [TimeoutException]::new(
+                'LocalGpuBroker session acquisition exhausted the machine-run timeout.'
+            )
+        }
         $renewed = Invoke-AiCliLocalGpuBrokerHttp -Method POST `
             -ManagementOrigin $session.ManagementOrigin `
             -Path '/_gpu_broker/ollama-session/renew' `
+            -TimeoutMs $renewTimeoutMs `
             -Body ([ordered]@{
                 lease_id = $session.LeaseId
                 capability = $session.Capability
@@ -830,9 +935,12 @@ function Open-AiCliLocalGpuBrokerSession {
             -Observation $session.BindingObservation -Session $session
         return $session
     } catch {
+        $closeReason = if ($_.Exception -is [TimeoutException]) {
+            'timeout'
+        } else { 'launch_failed' }
         try {
             $null = Request-AiCliLocalGpuBrokerSessionClose `
-                -Session $session -Reason launch_failed
+                -Session $session -Reason $closeReason
         } catch {}
         throw
     }

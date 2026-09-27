@@ -118,6 +118,7 @@ Describe 'LocalGpuBroker binding and secret boundary' {
 
             $toml | Should -Match 'X-LocalGpuBroker-Lease-Id'
             $toml | Should -Match 'AICLI_LOCAL_GPU_BROKER_CAPABILITY'
+            $toml | Should -Match 'stream_idle_timeout_ms = 180000'
             $toml | Should -Not -Match 'CAPABILITY_CANARY'
             (@($arguments) -join "`n") | Should -Match 'X-LocalGpuBroker-Capability'
             (@($arguments) -join "`n") |
@@ -185,6 +186,136 @@ Describe 'LocalGpuBroker binding and secret boundary' {
             ($terminal | ConvertTo-Json -Depth 30 -Compress) |
                 Should -Not -Match ([regex]::Escape($capability))
             $terminal.PSObject.Properties.Name | Should -Not -Contain 'capability'
+        }
+    }
+
+    It 'waits for a busy GPU lease, then acquires the same verified session' {
+        InModuleScope AiCliProfileManager {
+            $script:AcquireAttempts = 0
+            $plan = [pscustomobject]@{
+                profileId = 'codex-ollama-main'; profileFingerprint = ('a' * 64)
+                engine = 'codex'; model = 'qwen3.6-35b:256k'
+                modelProvider = 'aicli_ollama_main'; endpoint = 'http://127.0.0.1:32100/v1'
+                wire = 'responses'; machineRuntime = [ordered]@{
+                    localGpuBrokerSession = [ordered]@{
+                        contractVersion = 1; requiredForMachineRun = $true
+                        managementOrigin = 'http://127.0.0.1:32100'
+                    }
+                }
+            }
+            Mock Invoke-AiCliLocalGpuBrokerHttp {
+                if ($Path -eq '/_gpu_broker/ollama-session/acquire') {
+                    $script:AcquireAttempts++
+                    if ($script:AcquireAttempts -eq 1) {
+                        $failure = [InvalidOperationException]::new(
+                            'LocalGpuBroker management request failed: gpu_lease_active'
+                        )
+                        $failure.Data['LocalGpuBrokerReason'] = 'gpu_lease_active'
+                        throw $failure
+                    }
+                }
+                $response = [ordered]@{
+                    schema = 'pcconfig.local-gpu-broker.ollama-session.v1'; ok = $true
+                    broker_instance_id = '2' * 32; lease_id = '1' * 32
+                    owner = 'aicli-machine-run'; owner_pid = [Environment]::ProcessId
+                    owner_process_creation_token_sha256 = 'sha256:' + ('f' * 64)
+                    owner_process_exit_detected_at = $null
+                    binding_sha256 = [string]$Body.binding_sha256; state = 'acquired'
+                    active_requests = 0; accepted_requests = 0; completed_requests = 0
+                    accepted_model_requests = 0; completed_model_requests = 0
+                    request_chain_sha256 = 'sha256:' + ('e' * 64)
+                    acquired_at = 100.0; expires_at = 8000.0
+                    released_at = $null; release_reason = $null
+                }
+                if ($Path -eq '/_gpu_broker/ollama-session/acquire') {
+                    $response.capability = 'CAPABILITY_CANARY_1234567890_ABCDEF'
+                }
+                return $response
+            }
+            $writer = [IO.StringWriter]::new()
+            $oldError = [Console]::Error
+            try {
+                [Console]::SetError($writer)
+                $session = Open-AiCliLocalGpuBrokerSession -Plan $plan `
+                    -RequestText 'TASK' -TimeoutMs 3000
+            } finally {
+                [Console]::SetError($oldError)
+            }
+            $script:AcquireAttempts | Should -Be 2
+            $session.Renewed | Should -BeTrue
+            $writer.ToString() | Should -Match '最多等待 3 秒'
+            $writer.ToString() | Should -Match '显卡已可用'
+        }
+    }
+
+    It 'stops waiting at the bounded deadline while the GPU lease remains active' {
+        InModuleScope AiCliProfileManager {
+            $script:AcquireAttempts = 0
+            $script:AcquireHttpTimeoutMs = 0
+            $plan = [pscustomobject]@{
+                profileId = 'codex-ollama-main'; profileFingerprint = ('a' * 64)
+                engine = 'codex'; model = 'qwen3.6-35b:256k'
+                modelProvider = 'aicli_ollama_main'; endpoint = 'http://127.0.0.1:32100/v1'
+                wire = 'responses'; machineRuntime = [ordered]@{
+                    localGpuBrokerSession = [ordered]@{
+                        contractVersion = 1; requiredForMachineRun = $true
+                        managementOrigin = 'http://127.0.0.1:32100'
+                    }
+                }
+            }
+            Mock Invoke-AiCliLocalGpuBrokerHttp {
+                $script:AcquireAttempts++
+                $script:AcquireHttpTimeoutMs = $TimeoutMs
+                $failure = [InvalidOperationException]::new(
+                    'LocalGpuBroker management request failed: gpu_lease_active'
+                )
+                $failure.Data['LocalGpuBrokerReason'] = 'gpu_lease_active'
+                throw $failure
+            }
+            $writer = [IO.StringWriter]::new()
+            $oldError = [Console]::Error
+            try {
+                [Console]::SetError($writer)
+                {
+                    Open-AiCliLocalGpuBrokerSession -Plan $plan `
+                        -RequestText 'TASK' -TimeoutMs 100
+                } | Should -Throw '*GPU remained busy after 100 ms*'
+            } finally {
+                [Console]::SetError($oldError)
+            }
+            $script:AcquireAttempts | Should -BeGreaterOrEqual 1
+            $script:AcquireHttpTimeoutMs | Should -BeLessOrEqual 100
+            $writer.ToString() | Should -Match '等待显卡超时'
+        }
+    }
+
+    It 'fails immediately for an unrelated broker error' {
+        InModuleScope AiCliProfileManager {
+            $script:AcquireAttempts = 0
+            $plan = [pscustomobject]@{
+                profileId = 'codex-ollama-main'; profileFingerprint = ('a' * 64)
+                engine = 'codex'; model = 'qwen3.6-35b:256k'
+                modelProvider = 'aicli_ollama_main'; endpoint = 'http://127.0.0.1:32100/v1'
+                wire = 'responses'; machineRuntime = [ordered]@{
+                    localGpuBrokerSession = [ordered]@{
+                        contractVersion = 1; requiredForMachineRun = $true
+                        managementOrigin = 'http://127.0.0.1:32100'
+                    }
+                }
+            }
+            Mock Invoke-AiCliLocalGpuBrokerHttp {
+                $script:AcquireAttempts++
+                $failure = [InvalidOperationException]::new(
+                    'LocalGpuBroker management request failed: backend_unavailable'
+                )
+                $failure.Data['LocalGpuBrokerReason'] = 'backend_unavailable'
+                throw $failure
+            }
+            {
+                Open-AiCliLocalGpuBrokerSession -Plan $plan -RequestText 'TASK' `
+                    -TimeoutMs 3000
+            } | Should -Throw '*backend_unavailable*'
+            $script:AcquireAttempts | Should -Be 1
         }
     }
 
@@ -1094,6 +1225,161 @@ Describe 'LocalGpuBroker machine-run timeout ordering' {
             foreach ($variant in $variants) {
                 $json | Should -Not -Match ([regex]::Escape($variant))
             }
+        }
+    }
+}
+
+Describe 'LocalGpuBroker interactive wait visibility' {
+    It 'passes the local broker origin from an interactive Profile to the child wait' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            Mock Get-AiCliResolvedProfile {
+                [ordered]@{
+                    id = 'codex-ollama-main'; provider = 'ollama'
+                    endpoint = 'http://127.0.0.1:32100/v1'
+                    compatibility = [ordered]@{ localGpuBrokerSession = [ordered]@{
+                        contractVersion = 1; requiredForMachineRun = $true
+                        managementOrigin = 'http://127.0.0.1:32100'
+                    }}
+                }
+            }
+            Mock Test-AiCliSelectedLocalProviderReadiness {
+                [pscustomobject]@{ Applicable = $true; Ready = $true }
+            }
+            Mock Build-AiCliLaunchPlan {
+                [ordered]@{
+                    engine = 'codex'; fileName = 'C:\fake\codex.exe'
+                    argumentList = @(); workingDirectory = $Work
+                    environmentDelta = @{}; removeEnvironment = @()
+                    model = 'qwen3.8-27b:256k'; notes = @()
+                }
+            }
+            Mock New-AiCliProcessStartInfo {
+                [Diagnostics.ProcessStartInfo]::new('C:\fake\codex.exe')
+            }
+            Mock Set-AiCliLastProfile {}
+            Mock Start-AiCliChildProcess { 0 }
+
+            Start-AiCliProfile -ProfileId 'codex-ollama-main' -ProjectPath $Work |
+                Should -Be 0
+            Should -Invoke Start-AiCliChildProcess -Times 1 -Exactly `
+                -ParameterFilter {
+                    $Wait -and $GpuBrokerManagementOrigin -ceq `
+                        'http://127.0.0.1:32100'
+                }
+        }
+    }
+
+    It 'shows one start and one end status while an interactive child remains open' {
+        InModuleScope AiCliProfileManager {
+            $script:WaitingPolls = 0
+            $script:WaitMessages = [Collections.Generic.List[string]]::new()
+            Mock Register-AiCliActiveSession {}
+            Mock Unregister-AiCliActiveSession {}
+            Mock Get-AiCliLocalGpuBrokerWaitingRequests {
+                $script:WaitingPolls++
+                if ($script:WaitingPolls -eq 1) { return -1L }
+                if ($script:WaitingPolls -lt 4) { return 1L }
+                return 0L
+            }
+            Mock Write-AiCliInfo {
+                $script:WaitMessages.Add($Message) | Out-Null
+            }
+            $psi = New-AiCliProcessStartInfo `
+                -FileName (Get-Command pwsh).Source `
+                -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 5') `
+                -RedirectStreams
+            $code = Start-AiCliChildProcess -StartInfo $psi -Wait `
+                -GpuBrokerManagementOrigin 'http://127.0.0.1:32100'
+            $code | Should -Be 0
+            $script:WaitingPolls | Should -BeGreaterOrEqual 4
+            @($script:WaitMessages) | Should -HaveCount 2
+            $script:WaitMessages[0] | Should -Match '等待听写或文字识别释放显卡'
+            $script:WaitMessages[1] | Should -Match '等待已结束'
+        }
+    }
+
+    It 'keeps an old broker status without a waiting count silent' {
+        InModuleScope AiCliProfileManager {
+            $script:WaitMessages = [Collections.Generic.List[string]]::new()
+            Mock Register-AiCliActiveSession {}
+            Mock Unregister-AiCliActiveSession {}
+            Mock Get-AiCliLocalGpuBrokerWaitingRequests { return $null }
+            Mock Write-AiCliInfo {
+                $script:WaitMessages.Add($Message) | Out-Null
+            }
+            $psi = New-AiCliProcessStartInfo `
+                -FileName (Get-Command pwsh).Source `
+                -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 2') `
+                -RedirectStreams
+            Start-AiCliChildProcess -StartInfo $psi -Wait `
+                -GpuBrokerManagementOrigin 'http://127.0.0.1:32100' |
+                Should -Be 0
+            @($script:WaitMessages) | Should -BeNullOrEmpty
+            Should -Invoke Get-AiCliLocalGpuBrokerWaitingRequests -Times 1 -Exactly
+        }
+    }
+}
+
+Describe 'LocalGpuBroker machine-run shared timeout' {
+    It 'closes an acquired session without starting the child after the wall deadline' {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $script:ParticipantStarts = 0
+            $script:SessionCloses = 0
+            $session = [ordered]@{
+                LeaseId = '1' * 32; Capability = 'CAPABILITY_CANARY_1234567890_ABCDEF'
+                BindingObservation = [ordered]@{}; CloseRequested = $false
+            }
+            Mock Build-AiCliLaunchPlan {
+                [pscustomobject]@{
+                    engine = 'codex'; profileId = 'codex-ollama-main'
+                    profileFingerprint = ('a' * 64); fileName = 'C:\fake\codex.exe'
+                    argumentList = @('exec','--json','-'); workingDirectory = $Work
+                    model = 'qwen3.6-35b:256k'; modelProvider = 'aicli_ollama_main'
+                    endpoint = 'http://127.0.0.1:32100/v1'; wire = 'responses'
+                    environmentDelta = @{}; removeEnvironment = @()
+                    machineRuntime = [ordered]@{ localGpuBrokerSession = [ordered]@{
+                        contractVersion = 1; requiredForMachineRun = $true
+                        managementOrigin = 'http://127.0.0.1:32100'
+                    }}
+                }
+            }
+            Mock Initialize-AiCliMachineRuntime {
+                [pscustomobject]@{
+                    RuntimePath = (Join-Path $Work '.runtime')
+                    FileName = 'C:\fake\codex.exe'
+                    ArgumentList = @('exec','--json','-')
+                    EnvironmentDelta = @{ AICLI_TEST = 'bound' }
+                    StdInText = 'TASK'; UseOuterSandbox = $false
+                    EventProtocol = 'codex-jsonl'; AdditionalReadRoots = @()
+                    PrivateTaskPipeName = $null
+                }
+            }
+            Mock Open-AiCliLocalGpuBrokerSession {
+                Start-Sleep -Milliseconds 160
+                return $session
+            }
+            Mock Assert-AiCliLocalGpuBrokerBindingObservation {}
+            Mock Set-AiCliLocalGpuBrokerSessionEnvironment {}
+            Mock New-AiCliLocalGpuBrokerBeforeStopAction { return $null }
+            Mock Invoke-AiCliChildCapture { $script:ParticipantStarts++ }
+            Mock Complete-AiCliLocalGpuBrokerSession {
+                $script:SessionCloses++
+                [pscustomobject]@{ verified = $true; state = 'released' }
+            }
+            Mock ConvertTo-AiCliRecoverableBrokerReceiptSummary {
+                [pscustomobject]@{ state = 'released' }
+            }
+            Mock Clear-AiCliLocalGpuBrokerSessionEnvironment {}
+            Mock Remove-AiCliMachineRuntime {}
+
+            $result = Invoke-AiCliProfileCapture -ProfileId 'codex-ollama-main' `
+                -ProjectPath $Work -StdInText 'TASK' -TimeoutMs 100 `
+                -SandboxPolicy danger-full-access -WatchdogOnly
+            $result.timedOut | Should -BeTrue
+            $script:ParticipantStarts | Should -Be 0
+            $script:SessionCloses | Should -Be 1
+            Should -Invoke Complete-AiCliLocalGpuBrokerSession -Times 1 -Exactly `
+                -ParameterFilter { $Reason -ceq 'timeout' }
         }
     }
 }

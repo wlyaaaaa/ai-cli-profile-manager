@@ -119,7 +119,8 @@ function Start-AiCliChildProcess {
     param(
         [Parameter(Mandatory)][System.Diagnostics.ProcessStartInfo]$StartInfo,
         [switch]$Wait,
-        [string]$SessionNote = $null
+        [string]$SessionNote = $null,
+        [string]$GpuBrokerManagementOrigin = $null
     )
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $StartInfo
@@ -130,7 +131,28 @@ function Start-AiCliChildProcess {
 
     if ($Wait) {
         try {
-            $proc.WaitForExit()
+            if ([string]::IsNullOrWhiteSpace($GpuBrokerManagementOrigin)) {
+                $proc.WaitForExit()
+            } else {
+                $monitorAvailable = $true
+                $waitingReported = $false
+                while (-not $proc.WaitForExit(1000)) {
+                    if (-not $monitorAvailable) { continue }
+                    $waiting = Get-AiCliLocalGpuBrokerWaitingRequests `
+                        -ManagementOrigin $GpuBrokerManagementOrigin
+                    if ($null -eq $waiting) {
+                        $monitorAvailable = $false
+                    } elseif ($waiting -lt 0) {
+                        continue
+                    } elseif ($waiting -gt 0 -and -not $waitingReported) {
+                        Write-AiCliInfo '当前有本地模型请求正在等待听写或文字识别释放显卡（最多 90 秒）。'
+                        $waitingReported = $true
+                    } elseif ($waiting -eq 0 -and $waitingReported) {
+                        Write-AiCliInfo '本地模型请求的显卡等待已结束。'
+                        $waitingReported = $false
+                    }
+                }
+            }
             return $proc.ExitCode
         } finally {
             Unregister-AiCliActiveSession -ProcessId $proc.Id

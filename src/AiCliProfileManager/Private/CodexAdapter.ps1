@@ -210,6 +210,9 @@ function New-AiCliCodexProviderToml {
         'env_http_headers = { "X-LocalGpuBroker-Lease-Id" = "AICLI_LOCAL_GPU_BROKER_LEASE_ID", ' +
             '"X-LocalGpuBroker-Capability" = "AICLI_LOCAL_GPU_BROKER_CAPABILITY" }' + "`n"
     } else { '' }
+    $localStreamTimeoutLine = if ($localGpuBrokerSession) {
+        "stream_idle_timeout_ms = 180000`n"
+    } else { '' }
     $shellExcludes = @(
         $EnvKeyName,
         'OPENAI_API_KEY',
@@ -234,7 +237,7 @@ name = $nameToml
 base_url = $baseToml
 env_key = $envToml
 wire_api = "responses"
-$providerHeaderLine
+$providerHeaderLine$localStreamTimeoutLine
 
 [shell_environment_policy]
 ignore_default_excludes = false

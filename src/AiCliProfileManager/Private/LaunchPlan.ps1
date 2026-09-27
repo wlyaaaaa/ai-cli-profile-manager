@@ -317,8 +317,28 @@ function Start-AiCliProfile {
         -EnvironmentDelta $envDelta `
         -RemoveEnvironment @((Get-AiCliProperty $plan 'removeEnvironment') | ForEach-Object { $_ })
 
+    $gpuBrokerOrigin = $null
+    if ([string](Get-AiCliProperty $merged 'provider') -ceq 'ollama') {
+        $sessionConfig = Get-AiCliLocalGpuBrokerSessionConfiguration `
+            -MergedProfile $merged
+        if ($sessionConfig) {
+            $gpuBrokerOrigin = [string]$sessionConfig.managementOrigin
+        } else {
+            $endpointUri = $null
+            $endpoint = [string](Get-AiCliProperty $merged 'endpoint')
+            if ([Uri]::TryCreate($endpoint, [UriKind]::Absolute, [ref]$endpointUri) -and
+                $endpointUri.Scheme -ceq 'http' -and
+                $endpointUri.Host -ceq '127.0.0.1' -and
+                $endpointUri.Port -eq 32100 -and
+                $endpointUri.AbsolutePath.TrimEnd('/') -in @('', '/v1')) {
+                $gpuBrokerOrigin = $endpointUri.GetLeftPart([UriPartial]::Authority)
+            }
+        }
+    }
+
     Set-AiCliLastProfile -Id $ProfileId
-    $code = Start-AiCliChildProcess -StartInfo $psi -Wait -SessionNote $ProfileId
+    $code = Start-AiCliChildProcess -StartInfo $psi -Wait `
+        -SessionNote $ProfileId -GpuBrokerManagementOrigin $gpuBrokerOrigin
     return $code
 }
 
@@ -426,9 +446,15 @@ function Invoke-AiCliProfileCapture {
     $verifiedPublicBrokerReceiptSummary = $null
     try {
         if ($null -ne $sessionConfiguration) {
+            $acquireBudgetMs = if ($TimeoutMs -gt 0) {
+                $TimeoutMs - [int]$started.ElapsedMilliseconds
+            } else { $TimeoutMs }
+            if ($TimeoutMs -gt 0 -and $acquireBudgetMs -le 0) {
+                throw [TimeoutException]::new('Machine run timed out before GPU acquisition.')
+            }
             $localGpuBrokerSession = Open-AiCliLocalGpuBrokerSession `
                 -Plan $plan -RequestText ([string]$runtime.StdInText) `
-                -TimeoutMs $TimeoutMs
+                -TimeoutMs $acquireBudgetMs
             $localGpuBrokerBindingObservation = `
                 $localGpuBrokerSession.BindingObservation
             $null = Assert-AiCliLocalGpuBrokerBindingObservation `
@@ -462,6 +488,12 @@ function Invoke-AiCliProfileCapture {
         } else {
             $null
         }
+        $childTimeoutMs = if ($TimeoutMs -gt 0) {
+            $TimeoutMs - [int]$started.ElapsedMilliseconds
+        } else { $TimeoutMs }
+        if ($TimeoutMs -gt 0 -and $childTimeoutMs -le 0) {
+            throw [TimeoutException]::new('Machine run timed out before child execution.')
+        }
         $captured = Invoke-AiCliChildCapture `
             -FileName ([string](
                 Get-AiCliProperty $runtime 'FileName' (
@@ -473,7 +505,7 @@ function Invoke-AiCliProfileCapture {
             -EnvironmentDelta $runtime.EnvironmentDelta `
             -RemoveEnvironment @((Get-AiCliProperty $plan 'removeEnvironment') | ForEach-Object { $_ }) `
             -StdInText $runtime.StdInText `
-            -TimeoutMs $TimeoutMs `
+            -TimeoutMs $childTimeoutMs `
             -MaxCaptureChars $MaxCaptureChars `
             -SandboxWorkspace $sandboxWorkspace `
             -SandboxPolicy $SandboxPolicy `
@@ -763,7 +795,7 @@ function Invoke-AiCliProfileCapture {
             attestedEffort = $null
             exitCode = (Get-AiCliExitCode Unavailable)
             stdout = ''
-            stderr = 'Child process exceeded the configured wall timeout.'
+            stderr = 'Machine run exceeded the configured wall timeout.'
             errorCode = $null
             timedOut = $true
             durationMs = [int]$started.ElapsedMilliseconds
