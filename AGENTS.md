@@ -4,7 +4,7 @@
 
 - 只支持 Windows 11 x64、PowerShell 7；保留原生 Codex、Claude Code、Qwen Code、OpenCode 与官方 Rust Open Interpreter 的交互，不做另一套 GUI、PTY、Agent 或通用聊天历史库，不汉化上游本体。
 - Provider 差异放数据 Manifest 和适配器，品牌集中定义。型号、窗口、档位和启用集合查 `data/providers`、`data/model-catalogs`、`data/local-model-set.json`，不把旧验收记录当现行身份。
-- [维护契约](docs/maintainer/项目设计与实施归档.md)保留跨模块合同和本人已定取舍；[machine run](docs/user/MACHINE-RUN.md)与[Toolkit 接口](docs/maintainer/Toolkit-reliability.md)供跨库调用。研究输入和历史回执不是当前能力证明。
+- [维护契约](docs/maintainer/项目设计与实施归档.md)保留跨模块合同和本人已定取舍；[machine run](docs/user/MACHINE-RUN.md)说明机器运行入口。研究输入和历史回执不是当前能力证明。
 - 用户首页保持五项简短说明。两本完整手册及 PDF 目前是打包、帮助与测试的依赖，保留源文/PDF哈希一致；不再把贡献指南、过程记录复制成另一套规则。
 
 ## 不可偷换的产品行为

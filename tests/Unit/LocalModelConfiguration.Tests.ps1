@@ -21,19 +21,14 @@ Describe 'Dedicated Ollama model set synchronization' {
     AfterAll {
         Get-Variable -Name 'LocalModelSyncTest*' -Scope Global | Remove-Variable -Scope Global
     }
-    AfterEach {
-        Get-Module AiCliProfileManager -All | Where-Object ModuleBase -Like "$fixture*" | Remove-Module -Force
-    }
     BeforeEach {
         $fixture = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
-        foreach ($path in @('scripts','data/providers','src/AiCliProfileManager')) {
+        foreach ($path in @('scripts','data/providers')) {
             New-Item -ItemType Directory -Path (Join-Path $fixture $path) -Force | Out-Null
         }
         Copy-Item (Join-Path $sourceRoot 'scripts/Sync-LocalModelConfiguration.ps1') (Join-Path $fixture 'scripts')
         Set-Content (Join-Path $fixture 'scripts/Install.ps1') 'param([switch]$Force,[switch]$SkipShellIntegration)'
         Set-Content (Join-Path $fixture 'scripts/Set-CodexDesktopLocalModels.ps1') 'param($Mode,[switch]$Json) ''{"status":"disabled"}'''
-        Set-Content (Join-Path $fixture 'src/AiCliProfileManager/Fixture.psm1') 'function Get-AiCliResolvedProfile { param($Id) $Id }; function Get-AiCliProfileFingerprint { param($Profile) "fixture-fingerprint" }'
-        New-ModuleManifest -Path (Join-Path $fixture 'src/AiCliProfileManager/AiCliProfileManager.psd1') -RootModule Fixture.psm1
         $global:LocalModelSyncTestDigest = 'a' * 64
         $profile = @{
             engine='codex'; provider='ollama'; displayName='Codex CLI + Example 8B'; endpoint='http://127.0.0.1:32100/v1'
@@ -42,13 +37,11 @@ Describe 'Dedicated Ollama model set synchronization' {
             compatibility=@{ollamaArtifact=@{manifestDigest="sha256:$global:LocalModelSyncTestDigest";parameters=@{num_ctx=262144;num_batch=128}}}
         }
         Write-FixtureJson (Join-Path $fixture 'data/providers/fixture-local.json') $profile
-        Write-FixtureJson (Join-Path $fixture 'data/local-model-set.json') @{profiles=@('fixture-local');clients=@{'fixture-local'=@{opencodeKey='local';backendId='local-default'}}}
+        Write-FixtureJson (Join-Path $fixture 'data/local-model-set.json') @{profiles=@('fixture-local');clients=@{'fixture-local'=@{opencodeKey='local'}}}
         $opPath=Join-Path $fixture 'opencode.json'
         Write-FixtureJson $opPath @{provider=@{local=@{options=@{};models=@{old=@{}}};cloud=@{models=@{future=@{name='Future cloud'}}}};model='cloud/future'}
-        $registryPath=Join-Path $fixture 'registry.json'
-        Write-FixtureJson $registryPath @{backends=@{};aliases=@{};default_backend='local-default'}
         $consumerPath=Join-Path $fixture 'consumers.json'
-        Write-FixtureJson $consumerPath @{openCodeConfig=$opPath;openCodeProvider='local';toolkitRegistry=$registryPath;registryMirror=$registryPath;ollamaOrigin='http://localhost:11434'}
+        Write-FixtureJson $consumerPath @{openCodeConfig=$opPath;openCodeProvider='local';ollamaOrigin='http://localhost:11434'}
         $global:LocalModelSyncTestTags=@(@{name='example-8b:256k';digest=$global:LocalModelSyncTestDigest},@{name='unregistered-extra:latest';digest=('b'*64)})
         $global:LocalModelSyncTestDeleted=@()
         Mock Invoke-RestMethod {
