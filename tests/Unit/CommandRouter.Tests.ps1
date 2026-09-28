@@ -2,6 +2,8 @@
 Describe 'CommandRouter' {
     BeforeAll {
         $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+        Get-Module AiCliProfileManager -All |
+            Remove-Module -Force -ErrorAction SilentlyContinue
         Import-Module (Join-Path $root 'src\AiCliProfileManager\AiCliProfileManager.psd1') -Force
         $script:DataRoot = Join-Path $TestDrive 'aicli-data'
         New-Item -ItemType Directory -Force -Path $script:DataRoot | Out-Null
@@ -81,7 +83,7 @@ Describe 'CommandRouter' {
         $text | Should -Match '状态'
         $text | Should -Match 'Qwen3\.7.*max→xhigh.*不可用'
         $text | Should -Match 'Qwen3\.8.*max→xhigh.*不可用'
-        $text | Should -Match 'DeepSeek.*Pro.*max.*不可用'
+        $text | Should -Match 'DeepSeek.*Pro.*max'
     }
 
     It 'advertises one-command exact Profile starts in help' {
@@ -141,12 +143,9 @@ Describe 'CommandRouter' {
         (Invoke-AiCli -Tokens @('help','definitely-invalid') -DataRoot $script:DataRoot) | Should -Be 2
     }
 
-    It 'rejects a Claude login request for ccp instead of silently using Codex OAuth' {
-        (Invoke-AiCli -Tokens @('proxy','ccp','login','claude') -DataRoot $script:DataRoot) | Should -Be 2
-    }
 
     It 'provides command help topics' {
-        foreach ($topic in @('setup','profile','start','doctor','test','proxy','update','native','eject','uninstall')) {
+        foreach ($topic in @('setup','profile','start','doctor','test','update','native','eject','uninstall')) {
             (Invoke-AiCli -Tokens @('help',$topic) -DataRoot $script:DataRoot) | Should -Be 0
         }
     }

@@ -85,8 +85,7 @@ function Build-AiCliClaudeLaunchPlan {
     param(
         $MergedProfile,
         [string]$ProjectPath,
-        [string[]]$NativeArgs = @(),
-        [int]$ProxyPort = 0
+        [string[]]$NativeArgs = @()
     )
     Assert-AiCliClaudeNativeArgs -NativeArgList $NativeArgs
     $resolved = Resolve-AiCliLaunchExecutable -Name 'claude'
@@ -98,13 +97,11 @@ function Build-AiCliClaudeLaunchPlan {
 
     $id = Get-AiCliProperty $MergedProfile 'id'
     $provider = Get-AiCliProperty $MergedProfile 'provider'
-    $transport = Get-AiCliProperty $MergedProfile 'transport'
     $envDelta = @{}
     $removeEnv = @()
     $cliArgs = [System.Collections.Generic.List[string]]::new()
     foreach ($p in @($resolved.PrefixArgs)) { $cliArgs.Add([string]$p) | Out-Null }
     $notes = @()
-    $proxyRef = Get-AiCliProperty $MergedProfile 'proxyRef'
     $effort = Resolve-AiCliClaudeEffort -MergedProfile $MergedProfile -Provider $provider -NativeArgs $NativeArgs
 
     foreach ($v in $script:AiCliClaudeProviderVars) { $removeEnv += $v }
@@ -117,33 +114,6 @@ function Build-AiCliClaudeLaunchPlan {
             $envDelta['CLAUDE_CODE_EFFORT_LEVEL'] = $effort
             $notes += "思考等级环境: CLAUDE_CODE_EFFORT_LEVEL=$effort"
         }
-    }
-    elseif ($transport -eq 'managed-proxy') {
-        if ($ProxyPort -le 0) {
-            throw "代理尚未运行或端口未知。请先: aicli proxy $proxyRef start"
-        }
-        $base = "http://127.0.0.1:$ProxyPort"
-        $proxyMeta = Get-AiCliProxyRuntimeMeta -ProxyId $proxyRef
-        $localKey = Get-AiCliProperty $proxyMeta 'localClientKey'
-        if (-not $localKey) { $localKey = 'proxy' }
-        $envDelta['ANTHROPIC_BASE_URL'] = $base
-        # CLIProxyAPI accepts api-keys as Bearer / AUTH_TOKEN; clear conflicting key modes carefully
-        $envDelta['ANTHROPIC_AUTH_TOKEN'] = $localKey
-        $envDelta['ANTHROPIC_API_KEY'] = ''
-        $model = Get-AiCliProperty (Get-AiCliProperty $MergedProfile 'models') 'primary'
-        if (-not $model) { $model = 'gpt-5.6-sol' }
-        $envDelta['ANTHROPIC_MODEL'] = $model
-        $envDelta['CLAUDE_CODE_SUBAGENT_MODEL'] = $model
-        $envDelta['CLAUDE_CODE_ALWAYS_ENABLE_EFFORT'] = '1'
-        $envDelta['CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY'] = '3'
-        $envDelta['ENABLE_TOOL_SEARCH'] = 'false'
-        $envDelta['CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY'] = '1'
-        $envDelta['CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'] = '1'
-        $cliArgs.Add('--model') | Out-Null
-        $cliArgs.Add($model) | Out-Null
-        $notes += "通过受管代理 $proxyRef 访问 ChatGPT/Codex（第三方；Tibo 演示路线，非 OpenAI 官方背书）。"
-        $notes += "Base URL: $base  模型: $model"
-        $notes += '已设置 Tibo 风格 env：SUBAGENT_MODEL / ALWAYS_ENABLE_EFFORT / MAX_TOOL_USE_CONCURRENCY=3'
     }
     elseif ($provider -eq 'ollama' -or $id -eq 'claude-ollama') {
         $endpoint = Get-AiCliProperty $MergedProfile 'endpoint'
@@ -238,7 +208,6 @@ function Build-AiCliClaudeLaunchPlan {
         removeEnvironment = @($removeEnv)
         configFiles       = @()
         notes             = @($notes)
-        proxyRef          = $proxyRef
         effort            = $effort
         machineRuntime    = [ordered]@{ kind='claude' }
     }

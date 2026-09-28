@@ -368,11 +368,10 @@ Describe 'Codex DeepSeek Flash catalog' {
         }
     }
 
-    It 'rejects the reserved Pro model until it is present in the active catalog' {
+    It 'allows the Pro model now present in the active catalog' {
         InModuleScope AiCliProfileManager -Parameters @{ Profile = $script:DeepSeekProfile } {
-            {
-                Resolve-AiCliCodexModel -MergedProfile $Profile -NativeArgs @('--model', 'deepseek-v4-pro')
-            } | Should -Throw '*当前目录未启用*deepseek-v4-pro*'
+            Resolve-AiCliCodexModel -MergedProfile $Profile -NativeArgs @('--model', 'deepseek-v4-pro') |
+                Should -BeExactly 'deepseek-v4-pro'
         }
     }
 

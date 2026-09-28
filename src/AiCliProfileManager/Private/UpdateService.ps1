@@ -107,7 +107,7 @@ function Get-AiCliCodexUpdateInstallSource {
 }
 
 function Get-AiCliInstallSource {
-    param([ValidateSet('codex','claude','ollama','interpreter','ccp','cliproxy','self')][string]$Component)
+    param([ValidateSet('codex','claude','ollama','interpreter','self')][string]$Component)
     switch ($Component) {
         'codex' { return (Get-AiCliCodexUpdateInstallSource) }
         'claude' {
@@ -142,8 +142,6 @@ function Get-AiCliInstallSource {
                 version = "interpreter $([string](Get-AiCliProperty $resolved 'Version'))"
             }
         }
-        'ccp' { return [ordered]@{ found = [bool](Get-AiCliProxyExecutable 'ccp'); source = 'aicli-managed'; path = (Get-AiCliProxyExecutable 'ccp'); version = 'n/a' } }
-        'cliproxy' { return [ordered]@{ found = [bool](Get-AiCliProxyExecutable 'cliproxy'); source = 'aicli-managed'; path = (Get-AiCliProxyExecutable 'cliproxy'); version = 'n/a' } }
         'self' { return [ordered]@{ found = $true; source = 'local-module'; version = (Get-AiCliVersion); note = '使用 GitHub Release ZIP + Install.ps1 更新；本命令只读检查。' } }
     }
 }
@@ -276,7 +274,7 @@ function Invoke-AiCliUpdateCheck {
         [string]$Component,
         [switch]$Json
     )
-    $components = if ($Component) { @($Component) } else { @('codex','claude','ollama','interpreter','ccp','cliproxy','self') }
+    $components = if ($Component) { @($Component) } else { @('codex','claude','ollama','interpreter','self') }
     $items = @()
     $overall = '通过'
     foreach ($c in $components) {
@@ -353,14 +351,6 @@ function Invoke-AiCliUpdateGuide {
             Write-Host '当前官方 Rust 版支持内置更新：'
             Write-Host '  interpreter update'
             Write-Host '验证: aicli update check interpreter'
-        }
-        'ccp' {
-            Write-Host '受管代理显式更新：aicli proxy ccp update-check'
-            Write-Host '仅当 approved-windows-artifacts.json 含 SHA256 时: aicli proxy ccp install'
-        }
-        'cliproxy' {
-            Write-Host '受管代理显式更新：aicli proxy cliproxy update-check'
-            Write-Host '仅当有批准 SHA256 时安装。'
         }
         'self' {
             Write-Host '本工具不静默自更新。请下载最新 Release ZIP，再运行 scripts\Install.ps1。'

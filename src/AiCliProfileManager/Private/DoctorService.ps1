@@ -87,21 +87,6 @@ function Invoke-AiCliDoctor {
         $checks.Add((New-AiCliCheck -Id 'config.claude.settings_env' -Status '通过' -Summary '未在用户 settings.json 发现 ANTHROPIC_* env 段')) | Out-Null
     }
 
-    # proxies
-    foreach ($proxyId in @('ccp','cliproxy')) {
-        $exe = Get-AiCliProxyExecutable -ProxyId $proxyId
-        $state = Get-AiCliProxyState -ProxyId $proxyId
-        $idc = Test-AiCliProcessIdentity -State $state
-        if ($idc.Match) {
-            $hostOk = (Get-AiCliProperty $state 'host') -eq '127.0.0.1'
-            $checks.Add((New-AiCliCheck -Id "proxy.$proxyId.running" -Status $(if ($hostOk) { '通过' } else { '不可用' }) -Summary ("运行中 port={0} host={1}" -f (Get-AiCliProperty $state 'port'), (Get-AiCliProperty $state 'host')))) | Out-Null
-        } elseif ($exe) {
-            $checks.Add((New-AiCliCheck -Id "proxy.$proxyId.running" -Status '可用但有限制' -Summary '已安装未运行' -NextStep "aicli proxy $proxyId start")) | Out-Null
-        } else {
-            $checks.Add((New-AiCliCheck -Id "proxy.$proxyId.running" -Status '可用但有限制' -Summary '未安装（仅 ChatGPT 代理 Profile 需要）' -NextStep "见 aicli proxy $proxyId install 与批准 SHA256 清单")) | Out-Null
-        }
-    }
-
     # Ollama public default. Non-default gateways belong in user Profiles.
     if ($ollama) {
         $ollamaOk = $false
@@ -196,12 +181,6 @@ function Invoke-AiCliDoctor {
                 $checks.Add((New-AiCliCheck -Id 'profile.verification' -Status $(Get-AiCliProperty $merged 'status') -Summary ("验证记录 level={0} result={1}" -f (Get-AiCliProperty $ver 'level'), (Get-AiCliProperty $ver 'result')))) | Out-Null
             }
             $status = Get-AiCliProperty $merged 'status'
-            $proxyRef = Get-AiCliProperty $merged 'proxyRef'
-            if ($proxyRef) {
-                $st = Get-AiCliProxyState -ProxyId $proxyRef
-                $ok = $st -and (Test-AiCliProcessIdentity -State $st).Match
-                $checks.Add((New-AiCliCheck -Id 'profile.proxy_dep' -Status $(if ($ok) { '通过' } else { '不可用' }) -Summary $(if ($ok) { "代理 $proxyRef 就绪" } else { "代理 $proxyRef 未运行" }) -NextStep $(if (-not $ok) { "aicli proxy $proxyRef start" }))) | Out-Null
-            }
         } catch {
             $checks.Add((New-AiCliCheck -Id 'profile.resolve' -Status '不可用' -Summary $_.Exception.Message -NextStep 'aicli profile list --available')) | Out-Null
         }

@@ -4,7 +4,7 @@
 适用系统：Windows 11 x64、PowerShell 7
 命令入口：`aicli`
 
-AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter 的启动和运维层。它负责保存 Profile、隔离 Provider 环境、管理可选代理、体检和连通测试；聊天界面、历史会话、工具执行和上游账号仍由各 CLI 自己负责。
+AI CLI Profile Manager 是原生 Codex CLI、Claude Code 与 Open Interpreter 的启动和运维层。它负责保存 Profile、隔离 Provider 环境、体检和连通测试；聊天界面、历史会话、工具执行和上游账号仍由各 CLI 自己负责。
 
 > 本手册是产品操作的唯一事实源。三套上游 CLI 的会话内命令见《[Codex、Claude Code 与 Open Interpreter CLI 中文手册](<./Codex、Claude Code 与 Open Interpreter CLI 中文手册.md>)》。
 
@@ -93,7 +93,7 @@ pwsh -File .\bin\aicli.ps1 doctor
 aicli setup
 ```
 
-`setup` 会检查 Windows、PowerShell、目标 CLI、Profile、Ollama 和可选代理，并让你选择要配置的方向。静态检查不会让模型生成内容；配置第三方云端 Profile 时才会要求无回显输入 API Key。
+`setup` 会检查 Windows、PowerShell、目标 CLI、Profile 和 Ollama，并让你选择要配置的方向。静态检查不会让模型生成内容；配置第三方云端 Profile 时才会要求无回显输入 API Key。
 
 ### 1.4 开始第一段对话
 
@@ -220,7 +220,6 @@ aicli profile remove qwen-work
 | Claude Code | Claude 官方登录 | `claude-official` |
 | Claude Code | 本机 Ollama | `claude-ollama` |
 | Claude Code | 自定义 Anthropic Messages 兼容端点 | `claude-custom` |
-| Claude Code | ChatGPT 第三方本地代理 | `claude-chatgpt-ccp`、`claude-chatgpt-cliproxy` |
 | Open Interpreter | 本机 Ollama | `oi-ollama` |
 
 `codex-deepseek-flash` 使用官方自动升级 ID `deepseek-flash`，`codex-deepseek-v4-pro` 使用固定 `deepseek-v4-pro` / `DeepSeek-V4-Pro-0813`。两者均走官方 [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) 的 Responses wire、1M context、`low` / `high` / `max`，用户默认 `max`，并拒绝模型、Provider 与 fallback 覆盖；V4 Pro 仅为 CLI-only。旧 `codex-deepseek` / `deepseek-v4-flash`、Claude Code 与 Open Interpreter 的 DeepSeek 模板均已退役。动态变化以 [DeepSeek Change Log](https://api-docs.deepseek.com/updates/) 为准。
@@ -338,7 +337,7 @@ aicli doctor codex-deepseek-flash
 aicli doctor codex-deepseek-flash --json
 ```
 
-Doctor 检查 CLI、Profile、秘密引用、端点、有效配置层、代理、端口和本机服务。它不发送模型生成请求，不应消耗模型额度。
+Doctor 检查 CLI、Profile、秘密引用、端点、有效配置层和本机服务。它不发送模型生成请求，不应消耗模型额度。
 
 | 状态 | 含义 |
 |------|------|
@@ -448,58 +447,9 @@ Claude 官方登录与 `ANTHROPIC_API_KEY` 同时存在时，上游可能显示�
 
 第三方模型（如千问）下，Claude 会话结束页的 **Total cost: $… (costs may be inaccurate due to usage of unknown models)** **不是** 阿里云百炼账单。token 量级可能接近真实调用；美元金额多半按 Claude 内置未知模型单价估算，**往往偏高**。真费用以百炼「模型监控 / 账单」为准（调用后约一小时可查）。详见《CLI 中文手册》用量说明。
 
-## 7. ChatGPT 双代理（可选）
+## 7. 更新与修复
 
-两个通道都是第三方本地代理，不是 OpenAI 或 Anthropic 官方功能，也不自动串联或故障转移。
-
-| ID | 上游 | 角色 | 首选端口 |
-|----|------|------|----------|
-| `ccp` | `raine/claude-code-proxy` | Claude Code 到 ChatGPT 的专用转换器 | `43197` |
-| `cliproxy` | `router-for-me/CLIProxyAPI` | 多协议备用通道 | `43198` |
-
-`0.1.0` 未完成两个代理的交互 OAuth 和端到端 Live Test；它们只能标为“可用但有限制”，不能由安装成功推断为订阅链路可用。
-
-完整流程：
-
-```powershell
-aicli proxy ccp install
-aicli proxy ccp configure --auto-port
-aicli proxy ccp login
-# 无法打开本机浏览器时：
-aicli proxy ccp login device
-aicli proxy ccp start
-aicli proxy ccp status
-aicli start claude-chatgpt-ccp
-```
-
-将 `ccp` 换成 `cliproxy` 可使用另一通道。CLIProxyAPI 登录还可显式选择 `codex`、`claude` 或 `device`：
-
-```powershell
-aicli proxy cliproxy login codex
-aicli proxy cliproxy login device
-```
-
-安全边界：
-
-- 下载的 Windows artifact 必须命中产品批准的精确 SHA256，否则拒绝安装或更新。
-- 受管代理只允许监听 `127.0.0.1`；发现 wildcard、局域网或公网监听会停止本次受管进程。
-- 首选端口不可用时在受控候选池中重试，不杀未知占用进程。
-- 本工具不读取 OAuth token 正文。
-- `logout --purge-local-auth` 只删除本项目隔离的本地认证目录，不等于远程撤销授权。
-
-退出与停止：
-
-```powershell
-aicli proxy ccp stop
-aicli proxy ccp logout
-aicli proxy ccp logout --purge-local-auth --yes
-```
-
-远程授权请另外在对应账号的安全或已授权应用页面确认撤销。
-
-## 8. 更新与修复
-
-### 8.1 只读检查
+### 7.1 只读检查
 
 ```powershell
 aicli update check
@@ -522,15 +472,7 @@ interpreter update
 interpreter --version
 ```
 
-受管代理版本检查：
-
-```powershell
-aicli proxy ccp update-check
-```
-
-`0.1.0` 只对未安装代理执行经过固定 SHA256 的首次 `install`。对已经安装的代理，`update` 会明确拒绝且不会替换当前版本；先用 `update-check` 查看批准状态，等待后续具备运行健康回滚的版本再做受管升级。
-
-### 8.2 通用修复顺序
+### 7.2 通用修复顺序
 
 1. `aicli update check` 确认实际来源和版本。
 2. 使用同一渠道更新目标 CLI。
@@ -538,9 +480,9 @@ aicli proxy ccp update-check
 4. 运行 `aicli doctor <Profile ID>`。
 5. 静态通过后，再按需运行显式 Live Test。
 
-## 9. 卸载、恢复与数据
+## 8. 卸载、恢复与数据
 
-### 9.1 普通卸载
+### 8.1 普通卸载
 
 ```powershell
 aicli uninstall
@@ -548,38 +490,29 @@ aicli uninstall
 aicli uninstall --yes
 ```
 
-普通卸载会停止本工具识别的受管代理，并完整移除当前用户模块、`%LOCALAPPDATA%\aicli\bin` 命令垫片、安装器加入的用户 `PATH` 项，以及带产品标记的 PowerShell Profile 自动导入块；不需要再手动清理这些安装集成。
+普通卸载会完整移除当前用户模块、`%LOCALAPPDATA%\aicli\bin` 命令垫片、安装器加入的用户 `PATH` 项，以及带产品标记的 PowerShell Profile 自动导入块；不需要再手动清理这些安装集成。
 
-普通卸载默认保留用户 Profile、DPAPI 密钥、代理本地数据和导出物，便于以后重装恢复。它不会卸载 Codex、Claude Code、Open Interpreter、Ollama、本地模型，也不会删除上游官方登录。
+普通卸载默认保留用户 Profile、DPAPI 密钥和导出物，便于以后重装恢复。它不会卸载 Codex、Claude Code、Open Interpreter、Ollama、本地模型，也不会删除上游官方登录。
 
-### 9.2 彻底清理本工具数据
-
-先处理代理登录：
-
-```powershell
-aicli proxy ccp logout
-aicli proxy cliproxy logout
-```
-
-然后：
+### 8.2 彻底清理本工具数据
 
 ```powershell
 aicli uninstall --purge-user-data --yes
 ```
 
-`--purge-user-data` 删除本工具的 Profile、DPAPI 密钥、日志、缓存、代理二进制和代理本地认证目录。它不代表远程 OAuth 已撤销。
+`--purge-user-data` 删除本工具的 Profile、DPAPI 密钥、日志和缓存。它不代表远程 OAuth 已撤销。
 
-### 9.3 数据位置与去向
+### 8.3 数据位置与去向
 
 | 内容 | 默认位置 |
 |------|----------|
 | Profile、书签和非秘密设置 | `%APPDATA%\AiCliProfileManager` |
-| DPAPI 密文、代理、状态、缓存和日志 | `%LOCALAPPDATA%\AiCliProfileManager` |
+| DPAPI 密文、状态、缓存和日志 | `%LOCALAPPDATA%\AiCliProfileManager` |
 | 命令垫片 | `%LOCALAPPDATA%\aicli\bin` |
 
-工具自身默认无遥测。使用某个 Profile 时，提示、项目上下文和相关数据会发送到 `profile show` 显示的 Provider 或本地代理；Ollama 在本机处理，Open Interpreter 还可能在本机执行代码。Live Test 会联系目标 Provider，并可能消耗额度，但不保存提示或回复正文。
+工具自身默认无遥测。使用某个 Profile 时，提示、项目上下文和相关数据会发送到 `profile show` 显示的 Provider；Ollama 在本机处理，Open Interpreter 还可能在本机执行代码。Live Test 会联系目标 Provider，并可能消耗额度，但不保存提示或回复正文。
 
-## 10. 按症状排障
+## 9. 按症状排障
 
 ### 找不到 `aicli`
 
@@ -681,21 +614,11 @@ aicli doctor codex-ollama
 
 公共模板使用 `127.0.0.1:11434`。确认 Ollama 正在监听且目标模型已拉取；不要把别人的端口或私有模型别名照搬到公开配置。
 
-### 代理安装被拒绝
-
-批准清单没有目标 Windows artifact 的精确 SHA256。先运行：
-
-```powershell
-aicli proxy ccp update-check
-```
-
-发现上游版本不等于已经批准执行。普通用户不应自行绕过摘要校验。
-
 ### Live Test 失败
 
-先运行 Doctor，确认登录、Key、模型、端点和代理状态。Live Test 的失败或跳过必须保持真实状态，不能用“CLI 能打开”代替连通证据。
+先运行 Doctor，确认登录、Key、模型和端点。Live Test 的失败或跳过必须保持真实状态，不能用“CLI 能打开”代替连通证据。
 
-## 11. 完整命令索引
+## 10. 完整命令索引
 
 ```text
 aicli
@@ -717,28 +640,14 @@ aicli eject <Profile ID> [--output <新目录>]
 aicli doctor [Profile ID] [--json]
 aicli test <Profile ID> --live [--level text|tool|agent|all] [--yes] [--json]
 
-aicli proxy <ccp|cliproxy> install
-aicli proxy ccp login [codex|device]
-aicli proxy cliproxy login [codex|claude|device]
-aicli proxy <ccp|cliproxy> logout [--purge-local-auth] [--yes]
-aicli proxy <ccp|cliproxy> configure [--port <端口>|--auto-port]
-aicli proxy <ccp|cliproxy> start
-aicli proxy <ccp|cliproxy> stop
-aicli proxy <ccp|cliproxy> status [--json]
-aicli proxy <ccp|cliproxy> update-check
-aicli proxy <ccp|cliproxy> update
-aicli proxy <ccp|cliproxy> native
-
-aicli update check [codex|claude|ollama|interpreter|ccp|cliproxy|self] [--json]
-aicli update guide [codex|claude|ollama|interpreter|ccp|cliproxy|self]
+aicli update check [codex|claude|ollama|interpreter|self] [--json]
+aicli update guide [codex|claude|ollama|interpreter|self]
 aicli uninstall [--purge-user-data] [--yes]
 ```
 
-说明：`0.1.0` 保留 `proxy ... update` 命令用于安全拒绝已安装实例；它不是可用的受管升级通道。未安装时请使用 `install`。
-
 退出码：`0` 成功、`2` 用法错误、`3` 可用但有限制、`4` 不可用、`5` 内部错误、`6` 用户取消。
 
-## 12. 获取帮助
+## 11. 获取帮助
 
 ```powershell
 aicli help

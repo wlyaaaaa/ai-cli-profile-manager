@@ -262,7 +262,6 @@ function Build-AiCliInterpreterLaunchPlan {
         removeEnvironment          = @($removeEnv.ToArray())
         configFiles                = @()
         notes                      = @($notes)
-        proxyRef                   = $null
         effort                     = $null
         model                      = $model
         wireApi                    = $wireApi

@@ -365,7 +365,7 @@ aicli 使用子进程隔离，是为了避免 `ANTHROPIC_BASE_URL`、`OPENAI_API
 
 ## 7. 相关文档
 
-- 产品安装、Profile、代理和排障：《[AI CLI Profile Manager 使用手册](<./AI CLI Profile Manager 使用手册.md>)》
+- 产品安装、Profile 和排障：《[AI CLI Profile Manager 使用手册](<./AI CLI Profile Manager 使用手册.md>)》
 - 当前验证状态：《[兼容性与最终验收状态](../compatibility/VERIFIED-COMPATIBILITY.md)》
 - Codex 官方资料：[Codex CLI slash commands](https://learn.chatgpt.com/docs/developer-commands)
 - Claude Code 官方资料：[Interactive mode](https://code.claude.com/docs/en/interactive-mode)、[Permissions](https://code.claude.com/docs/en/permissions)、[Model configuration](https://code.claude.com/docs/en/model-config)

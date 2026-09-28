@@ -58,27 +58,9 @@ function Build-AiCliLaunchPlan {
     Assert-AiCliLockedModelArgs -MergedProfile $merged -NativeArgs $NativeArgs
     $project = Resolve-AiCliProjectPath -Project $ProjectPath
     $engine = Get-AiCliProperty $merged 'engine'
-    $proxyPort = 0
-    $proxyRef = Get-AiCliProperty $merged 'proxyRef'
-    if ($proxyRef) {
-        $state = Get-AiCliProxyState -ProxyId $proxyRef
-        if ($state) {
-            $idcheck = Test-AiCliProcessIdentity -State $state
-            if ($idcheck.Match) {
-                $proxyPort = [int](Get-AiCliProperty $state 'port')
-            }
-        }
-        if ($proxyPort -le 0) {
-            # try persisted port for planning native view; start will require running
-            $settings = Get-AiCliSettings
-            $pp = Get-AiCliProperty $settings.proxyPorts $proxyRef
-            if ($pp) { $proxyPort = [int]$pp }
-        }
-    }
-
     $plan = switch ($engine) {
         'codex' { Build-AiCliCodexLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs -MachineRun:$MachineRun; break }
-        'claude' { Build-AiCliClaudeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs -ProxyPort $proxyPort; break }
+        'claude' { Build-AiCliClaudeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs; break }
         'interpreter' { Build-AiCliInterpreterLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs; break }
         'qwen-code' { Build-AiCliQwenCodeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs; break }
         'opencode' { Build-AiCliOpenCodeLaunchPlan -MergedProfile $merged -ProjectPath $project -NativeArgs $NativeArgs; break }
@@ -185,7 +167,6 @@ $(Get-AiCliProperty $merged 'dataDestination')
 
 ## 限制
 - 不包含秘密
-- 代理型配方需要重新安装与重新登录
 - 本目录可脱离 aicli 维护
 "@
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
@@ -239,23 +220,6 @@ exit `$p.ExitCode
     $utf8Bom = New-Object System.Text.UTF8Encoding $true
     [System.IO.File]::WriteAllText((Join-Path $out 'start.ps1'), $startPs1, $utf8Bom)
 
-    $proxyRef = Get-AiCliProperty $merged 'proxyRef'
-    if ($proxyRef) {
-        $artPath = Get-AiCliDataPath -Relative 'proxy-artifacts\approved-windows-artifacts.json'
-        $lock = if (Test-Path $artPath) { Get-Content -LiteralPath $artPath -Raw -Encoding utf8 } else { '{"note":"no approved artifacts yet"}' }
-        [System.IO.File]::WriteAllText((Join-Path $out 'proxy-lock.json'), $lock, $utf8NoBom)
-        $proxyReadme = @"
-# 代理重建说明 ($proxyRef)
-
-1. 查看 proxy-lock.json 中的精确仓库、tag、asset、SHA256。
-2. 仅当 SHA256 命中批准清单时才可执行下载的二进制。
-3. 配置监听 127.0.0.1，不要暴露到局域网。
-4. 使用上游登录流程重新登录；本导出不包含 OAuth。
-5. 启动代理后再运行 start.ps1。
-"@
-        [System.IO.File]::WriteAllText((Join-Path $out 'PROXY.md'), $proxyReadme, $utf8NoBom)
-    }
-
     # copy config snippets if any
     foreach ($cf in $plan.configFiles) {
         if (Test-Path -LiteralPath $cf) {
@@ -282,21 +246,6 @@ function Start-AiCliProfile {
     if ($localReadiness.Applicable -and -not $localReadiness.Ready) {
         Write-AiCliWarn "选定本地 Provider 不可用: $($localReadiness.Summary)"
         return (Get-AiCliExitCode Unavailable)
-    }
-    $proxyRef = Get-AiCliProperty $merged 'proxyRef'
-    if ($proxyRef) {
-        $state = Get-AiCliProxyState -ProxyId $proxyRef
-        $ok = $false
-        if ($state) {
-            $idc = Test-AiCliProcessIdentity -State $state
-            $ok = $idc.Match
-        }
-        if (-not $ok) {
-            Write-AiCliWarn "代理 $proxyRef 未运行。"
-            Write-AiCliInfo "下一步：aicli proxy $proxyRef start"
-            Write-AiCliInfo "若未登录：aicli proxy $proxyRef login"
-            throw "代理依赖未满足: $proxyRef"
-        }
     }
     $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId -ProjectPath $ProjectPath -NativeArgs $NativeArgs
     $engine = Get-AiCliProperty $plan 'engine'

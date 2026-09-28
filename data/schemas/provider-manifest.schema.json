@@ -15,7 +15,7 @@
     "provider": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
     "plan": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" },
     "region": { "type": ["string", "null"] },
-    "transport": { "enum": ["responses", "anthropic-messages", "managed-proxy", "openai-compatible"] },
+    "transport": { "enum": ["responses", "anthropic-messages", "openai-compatible"] },
     "wireApi": { "enum": ["responses", "chat"] },
     "endpoint": { "type": ["string", "null"] },
     "models": { "type": "object" },
@@ -39,7 +39,6 @@
       }
     },
     "auth": { "type": "object" },
-    "proxyRef": { "type": ["string", "null"] },
     "capabilities": { "type": "object" },
     "compatibility": { "type": "object" },
     "sources": { "type": "array", "items": { "type": "string", "format": "uri" } },

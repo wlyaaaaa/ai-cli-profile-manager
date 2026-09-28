@@ -34,8 +34,6 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | `claude-custom` | 已实现 | 可用但有限制（按用户端点分别验收） | 只接受 HTTPS 或 localhost HTTP 的 Anthropic Messages 兼容端点 |
 
 | `oi-ollama` | Rust 0.0.21+ 适配已实现 | 可用但有限制（公共默认未做 Live） | 公共默认 `127.0.0.1:11434/v1` |
-| `claude-chatgpt-ccp` | 代理运维与 Profile 已实现 | 可用但有限制（本轮未做 OAuth/端到端 Live） | 可选第三方通道，不标成完全“可用” |
-| `claude-chatgpt-cliproxy` | 代理运维与 Profile 已实现 | 可用但有限制（本轮未做 OAuth/端到端 Live） | 可选第三方通道，不标成完全“可用” |
 
 旧 `codex-deepseek`、`claude-deepseek`、`oi-deepseek` 与 `deepseek-v4-flash` 已退役。它们的历史 Live / installed 记录只用于追溯，不能证明当前 `codex-deepseek-flash`，也不能作为恢复已删除入口的依据。
 
@@ -98,18 +96,7 @@ aicli test <Codex Profile ID> --live --level agent --yes --json
 
 模型名、地域、套餐和端点属于动态事实。`0.1.0` 发布时已按官方来源和真实目标 CLI 证据核对；后续版本仍须重新核对。“模板中存在”不等于账号有权调用。
 
-## 6. 代理供应链状态
-
-两个代理均为第三方组件。批准清单可以记录特定版本、asset 与 SHA256，但本轮没有完成交互 OAuth 和订阅链路 Live 验收。
-
-```powershell
-aicli proxy ccp update-check
-aicli proxy cliproxy update-check
-```
-
-发现上游新版本不授权执行。首次安装只接受命中随产品发布批准 SHA256、且通过安全解压和结构验证的 artifact；启动时还要通过进程身份、健康响应与 IPv4 loopback 监听验证，才会保存运行状态。`0.1.0` 不执行已安装代理的受管版本切换，`update` 会明确拒绝并保留当前版本。
-
-## 7. 官方事实源
+## 6. 官方事实源
 
 - Codex：[Profiles](https://learn.chatgpt.com/docs/config-file/config-advanced#profiles)、[Slash commands](https://learn.chatgpt.com/docs/developer-commands)
 - Claude Code：[Commands](https://code.claude.com/docs/en/commands)、[Permissions](https://code.claude.com/docs/en/permissions)、[Model configuration](https://code.claude.com/docs/en/model-config)
@@ -117,4 +104,3 @@ aicli proxy cliproxy update-check
 - 千问百炼：[Codex](https://help.aliyun.com/zh/model-studio/codex)、[Claude Code](https://help.aliyun.com/zh/model-studio/claude-code)
 - DeepSeek：[Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/)、[Responses API](https://api-docs.deepseek.com/guides/responses_api/)、[Claude Code integration](https://api-docs.deepseek.com/quick_start/agent_integrations/claude_code/)、[Change Log](https://api-docs.deepseek.com/updates)
 - Ollama：[Codex](https://docs.ollama.com/integrations/codex)、[Claude Code](https://docs.ollama.com/integrations/claude-code)
-- 第三方代理：[raine/claude-code-proxy](https://github.com/raine/claude-code-proxy)、[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)

@@ -369,7 +369,7 @@ Describe 'Retired provider identities' {
         }
     }
 
-    It 'configures the new exact Qwen Profile by reusing the matching Workspace SecretRef without plaintext access' {
+    It 'configures the exact Qwen Profile from the matching Workspace endpoint with the vendor reference' {
         InModuleScope AiCliProfileManager {
             $script:savedQwen37 = $null
             Mock Get-AiCliUserProfile {
@@ -405,7 +405,7 @@ Describe 'Retired provider identities' {
             $script:savedQwen37.templateId | Should -Be 'codex-qwen3-7-max-paygo'
             $script:savedQwen37.models.primary | Should -Be 'qwen3.7-max-2026-06-08'
             $script:savedQwen37.endpoint | Should -Be 'https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
-            $script:savedQwen37.secretRef | Should -Be 'opaque-qwen-workspace-secret-ref'
+            $script:savedQwen37.secretRef | Should -Be 'passwordcenter:qwen'
             Should -Invoke Read-Host -Times 0 -Exactly
             Should -Invoke Read-AiCliSecret -Times 0 -Exactly
             Should -Invoke New-AiCliSecret -Times 0 -Exactly

@@ -3,7 +3,7 @@
 请按下面顺序阅读。日常使用只需要前两项；CLI 学习内容已经放在第二本手册末尾，不会挡住快速开始。
 
 1. 《[AI CLI Profile Manager 使用手册](<./AI CLI Profile Manager 使用手册.md>)》
-   安装、setup、Profile、启动、Doctor、Live Test、Open Interpreter、ChatGPT 双代理、更新、卸载、隐私和排障。
+   安装、setup、Profile、启动、Doctor、Live Test、Open Interpreter、更新、卸载、隐私和排障。
 
 2. 《[Codex、Claude Code 与 Open Interpreter CLI 中文手册](<./Codex、Claude Code 与 Open Interpreter CLI 中文手册.md>)》
    先查三套 CLI 的常用命令、模型、思考、权限、上下文和会话；第一次看懂 CLI 的学习篇位于最后。

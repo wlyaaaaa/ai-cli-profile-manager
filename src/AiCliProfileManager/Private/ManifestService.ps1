@@ -144,7 +144,7 @@ function Assert-AiCliManifestCore {
     if ($M -isnot [System.Collections.IDictionary]) { throw 'Manifest 根节点必须是 JSON object。' }
     $allowed = @(
         'schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi',
-        'endpoint','models','auth','proxyRef','capabilities','compatibility','sources','codexProviderId',
+        'endpoint','models','auth','capabilities','compatibility','sources','codexProviderId',
         'interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','modelMetadata',
         'defaultEffort','effortLevels','effortMap','flexible','autoRun','modelPrefix','codexModelCatalog','desktopReasoningMode',
         'workspaceBaseUrlRequired','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope'
@@ -391,13 +391,10 @@ function Assert-AiCliManifestCore {
     }
     $engine = Get-AiCliProperty $M 'engine'
     $transport = Get-AiCliProperty $M 'transport'
-    if ($engine -eq 'codex' -and $transport -ne 'responses' -and $transport -ne 'managed-proxy') {
-        # codex only responses for first party; official uses responses via openai
-        if ($transport -ne 'responses') {
-            throw "Codex Manifest 仅允许 transport=responses，收到: $transport ($($M.id))"
-        }
+    if ($engine -eq 'codex' -and $transport -ne 'responses') {
+        throw "Codex Manifest 仅允许 transport=responses，收到: $transport ($($M.id))"
     }
-    if ($engine -eq 'claude' -and $transport -notin @('anthropic-messages','managed-proxy')) {
+    if ($engine -eq 'claude' -and $transport -ne 'anthropic-messages') {
         throw "Claude Manifest transport 非法: $transport ($($M.id))"
     }
     if ($engine -eq 'interpreter') {

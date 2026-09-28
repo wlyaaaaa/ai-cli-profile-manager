@@ -94,13 +94,23 @@ Describe 'Dedicated Ollama model set synchronization' {
         $global:LocalModelSyncTestDeleted.Count | Should -Be 0
     }
     It 'rebuilds an enabled desktop bridge when its disposable build output is absent' {
-        Set-Content (Join-Path $fixture 'scripts/Set-CodexDesktopLocalModels.ps1') @'
+        $bridgeShim = @'
 param($Mode,[switch]$Json)
 $binary=Join-Path (Split-Path $PSScriptRoot -Parent) 'dist/desktop-bridge/AiCli.CodexDesktopBridge.exe'
 if($Mode -eq 'Build'){New-Item -ItemType Directory -Path (Split-Path $binary) -Force|Out-Null;Set-Content $binary 'fixture'}
 if($Mode -eq 'Enable' -and -not (Test-Path $binary)){throw 'Run this script with -Mode Build first.'}
 '{"status":"enabled","restartRequired":false}'
 '@
+        $shimPath = Join-Path $fixture 'scripts/Set-CodexDesktopLocalModels.ps1'
+        for ($attempt = 1; $attempt -le 10; $attempt++) {
+            try {
+                [IO.File]::WriteAllText($shimPath, $bridgeShim, [Text.UTF8Encoding]::new($false))
+                break
+            } catch [IO.IOException] {
+                if ($attempt -eq 10) { throw }
+                Start-Sleep -Milliseconds 100
+            }
+        }
         $result=& (Join-Path $fixture 'scripts/Sync-LocalModelConfiguration.ps1') -ConsumerConfigPath $consumerPath -Apply -Json|ConvertFrom-Json
         $result.status | Should -Be 'applied'
         Test-Path (Join-Path $fixture 'dist/desktop-bridge/AiCli.CodexDesktopBridge.exe') | Should -BeTrue

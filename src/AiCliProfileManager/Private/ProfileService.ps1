@@ -8,11 +8,9 @@ function Get-AiCliSettings {
         defaultProfileId  = $null
         lastProfileId     = $null
         projectBookmarks  = @()
-        proxyPorts        = [ordered]@{ ccp = $null; cliproxy = $null }
         verification      = [ordered]@{}
     }
     $s = Read-AiCliJsonFile -Path $paths.SettingsFile -Default $default
-    if (-not $s.proxyPorts) { $s.proxyPorts = [ordered]@{ ccp = $null; cliproxy = $null } }
     return $s
 }
 
@@ -176,7 +174,7 @@ function Merge-AiCliProfile {
         Assert-AiCliExactCodexUserProfileCompatible -Template $Template -UserProfile $UserProfile
     }
     $merged = [ordered]@{}
-    foreach ($k in @('schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','proxyRef','capabilities','compatibility','sources','deprecation','codexProviderId','codexModelCatalog','desktopReasoningMode','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope','interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','env','defaultModel','modelPrefix','defaultEffort','effortLevels','effortMap','flexible','workspaceBaseUrlRequired')) {
+    foreach ($k in @('schemaVersion','id','displayName','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','capabilities','compatibility','sources','deprecation','codexProviderId','codexModelCatalog','desktopReasoningMode','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope','interpreterProviderId','requiresSecret','virtualReady','dataDestination','notes','hidden','env','defaultModel','modelPrefix','defaultEffort','effortLevels','effortMap','flexible','workspaceBaseUrlRequired')) {
         $v = Get-AiCliProperty $Template $k
         if ($null -ne $v) { $merged[$k] = $v }
     }
@@ -259,22 +257,6 @@ function Merge-AiCliProfile {
         $merged['codexAutoCompactTokenLimitScope'] = $null
     }
 
-    # Managed-proxy readiness applies equally to virtual templates and to a
-    # user Profile created from one. A saved JSON file must never make an
-    # uninstalled or unauthenticated proxy appear configured.
-    $proxy = Get-AiCliProperty $Template 'proxyRef'
-    if ($proxy) {
-        $exeOk = $false
-        $authOk = $false
-        try {
-            $exeOk = [bool](Get-AiCliProxyExecutable -ProxyId $proxy)
-            $authOk = Test-AiCliProxyAuthPresent -ProxyId $proxy
-        } catch {}
-        $merged['proxyInstalled'] = $exeOk
-        $merged['proxyAuthPresent'] = $authOk
-        $merged['configured'] = $exeOk -and $authOk
-    }
-
     $merged['profileFingerprint'] = Get-AiCliProfileFingerprint -Profile $merged
     $settings = Get-AiCliSettings
     $ver = $null
@@ -331,7 +313,7 @@ function Resolve-AiCliProfileStatus {
 function Get-AiCliProfileFingerprint {
     param([Parameter(Mandatory)]$Profile)
     $stable = [ordered]@{}
-    foreach ($key in @('schemaVersion','id','templateId','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','capabilities','codexProviderId','codexModelCatalog','desktopReasoningMode','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope','compatibility','defaultEffort','effortLevels','effortMap','flexible','workspaceBaseUrlRequired','requiresSecret','proxyRef','preferences','secretRef')) {
+    foreach ($key in @('schemaVersion','id','templateId','engine','provider','plan','region','transport','wireApi','endpoint','models','modelMetadata','auth','capabilities','codexProviderId','codexModelCatalog','desktopReasoningMode','codexAutoCompactTokenLimit','codexAutoCompactTokenLimitScope','compatibility','defaultEffort','effortLevels','effortMap','flexible','workspaceBaseUrlRequired','requiresSecret','preferences','secretRef')) {
         $value = Get-AiCliProperty $Profile $key
         if ($null -ne $value) { $stable[$key] = $value }
     }
@@ -656,7 +638,7 @@ function Invoke-AiCliProfileConfigure {
         }
     } elseif ([bool](Get-AiCliProperty $template 'flexible' $true) -and
         (Get-AiCliProperty $template 'engine') -in @('claude', 'interpreter') -and
-        (Get-AiCliProperty $template 'provider') -notin @('anthropic','chatgpt-proxy')) {
+        (Get-AiCliProperty $template 'provider') -ne 'anthropic') {
         $model = Read-Host ("主模型（默认 {0}，回车保留）" -f (Get-AiCliProperty $models 'primary'))
         if (-not [string]::IsNullOrWhiteSpace($model)) {
             $null = Assert-AiCliModelId -Model $model

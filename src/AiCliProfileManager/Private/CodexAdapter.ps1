@@ -726,7 +726,6 @@ function Build-AiCliCodexLaunchPlan {
         removeEnvironment = @($removeEnv)
         configFiles       = @($configFiles)
         notes             = @($notes)
-        proxyRef          = $null
         effort            = $requestedEffort
         effectiveEffort   = $effort
         model             = $model

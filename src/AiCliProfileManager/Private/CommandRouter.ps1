@@ -204,7 +204,6 @@ function Invoke-AiCliRouter {
                 return (Invoke-AiCliDoctor -ProfileId $id -Json:$json)
             }
             'test' { return (Invoke-AiCliTestCommand -Tokens $rest) }
-            'proxy' { return (Invoke-AiCliProxyCommand -Tokens $rest) }
             'update' { return (Invoke-AiCliUpdateCommand -Tokens $rest) }
             'uninstall' { return (Invoke-AiCliUninstallCommand -Tokens $rest) }
             default {
@@ -318,9 +317,6 @@ function Invoke-AiCliProfileCommand {
                 Write-Host ("状态: {0}" -f (Get-AiCliProperty $p 'status'))
                 Write-Host ("密钥: {0}" -f (Get-AiCliProfileCredentialState -Profile $p).Presence)
                 $ep = Get-AiCliProperty $p 'endpoint'
-                if (-not $ep -and (Get-AiCliProperty $p 'proxyRef')) {
-                    $ep = "managed-proxy:$([string](Get-AiCliProperty $p 'proxyRef'))"
-                }
                 Write-Host ("端点: {0}" -f $ep)
                 Write-Host ("数据去向: {0}" -f (Get-AiCliProperty $p 'dataDestination'))
             }
@@ -670,68 +666,6 @@ function Invoke-AiCliTestCommand {
     return (Invoke-AiCliLiveTest -ProfileId $id -Level $level -Yes:(Test-AiCliHasFlag $tokenList '--yes') -Json:(Test-AiCliHasFlag $tokenList '--json'))
 }
 
-function Invoke-AiCliProxyCommand {
-    param($Tokens)
-    $tokenList = ConvertTo-AiCliTokenList $Tokens
-    if ($tokenList.Count -lt 2) { throw '用法: aicli proxy <ccp|cliproxy> <install|login|...>' }
-    # avoid $pid — PowerShell automatic process-id variable
-    $proxyId = $tokenList[0].ToLowerInvariant()
-    if ($proxyId -notin @('ccp','cliproxy')) { throw '代理 id 只能是 ccp 或 cliproxy' }
-    $sub = $tokenList[1].ToLowerInvariant()
-    $rest = [System.Collections.Generic.List[string]]::new()
-    if ($tokenList.Count -gt 2) {
-        for ($i = 2; $i -lt $tokenList.Count; $i++) { [void]$rest.Add($tokenList[$i]) }
-    }
-    switch ($sub) {
-        'install' {
-            $null = Assert-AiCliTokenShape -Tokens $rest
-            return (Install-AiCliProxy -ProxyId $proxyId)
-        }
-        'login' {
-            $pos = Assert-AiCliTokenShape -Tokens $rest -MinPositionals 0 -MaxPositionals 1
-            $provider = if ($pos.Count) { $pos[0] } else { 'codex' }
-            if ($provider -notin @('codex','claude','device')) { throw "参数 provider 无效: $provider" }
-            if ($proxyId -eq 'ccp' -and $provider -eq 'claude') {
-                throw '参数组合无效：ccp 0.1.15 只支持 codex 或 device 登录；claude 登录仅用于 cliproxy。'
-            }
-            return (Invoke-AiCliProxyLogin -ProxyId $proxyId -Provider $provider)
-        }
-        'logout' {
-            $null = Assert-AiCliTokenShape -Tokens $rest -Switches @('--purge-local-auth','--yes')
-            return (Invoke-AiCliProxyLogout -ProxyId $proxyId -PurgeLocalAuth:(Test-AiCliHasFlag $rest '--purge-local-auth') -Yes:(Test-AiCliHasFlag $rest '--yes'))
-        }
-        'configure' {
-            $null = Assert-AiCliTokenShape -Tokens $rest -Switches @('--auto-port') -ValueOptions @('--port')
-            $port = Get-AiCliFlagValue -Tokens $rest -Name '--port'
-            $p = 0; if ($port) { $p = [int]$port }
-            Set-AiCliProxyConfigure -ProxyId $proxyId -Port $p -AutoPort:(Test-AiCliHasFlag $rest '--auto-port') | Out-Null
-            return (Get-AiCliExitCode Success)
-        }
-        'start' { $null = Assert-AiCliTokenShape -Tokens $rest; return (Start-AiCliProxy -ProxyId $proxyId) }
-        'stop' { $null = Assert-AiCliTokenShape -Tokens $rest; return (Stop-AiCliProxy -ProxyId $proxyId) }
-        'status' {
-            $null = Assert-AiCliTokenShape -Tokens $rest -Switches @('--json')
-            return (Get-AiCliProxyStatus -ProxyId $proxyId -Json:(Test-AiCliHasFlag $rest '--json'))
-        }
-        'update-check' { $null = Assert-AiCliTokenShape -Tokens $rest; return (Invoke-AiCliProxyUpdateCheck -ProxyId $proxyId) }
-        'update' {
-            $null = Assert-AiCliTokenShape -Tokens $rest
-            Write-AiCliInfo '0.1.0 对已安装代理禁用受管替换；update 会安全拒绝，不会覆盖当前版本。'
-            return (Install-AiCliProxy -ProxyId $proxyId)
-        }
-        'native' {
-            $null = Assert-AiCliTokenShape -Tokens $rest
-            $meta = Get-AiCliProxyMeta -ProxyId $proxyId
-            $paths = Get-AiCliProxyPaths -ProxyId $proxyId
-            Write-Host ($meta | ConvertTo-Json -Depth 5)
-            Write-Host ($paths | ConvertTo-Json -Depth 5)
-            Write-Host "可执行文件: $(Get-AiCliProxyExecutable $proxyId)"
-            return (Get-AiCliExitCode Success)
-        }
-        default { throw "未知 proxy 子命令: $sub" }
-    }
-}
-
 function Invoke-AiCliUpdateCommand {
     param([string[]]$Tokens)
     if ($Tokens.Count -lt 1) { throw '用法: aicli update check|guide [component]' }
@@ -775,27 +709,9 @@ function Invoke-AiCliUninstallCommand {
         }
     }
 
-    $proxyActions = [System.Collections.Generic.List[object]]::new()
-    foreach ($proxyId in @('ccp','cliproxy')) {
-        $proxyState = Get-AiCliProxyState -ProxyId $proxyId
-        if (-not $proxyState) { continue }
-        $identity = Test-AiCliProcessIdentity -State $proxyState -Strict -ExpectedProxyId $proxyId
-        if ($identity.Match) {
-            $proxyActions.Add([pscustomobject]@{ ProxyId = $proxyId; Action = 'stop' }) | Out-Null
-            continue
-        }
-        $recordedPid = [int](Get-AiCliProperty $proxyState 'pid' 0)
-        $liveProcess = if ($recordedPid -gt 0) { Get-Process -Id $recordedPid -ErrorAction SilentlyContinue } else { $null }
-        if ($liveProcess) {
-            throw "代理 $proxyId 的记录指向仍在运行但身份不匹配的进程 PID=$recordedPid ($($identity.Reason))；拒绝卸载。"
-        }
-        $proxyActions.Add([pscustomobject]@{ ProxyId = $proxyId; Action = 'clear-stale' }) | Out-Null
-    }
-
     Write-Host '将卸载 AI CLI Profile Manager 模块（不会卸载 Codex/Claude/Ollama）。'
     if ($purge) {
-        Write-Host '--purge-user-data 将删除本项目 AppData/Local 数据（Profile、秘密、代理数据）。'
-        Write-Host '代理 OAuth：建议先 aicli proxy <id> logout；强制本地删除用 --purge-local-auth（≠ 远程撤销）。'
+        Write-Host '--purge-user-data 将删除本项目 AppData/Local 数据（Profile、秘密等）。'
     } else {
         Write-Host '默认保留用户 Profile、秘密与导出物。'
     }
@@ -803,14 +719,6 @@ function Invoke-AiCliUninstallCommand {
         return (Get-AiCliExitCode Cancelled)
     }
 
-    foreach ($action in $proxyActions) {
-        if ($action.Action -eq 'stop') {
-            Stop-AiCliManagedProcess -ProxyId $action.ProxyId
-        } else {
-            Clear-AiCliProxyState -ProxyId $action.ProxyId
-            Write-AiCliInfo "已清理不存在进程的过期代理状态: $($action.ProxyId)"
-        }
-    }
     foreach ($m in $moduleTargets) {
         Remove-Item -LiteralPath $m -Recurse -Force
         Write-AiCliSuccess "已删除模块: $m"
@@ -835,7 +743,7 @@ function Invoke-AiCliSetup {
     Write-Host @"
 欢迎使用 $(Get-AiCliProductName)
 
-本工具只管理启动配置与代理运维；对话仍由原生 Codex CLI / Claude Code 完成。
+本工具管理启动配置与运行体检；对话仍由原生 Codex CLI / Claude Code 完成。
 "@
     $null = Invoke-AiCliDoctor
     Write-Host ''

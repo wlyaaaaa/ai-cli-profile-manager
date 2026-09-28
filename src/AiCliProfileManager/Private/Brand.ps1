@@ -87,6 +87,3 @@ $script:AiCliCodexProviderVars = @(
 
 # Reserved Codex provider IDs that must not be overridden by custom templates
 $script:AiCliCodexReservedProviderIds = @('openai', 'ollama', 'lmstudio')
-
-# Proxy IDs
-$script:AiCliProxyIds = @('ccp', 'cliproxy')

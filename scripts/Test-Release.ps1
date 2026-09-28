@@ -162,24 +162,6 @@ Assert-True (Test-Path (Join-Path $ejectOut 'start.ps1')) 'eject start.ps1'
 $ejectText = Get-Content (Join-Path $ejectOut 'start.ps1') -Raw
 Assert-True ($ejectText -notmatch 'sk-[A-Za-z0-9]{10}') 'eject no sk- canary pattern'
 
-# port parse unit-ish
-. (Join-Path $root 'src\AiCliProfileManager\Private\Brand.ps1')
-. (Join-Path $root 'src\AiCliProfileManager\Private\Paths.ps1')
-. (Join-Path $root 'src\AiCliProfileManager\Private\PortAllocator.ps1')
-$sample = @'
-Protocol tcp Dynamic Port Range
----------------------------------
-Start Port      : 49152
-Number of Ports : 16384
-'@
-$ranges = Parse-AiCliNetshRanges -Text $sample -Kind dynamicport
-Assert-True ($ranges.Count -ge 1 -and $ranges[0].Start -eq 49152) 'parse netsh dynamic EN'
-
-# Chinese-ish labels
-$sampleZh = "起始端口 : 49152`n端口数 : 16384"
-$rangesZh = Parse-AiCliNetshRanges -Text $sampleZh -Kind dynamicport
-Assert-True ($rangesZh.Count -ge 1) 'parse netsh dynamic ZH labels'
-
 Write-Host ''
 if ($failed -gt 0) {
     $env:PATH = $oldProcessPath

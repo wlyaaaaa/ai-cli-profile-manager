@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+### 移除
+
+- 退役 Claude Code 经 ChatGPT 的 ccp、CLIProxyAPI 两条转接，移除对应 Profile、代理运维入口、实现、测试和现行说明；普通 CLI 启动及其他 Provider 不变。
+
 ### 厂商凭据候选 0.3.19
 
 - Qwen、GLM、DeepSeek Profile 引用密码中心的一份厂商凭据；CLI 使用一次性管道后注入子进程环境，Desktop 保留原生 auth.command，均不创建 Profile DPAPI 副本。

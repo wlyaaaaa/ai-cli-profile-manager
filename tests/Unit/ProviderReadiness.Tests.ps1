@@ -181,9 +181,6 @@ Describe 'selected local Provider readiness' {
             Mock Find-AiCliCommandPath { $null }
             Mock Resolve-AiCliInterpreterExecutable { $null }
             Mock Get-AiCliClaudeConflictSettingsHints { @() }
-            Mock Get-AiCliProxyExecutable { $null }
-            Mock Get-AiCliProxyState { $null }
-            Mock Test-AiCliProcessIdentity { [pscustomobject]@{ Match = $false } }
             Mock Get-AiCliResolvedProfile { $profile }
             Mock Get-AiCliProviderManifest { $null }
             Mock Get-AiCliProfileCliIdentityEvidence { $null }

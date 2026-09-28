@@ -7,7 +7,7 @@ Describe 'Docs contract' {
 
     It 'has required user handbook files' {
         $required = @(
-            'QUICKSTART.md','START-AND-PROFILES.md','DOCTOR-AND-TEST.md','PROXIES.md',
+            'QUICKSTART.md','START-AND-PROFILES.md','DOCTOR-AND-TEST.md',
             'CLI-COMMANDS.md','CLI-LEARNING.md','UPDATE-AND-REPAIR.md','TROUBLESHOOTING.md','PRIVACY-AND-UNINSTALL.md',
             'OPEN-INTERPRETER.md','CLAUDE-PERMISSIONS-AND-QWEN.md'
         )

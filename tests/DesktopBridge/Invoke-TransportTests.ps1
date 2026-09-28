@@ -66,6 +66,7 @@ $testContainer = {
                 $models = @([ordered]@{
                     profileId = 'codex-deepseek-flash'
                     model = 'deepseek-flash'
+                    reasoningMode = 'deepseek'
                     providerId = 'aicli_deepseek_flash'
                     routeProviderId = 'aicli_deepseek_flash'
                     kind = 'cloud'

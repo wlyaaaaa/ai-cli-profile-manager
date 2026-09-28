@@ -35,29 +35,6 @@ Describe 'Path isolation' {
 }
 
 Describe 'Verification evidence' {
-    It 'does not let a saved proxy Profile bypass installation and auth readiness' {
-        InModuleScope AiCliProfileManager {
-            Mock Get-AiCliProxyExecutable { 'C:\managed\claude-code-proxy.exe' }
-            Mock Test-AiCliProxyAuthPresent { $false }
-            Mock Get-AiCliSettings { [ordered]@{ verification = [ordered]@{} } }
-            $template = [ordered]@{
-                schemaVersion = 1
-                id = 'claude-chatgpt-ccp'
-                displayName = 'ccp'
-                engine = 'claude'
-                proxyRef = 'ccp'
-                requiresSecret = $false
-                virtualReady = $false
-            }
-            $user = [ordered]@{ id = 'my-ccp'; displayName = 'My ccp' }
-
-            $resolved = Merge-AiCliProfile -Template $template -UserProfile $user
-
-            $resolved.proxyInstalled | Should -BeTrue
-            $resolved.proxyAuthPresent | Should -BeFalse
-            $resolved.configured | Should -BeFalse
-        }
-    }
 
     It 'never promotes a skipped tool test to fully usable and rejects stale fingerprints' {
         $dataRoot = Join-Path $TestDrive 'verification-root'
@@ -170,6 +147,18 @@ Describe 'Verification evidence' {
 }
 
 Describe 'Live text evidence' {
+    BeforeEach {
+        InModuleScope AiCliProfileManager -Parameters @{ Root = $TestDrive } {
+            Set-AiCliDataRootOverride -Path (Join-Path $Root 'aicli-data')
+        }
+    }
+
+    AfterEach {
+        InModuleScope AiCliProfileManager {
+            Set-AiCliDataRootOverride -Path $null
+        }
+    }
+
     It 'binds a preferred Codex sandbox launch to one npm package and its helper' {
         $npmRoot = Join-Path $TestDrive 'npm'
         $shim = Join-Path $npmRoot 'codex.cmd'
@@ -848,29 +837,11 @@ Describe 'Build output safety' {
 }
 
 Describe 'Uninstall safety' {
-    It 'clears a stale proxy state whose recorded process no longer exists' {
-        InModuleScope AiCliProfileManager {
-            Mock Test-Path { $false }
-            Mock Get-AiCliProxyState {
-                if ($ProxyId -eq 'ccp') { [ordered]@{ pid = 999999; proxyId = 'ccp' } } else { $null }
-            }
-            Mock Test-AiCliProcessIdentity { [pscustomobject]@{ Match = $false; Reason = 'process-missing' } }
-            Mock Get-Process { $null }
-            Mock Confirm-AiCliAction { $true }
-            Mock Clear-AiCliProxyState {}
-            Mock Remove-AiCliShellIntegration {}
-
-            Invoke-AiCliUninstallCommand -Tokens @('--yes') | Should -Be 0
-            Should -Invoke Clear-AiCliProxyState -Times 1 -Exactly -ParameterFilter { $ProxyId -eq 'ccp' }
-            Should -Invoke Remove-AiCliShellIntegration -Times 1 -Exactly
-        }
-    }
 
     It 'refuses an unknown same-name module before confirmation or user-data purge' {
         InModuleScope AiCliProfileManager {
             Mock Test-Path { [string]$LiteralPath -like '*AiCliProfileManager' }
             Mock Test-AiCliManagedModuleDirectory { $false }
-            Mock Get-AiCliProxyState { $null }
             Mock Confirm-AiCliAction { $true }
             Mock Remove-Item {}
             Mock Remove-AiCliShellIntegration {}

@@ -13,7 +13,7 @@ function Show-AiCliHelp {
         '^(perm)' { Show-AiCliHelpPermissions }
         '^(resume|session)' { Show-AiCliHelpResume }
         '^(compare)$' { Show-AiCliHelpCompare }
-        '^(setup|profile|start|run|diagnose|doctor|test|proxy|update|native|eject|uninstall)$' { Show-AiCliHelpCommand -Command $Topic.ToLowerInvariant() }
+        '^(setup|profile|start|run|diagnose|doctor|test|update|native|eject|uninstall)$' { Show-AiCliHelpCommand -Command $Topic.ToLowerInvariant() }
         default {
             throw "未知帮助主题: $Topic"
         }
@@ -38,10 +38,9 @@ $name — 命令帮助
   $cmd diagnose --json [--bridge-registry <path>]
   $cmd doctor [profile]
   $cmd test <profile> --live [--level text|tool|agent|all] [--yes]
-  $cmd proxy <ccp|cliproxy> status
   $cmd native <profile>
   $cmd eject <profile>
-  $cmd help setup|profile|start|run|diagnose|doctor|test|proxy|update|native|eject|uninstall
+  $cmd help setup|profile|start|run|diagnose|doctor|test|update|native|eject|uninstall
   $cmd help compact|model|effort|permissions|resume|compare
 
 精确第三方 Codex 一键入口：
@@ -219,13 +218,12 @@ function Show-AiCliHelpCommand {
         start     = @('在指定项目目录中启动真实上游 CLI。','aicli start <精确 Profile ID> --project <项目路径>','第三方 Profile 封闭 Provider、模型、Responses、max 映射和 SecretRef；用户无需拼底层参数。')
         run       = @('供上层程序通过 stdin 调用可恢复、受墙钟/步数/工具/输出预算监管的任务；预算不等于权限沙箱。','aicli run start <Profile ID> --stdin --json --project <路径> [--background]；aicli run status|resume|abort <run-id> --json','所有当前及未来 Codex harness Profile 固定使用原生 danger-full-access，并默认提供受管 public_web_search。每个 run 绑定持久 thread/session 与工作区/Profile/模型/Provider/effort；恢复身份变化、证据链损坏或新 thread 都失败关闭。后台控制器可供 benchmark 轮询，瞬态错误最多自动 exact-resume 3 次。')
         diagnose  = @('只读查看模块来源、版本与桌面发布文件；不初始化目录、不读凭据、不调用模型。','aicli diagnose --json [--bridge-registry <登记文件>]','配置、安装哈希、实际进程加载和端到端证据分别报告；未验证项保持 unknown。')
-        doctor    = @('检查 CLI、Profile、端点、代理和配置冲突，不发送模型请求。','aicli doctor [Profile ID] [--json]','输出“通过 / 可用 / 可用但有限制 / 不可用”及下一步。')
+        doctor    = @('检查 CLI、Profile、端点和配置冲突，不发送模型请求。','aicli doctor [Profile ID] [--json]','输出“通过 / 可用 / 可用但有限制 / 不可用”及下一步。')
         test      = @('通过目标 CLI 发送真实连通或 Agent 能力请求。','aicli test <Profile ID> --live --level agent --yes --json','agent 会在隔离目录运行可恢复的非平凡文件任务，并由独立 verifier 验收；真实请求可能消耗额度。')
-        proxy     = @('安装、登录、启停和检查 ccp / CLIProxyAPI。','aicli proxy <ccp|cliproxy> status','只允许 loopback 监听；ChatGPT 通道为可选第三方方案。')
         update    = @('检查本工具和上游 CLI 版本，或显示官方更新命令。','aicli update check；aicli update guide codex','只报告与指导，不静默自动升级。')
         native    = @('查看实际可执行文件、参数、子进程环境和数据去向。','aicli native <Profile ID>','秘密字段始终脱敏。')
         eject     = @('导出不含秘密的独立启动配方。','aicli eject <Profile ID> --output <新目录>','不会导出 API Key/OAuth；运行前需自行提供密钥。')
-        uninstall = @('卸载模块；默认保留用户数据。','aicli uninstall [--purge-user-data] [--yes]','purge 才删除 Profile、DPAPI 密钥和代理本地数据；不等于远程撤销 OAuth。')
+        uninstall = @('卸载模块；默认保留用户数据。','aicli uninstall [--purge-user-data] [--yes]','purge 才删除 Profile、DPAPI 密钥和日志等本工具数据；不等于远程撤销 OAuth。')
     }
     $row = $rows[$Command]
     Write-Host ("# {0}`n`n功能：{1}`n`n命令：{2}`n`n效果：{3}" -f $Command,$row[0],$row[1],$row[2])
