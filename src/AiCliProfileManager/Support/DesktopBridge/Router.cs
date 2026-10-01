@@ -649,6 +649,11 @@ public sealed class ModelRouter
         // Keep compaction within the selected model's declared capacity.
         var metadata = entry["catalogModel"]!;
         configuration["model_auto_compact_token_limit"] = metadata["auto_compact_token_limit"]?.DeepClone() ?? JsonValue.Create(window * 90 / 100);
+        // Managed providers do not have the native history/notes backend.
+        // Keep their existing compaction even when the user enables token-budget windows globally.
+        configuration.Remove("features.token_budget.enabled");
+        configuration.Remove("features.token_budget.use_history_notes_extension");
+        configuration["features.token_budget"] = false;
     }
 
     private void RejectCollision(string model)

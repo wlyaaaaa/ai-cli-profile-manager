@@ -105,6 +105,11 @@ try
     Check(local["params"]!["config"]!["model_provider"]!.GetValue<string>() == "aicli_desktop_local" && local["params"]!["config"]!["custom"]!.GetValue<int>() == 42, "Local overrides must agree and preserve unrelated settings.");
     Check(local["params"]!["config"]!["model_context_window"]!.GetValue<long>() == 262144 && !local.ToJsonString().Contains("env_key"), "Local capacity and authentication must come from the local plan.");
     Check(local["params"]!["config"]!["model_auto_compact_token_limit"]!.GetValue<long>() == 235929, "Managed model fallback compaction must use 90 percent of context.");
+    Check(local["params"]!["config"]!["features.token_budget"]!.GetValue<bool>() == false, "Local providers must retain compaction without a native history/notes backend.");
+
+    var localWithBudget = Parse("{\"id\":22,\"method\":\"thread/start\",\"params\":{\"model\":\"local-a\",\"config\":{\"features.token_budget\":{\"enabled\":true,\"use_history_notes_extension\":true},\"features.token_budget.enabled\":true,\"features.token_budget.use_history_notes_extension\":true}}}");
+    await router.BeforeRequestAsync(localWithBudget, NoCall);
+    Check(localWithBudget["params"]!["config"]!["features.token_budget"]!.GetValue<bool>() == false && localWithBudget["params"]!["config"]!["features.token_budget.enabled"] is null && localWithBudget["params"]!["config"]!["features.token_budget.use_history_notes_extension"] is null, "Managed-provider override must remove conflicting native token-budget activation fields.");
 
     var cloud = Parse("{\"id\":3,\"method\":\"thread/start\",\"params\":{\"model\":\"qwen3.8-max-0902\",\"config\":{}}}");
     await router.BeforeRequestAsync(cloud, NoCall);
@@ -112,6 +117,7 @@ try
     Check(cloud["params"]!["config"]!["model_providers.aicli_qwen38_max_paygo"]!["auth"]!["command"]!.GetValue<string>() == "pwsh", "Cloud authentication must stay command-backed.");
     Check(!cloud.ToJsonString().Contains("env_key"), "Cloud selection must not serialize an API key environment variable.");
     Check(cloud["params"]!["config"]!["model_auto_compact_token_limit"]!.GetValue<int>() == 885254, "Cloud model compaction must use its declared 90 percent limit.");
+    Check(cloud["params"]!["config"]!["features.token_budget"]!.GetValue<bool>() == false, "Managed cloud providers must retain their declared compaction path.");
 
     router.AfterResponse("thread/start", null, Parse("{\"result\":{\"modelProvider\":\"aicli_glm_5_3_flash\",\"model\":\"glm-5.3-flash\",\"thread\":{\"id\":\"glm-task\",\"modelProvider\":\"aicli_glm_5_3_flash\"}}}"));
     var reasoningDelta = Parse("{\"method\":\"item/reasoning/textDelta\",\"params\":{\"threadId\":\"glm-task\",\"turnId\":\"turn-1\",\"itemId\":\"reason-1\",\"contentIndex\":0,\"delta\":\"分析步骤\"}} ");
