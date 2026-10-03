@@ -153,6 +153,36 @@ function Get-AiCliDesktopEngineFallback {
     catch { return $null }
 }
 
+function Resolve-AiCliPhysicalDirectory {
+    <#
+    .SYNOPSIS
+      Follows every junction or symbolic link in an existing directory path.
+
+    .DESCRIPTION
+      The upstream cache is commonly redirected to another volume.  Creating a
+      subdirectory through such a junction has been observed to report success
+      while no directory appears, even though files and reads pass through, so
+      new directories are created beneath the physical target instead.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    $full = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $root = [IO.Path]::GetPathRoot($full)
+    $current = $root.TrimEnd('\')
+    foreach ($part in $full.Substring($root.Length).Split('\', [StringSplitOptions]::RemoveEmptyEntries)) {
+        $current = Join-Path ($current + '\') $part
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) { continue }
+        $target = $item.ResolveLinkTarget($true)
+        if ($null -eq $target -or -not (Test-Path -LiteralPath $target.FullName -PathType Container)) {
+            throw 'The Desktop engine cache link has no reachable target.'
+        }
+        $current = [IO.Path]::GetFullPath($target.FullName).TrimEnd('\')
+    }
+    return $current
+}
+
 function Get-AiCliStagedAppxEngine {
     [CmdletBinding()]
     param(
@@ -187,12 +217,17 @@ function Get-AiCliStagedAppxEngine {
     }
 
     New-Item -ItemType Directory -Path $cacheRoot -Force -ErrorAction Stop | Out-Null
-    $staging = [IO.Path]::GetFullPath((Join-Path $cacheRoot ('.' + $SourceHash + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')))
-    if (-not $staging.StartsWith($cacheRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    $physicalRoot = Resolve-AiCliPhysicalDirectory -Path $cacheRoot
+    $physicalDestination = Join-Path $physicalRoot $SourceHash
+    $staging = [IO.Path]::GetFullPath((Join-Path $physicalRoot ('.' + $SourceHash + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')))
+    if (-not $staging.StartsWith($physicalRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
         throw 'The Desktop engine staging path is outside its cache.'
     }
     try {
         New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
+        if (-not (Test-Path -LiteralPath $staging -PathType Container)) {
+            throw 'The Desktop engine staging directory was reported created but is missing.'
+        }
         foreach ($companion in $companions) {
             $target = Join-Path $staging $companion.Name
             # Store resources can carry EFS attributes. Copy the verified bytes,
@@ -214,7 +249,7 @@ function Get-AiCliStagedAppxEngine {
         $version = Get-AiCliCodexCliVersion -Path (Join-Path $staging 'codex.exe')
         if ($null -eq $version) { throw 'The installed Desktop engine has no valid OpenAI signature or version.' }
         if (-not (Test-Path -LiteralPath $destination)) {
-            Move-Item -LiteralPath $staging -Destination $destination -ErrorAction Stop
+            Move-Item -LiteralPath $staging -Destination $physicalDestination -ErrorAction Stop
             $staging = $null
         }
     }

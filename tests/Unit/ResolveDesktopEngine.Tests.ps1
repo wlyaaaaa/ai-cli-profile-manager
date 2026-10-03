@@ -165,6 +165,41 @@ Describe 'Resolve-AiCliDesktopEngine' {
         Should -Invoke Resolve-AiCliLaunchExecutable -Times 0 -Exactly
     }
 
+    It 'stages beneath the physical target when the upstream cache is a junction' {
+        $physical = Join-Path $script:FixtureRoot 'redirected-upstream'
+        New-Item -ItemType Directory -Path $physical -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:AiCliLocal 'desktop') -Force | Out-Null
+        $link = Join-Path $script:AiCliLocal 'desktop\upstream'
+        New-Item -ItemType Junction -Path $link -Target $physical | Out-Null
+        Mock Get-AppxPackage {
+            [pscustomobject]@{ Version = [version]'2.0.0.0'; InstallLocation = $script:PackageB; PackageFullName = 'OpenAI.Codex_2' }
+        } -ParameterFilter { $Name -eq 'OpenAI.Codex' }
+        Mock Get-AiCliCodexCliVersion {
+            if ($Path -eq (Join-Path $script:PackageB 'app\resources\codex.exe')) { return $null }
+            return [semver]'2.0.0'
+        }
+        $hash = (Get-FileHash (Join-Path $script:PackageB 'app\resources\codex.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+
+        $resolved = Resolve-AiCliDesktopEngine
+
+        $resolved.FileName | Should -Be (Join-Path $link ($hash + '\codex.exe'))
+        (Get-Content -LiteralPath (Join-Path $physical ($hash + '\codex.exe')) -Raw) | Should -Be 'engine-b'
+        @(Get-ChildItem -LiteralPath $physical -Force -Filter '*.tmp').Count | Should -Be 0
+        (Get-Item -LiteralPath $link -Force).LinkType | Should -Be 'Junction'
+    }
+
+    It 'resolves every linked component of a cache path to its physical directory' {
+        $physical = Join-Path $script:FixtureRoot 'physical-root'
+        New-Item -ItemType Directory -Path (Join-Path $physical 'inner') -Force | Out-Null
+        $link = Join-Path $script:FixtureRoot 'linked-root'
+        New-Item -ItemType Junction -Path $link -Target $physical | Out-Null
+
+        Resolve-AiCliPhysicalDirectory -Path (Join-Path $link 'inner') |
+            Should -Be ([IO.Path]::GetFullPath((Join-Path $physical 'inner')))
+        Resolve-AiCliPhysicalDirectory -Path $physical |
+            Should -Be ([IO.Path]::GetFullPath($physical))
+    }
+
     It 'rejects a staged package whose companion changed after the first launch' {
         Mock Get-AppxPackage {
             [pscustomobject]@{ Version = [version]'2.0.0.0'; InstallLocation = $script:PackageB; PackageFullName = 'OpenAI.Codex_2' }
