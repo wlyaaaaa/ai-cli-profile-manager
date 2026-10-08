@@ -36,6 +36,12 @@ $observed = [ordered]@{
         [Environment]::GetEnvironmentVariable('NODE_EXTRA_CA_CERTS') -ceq
             'CANARY_NODE_EXTRA_CA_CERTS'
     )
+    protectedProxyEnvironmentPreserved = (
+        [Environment]::GetEnvironmentVariable('HTTP_PROXY') -ceq 'http://127.0.0.1:18900' -and
+        [Environment]::GetEnvironmentVariable('HTTPS_PROXY') -ceq 'http://127.0.0.1:18900' -and
+        [Environment]::GetEnvironmentVariable('NO_PROXY') -ceq '127.0.0.1,localhost,::1' -and
+        [Environment]::GetEnvironmentVariable('CLAUDE_CODE_PROXY_RESOLVES_HOSTS') -ceq '1'
+    )
     explicitCanaryApplied = (
         [Environment]::GetEnvironmentVariable('AICLI_EXPLICIT_ENV_CANARY') -ceq
             'CANARY_EXPLICIT_ENVIRONMENT_DELTA'
@@ -72,6 +78,10 @@ $observed = [ordered]@{
                 NODE_DEBUG = 'CANARY_NODE_DEBUG'
                 NODE_OPTIONS = 'CANARY_NODE_OPTIONS'
                 NODE_EXTRA_CA_CERTS = 'CANARY_NODE_EXTRA_CA_CERTS'
+                HTTP_PROXY = 'http://127.0.0.1:18900'
+                HTTPS_PROXY = 'http://127.0.0.1:18900'
+                NO_PROXY = '127.0.0.1,localhost,::1'
+                CLAUDE_CODE_PROXY_RESOLVES_HOSTS = '1'
             }
             $originals = @{}
             foreach ($name in $parentCanaries.Keys) {
@@ -116,6 +126,7 @@ $observed = [ordered]@{
                 $observed.nodeDebugPresent | Should -BeFalse
                 $observed.nodeOptionsPresent | Should -BeFalse
                 $observed.nodeExtraCaCertsPreserved | Should -BeTrue
+                $observed.protectedProxyEnvironmentPreserved | Should -BeTrue
                 $observed.explicitCanaryApplied | Should -BeTrue
                 $observed.explicitProviderSecretApplied | Should -BeTrue
                 $observed.codexHomeApplied | Should -BeTrue
