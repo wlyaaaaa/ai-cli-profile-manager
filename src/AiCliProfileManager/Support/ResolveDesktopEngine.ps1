@@ -223,6 +223,7 @@ function Get-AiCliStagedAppxEngine {
     if (-not $staging.StartsWith($physicalRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
         throw 'The Desktop engine staging path is outside its cache.'
     }
+    $publishLock = Enter-AiCliFileLock -TargetPath $physicalRoot
     try {
         New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
         if (-not (Test-Path -LiteralPath $staging -PathType Container)) {
@@ -254,14 +255,84 @@ function Get-AiCliStagedAppxEngine {
         }
     }
     finally {
-        if ($staging -and (Test-Path -LiteralPath $staging)) {
-            Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction Stop
+        try {
+            if ($staging -and (Test-Path -LiteralPath $staging)) {
+                Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction Stop
+            }
         }
+        finally { Exit-AiCliFileLock -Lock $publishLock }
     }
     if ((Get-AiCliDesktopEngineHash -Path $cachedEngine) -ne $SourceHash) {
         throw 'The staged Desktop engine did not retain the package bytes.'
     }
     return [pscustomobject]@{ FileName = $cachedEngine; Version = $version; Hash = $SourceHash }
+}
+
+function Remove-AiCliObsoleteUpstreamCache {
+    [CmdletBinding()]
+    param($Result, $Package, [string]$SourceHash, [string]$PackageName = 'OpenAI.Codex')
+
+    $lock = $null
+    try {
+        $logicalRoot = Join-Path ([string](Get-AiCliAppPaths).LocalRoot) 'desktop\upstream'
+        if (-not (Test-Path -LiteralPath $logicalRoot -PathType Container)) { return }
+        $root = Resolve-AiCliPhysicalDirectory -Path $logicalRoot
+        $lock = Enter-AiCliFileLock -TargetPath $root -TimeoutMs 250
+        $samePackage = {
+            $latest = @(Get-AppxPackage -Name $PackageName -ErrorAction Stop | Sort-Object Version -Descending)
+            $latest.Count -gt 0 -and $latest[0].PackageFullName -ceq $Package.PackageFullName -and
+                (Get-AiCliDesktopEngineHash -Path (Join-Path $latest[0].InstallLocation 'app\resources\codex.exe')) -ceq $SourceHash
+        }
+        $idle = {
+            param([string]$Directory)
+            $references = @($Directory, (Join-Path $logicalRoot ([IO.Path]::GetFileName($Directory))))
+            $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+            $caller = $processes | Where-Object ProcessId -EQ $PID | Select-Object -First 1
+            foreach ($process in $processes | Where-Object ProcessId -NE $PID) {
+                if ($process.Name -match '^(codex.*|AiCli\.CodexDesktopBridge|pwsh|powershell)\.exe$' -and
+                    (-not $process.ExecutablePath -or -not $process.CommandLine)) { return $false }
+                # A bridge can hold a freshly resolved plan before spawning its engine.
+                if ($process.Name -eq 'AiCli.CodexDesktopBridge.exe' -and
+                    ($null -eq $caller -or $process.ProcessId -ne $caller.ParentProcessId)) { return $false }
+                if ($process.CommandLine -match '(GetDesktopModelPlan|ResolveDesktopEngine)\.ps1') { return $false }
+                foreach ($reference in $references) {
+                    if (($process.ExecutablePath -and $process.ExecutablePath.StartsWith($reference + '\', [StringComparison]::OrdinalIgnoreCase)) -or
+                        ($process.CommandLine -and $process.CommandLine.IndexOf($reference, [StringComparison]::OrdinalIgnoreCase) -ge 0)) { return $false }
+                }
+            }
+            return $true
+        }
+        if (-not (& $samePackage)) { return }
+        $expected = @('codex.exe', 'codex-code-mode-host.exe', 'codex-command-runner.exe',
+            'codex-windows-sandbox-service.exe', 'codex-windows-sandbox-setup.exe')
+        foreach ($directory in @(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction Stop)) {
+            if ($directory.Name -cnotmatch '^[a-f0-9]{64}$' -or
+                $directory.Name -in @($SourceHash, $Result.ContentHash) -or
+                ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+            try {
+                $entries = @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)
+                $safe = $entries.Count -eq 5 -and @($entries | Where-Object { $_.PSIsContainer -or $_.Name -cnotin $expected }).Count -eq 0
+                foreach ($item in @($directory) + $entries) {
+                    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                        @(Get-Item -LiteralPath $item.FullName -Stream * -ErrorAction Stop | Where-Object Stream -NE ':$DATA').Count) { $safe = $false; break }
+                    if (-not $item.PSIsContainer -and -not (Test-AiCliOpenAICodexSignature -Path $item.FullName)) { $safe = $false; break }
+                }
+                if ((Get-AiCliDesktopEngineHash -Path (Join-Path $directory.FullName 'codex.exe')) -cne $directory.Name) { $safe = $false }
+                if (-not $safe -or -not (& $idle $directory.FullName)) {
+                    Write-AiCliLog -Level Debug -Message "Upstream cache retained: $($directory.Name) (unverified or active)."
+                    continue
+                }
+                $fresh = @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)
+                if ($fresh.Count -ne 5 -or @($fresh | Where-Object { $_.PSIsContainer -or $_.Name -cnotin $expected -or ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) }).Count -or
+                    -not (& $samePackage) -or -not (& $idle $directory.FullName)) { continue }
+                Remove-Item -LiteralPath $directory.FullName -Recurse -Force -ErrorAction Stop
+                Write-AiCliLog -Level Info -Message "Retired upstream cache: $($directory.Name)."
+            }
+            catch { Write-AiCliLog -Level Warn -Message "Upstream cache retained: $($directory.Name); cleanup failed." }
+        }
+    }
+    catch { Write-AiCliLog -Level Debug -Message 'Upstream cache retention deferred; inspection or lock unavailable.' }
+    finally { Exit-AiCliFileLock -Lock $lock }
 }
 
 function Resolve-AiCliDesktopEngine {
@@ -317,11 +388,13 @@ function Resolve-AiCliDesktopEngine {
             else {
                 'official-cache-self-updated'
             }
-            return New-AiCliDesktopEngineResult `
+            $result = New-AiCliDesktopEngineResult `
                 -FileName $current.FileName `
                 -Resolution $resolution `
                 -ContentHash $current.Hash `
                 -PackageFullName ([string]$package.PackageFullName)
+            Remove-AiCliObsoleteUpstreamCache -Result $result -Package $package -SourceHash $sourceHash -PackageName $PackageName
+            return $result
         }
     }
     catch {
@@ -332,6 +405,8 @@ function Resolve-AiCliDesktopEngine {
     if ($null -eq $staged) {
         $staged = Get-AiCliStagedAppxEngine -SourceDirectory $sourceDirectory -SourceHash $sourceHash
     }
-    return New-AiCliDesktopEngineResult -FileName $staged.FileName -Resolution 'aicli-upstream-cache' `
+    $result = New-AiCliDesktopEngineResult -FileName $staged.FileName -Resolution 'aicli-upstream-cache' `
         -ContentHash $sourceHash -PackageFullName ([string]$package.PackageFullName)
+    Remove-AiCliObsoleteUpstreamCache -Result $result -Package $package -SourceHash $sourceHash -PackageName $PackageName
+    return $result
 }
