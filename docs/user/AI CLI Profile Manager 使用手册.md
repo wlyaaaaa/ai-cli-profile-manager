@@ -253,7 +253,7 @@ pwsh -NoProfile -File scripts/Sync-LocalModelProfiles.ps1 -Json
 pwsh -NoProfile -File scripts/Sync-LocalModelProfiles.ps1 -Apply -Json
 ```
 
-该命令保留 262144 上下文、各引擎自己的输出/压缩/启动参数，以及原型号专用入口。换型后按输出的 `manual_review` 复核保留的来源链接和说明文字。复核模型独立修改 `codex-ollama-review.json` 与对应目录。不要覆盖旧型号共用的 catalog 或运行标签。随后通过 Toolkit 的显式同步工具更新其注册表，按原有流程安装、运行 `doctor` 并验收实际使用的入口；配置同步成功不表示新模型已通过现场验收。已有受管版本可按 Git 中的原配置回退并重新安装。当前 `Setup-Qwen38-27B256K.ps1` 只负责它命名的 Qwen 版本，不用于创建未来模型。
+该命令保留 262144 上下文、各引擎自己的输出/压缩/启动参数，以及原型号专用入口。换型后按输出的 `manual_review` 复核保留的来源链接和说明文字。复核模型独立修改 `codex-ollama-review.json` 与对应目录。不要覆盖旧型号共用的 catalog 或运行标签。随后预览并应用本项目的统一同步命令，按原有流程安装、运行 `doctor` 并验收实际使用的入口；配置同步成功不表示新模型已通过现场验收。已有受管版本可按 Git 中的原配置回退并重新安装。当前 `Setup-Qwen38-27B256K.ps1` 只负责它命名的 Qwen 版本，不用于创建未来模型。
 
 这些工具供低频、明确选择本地模型时使用。是否调用本地模型由上层 AI 根据任务判断；本地可用不会改变原生子代理的选型，也不会自动替换 Luna Max。
 
@@ -443,7 +443,7 @@ Claude 官方登录与 `ANTHROPIC_API_KEY` 同时存在时，上游可能显示�
 
 原生 ChatGPT + Codex 是基准，保持上游默认。DeepSeek/千问经 Codex 或 Claude Code 时，客户端压缩是可能丢文件细节、数字和未完成分支的摘要；不要为了“省上下文”主动 `/compact`。AICLI 的第三方连续性契约要求一个会话只做一个内聚里程碑，在自然边界把目标与验收、约束/授权/owner、规则与关键文件、改动、决定、测试/Live 缺口、阻塞和下一步写入项目已有 plan/progress/decision 状态；接近窗口时优先 fresh session 或拆任务。压缩后把摘要当线索，重新读取适用的 `AGENTS.md` / `CLAUDE.md`、状态文档以及 `git status` / `git diff`，不建立第二事实源。
 
-本机 27B 主用与显式 27B 兼容入口保持同一模型身份和 262144 context；OpenCode 同时声明 262144 input、32768 output、20000 reserved，并保留最近 4 轮/16384 token。35B 复核与 27B 主用分别验收。改主用模型时须同步实际 Profile、Toolkit 默认路线、运行时镜像及安装后的配置；旧指纹的 Live 记录不会自动继承。
+本机 27B 主用与显式 27B 兼容入口保持同一模型身份和 262144 context；OpenCode 同时声明 262144 input、32768 output、20000 reserved，并保留最近 4 轮/16384 token。35B 复核与 27B 主用分别验收。改主用模型时须同步实际 Profile、OpenCode 本地入口、Ollama 运行标签及安装后的配置；旧指纹的 Live 记录不会自动继承。
 
 第三方模型（如千问）下，Claude 会话结束页的 **Total cost: $… (costs may be inaccurate due to usage of unknown models)** **不是** 阿里云百炼账单。token 量级可能接近真实调用；美元金额多半按 Claude 内置未知模型单价估算，**往往偏高**。真费用以百炼「模型监控 / 账单」为准（调用后约一小时可查）。详见《CLI 中文手册》用量说明。
 
