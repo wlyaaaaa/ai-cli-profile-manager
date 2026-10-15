@@ -2446,6 +2446,50 @@ for (`$i = 0; `$i -lt 50000; `$i++) {
         }
     }
 
+    It 'enforces the wall deadline after root exit with inherited pipes: <EventProtocol>' -TestCases @(
+        @{ EventProtocol = 'none' }
+        @{ EventProtocol = 'codex-jsonl' }
+    ) {
+        param($EventProtocol)
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; EventProtocol = $EventProtocol } {
+            $scriptPath = Join-Path $Work "inherited-pipe-$EventProtocol.py"
+            @'
+import json, subprocess, sys
+mode = sys.argv[1]
+if mode == 'codex-jsonl':
+    for event in [
+        {'type': 'thread.started', 'thread_id': 'pipe-deadline-thread'},
+        {'type': 'turn.started', 'turn_id': 'pipe-deadline-turn'},
+        {'type': 'item.completed', 'item': {'id': 'pipe-deadline-message', 'type': 'agent_message', 'text': 'pipe deadline public reply'}}
+    ]:
+        print(json.dumps(event), flush=True)
+subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3)'],
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.DEVNULL if mode == 'codex-jsonl' else sys.stdout,
+    stderr=sys.stderr, creationflags=subprocess.CREATE_NO_WINDOW)
+'@ | Set-Content -LiteralPath $scriptPath -Encoding utf8
+
+            $elapsed = [Diagnostics.Stopwatch]::StartNew()
+            try {
+                $result = Invoke-AiCliChildCapture -FileName (Get-Command python.exe).Source `
+                    -ArgumentList @($scriptPath, $EventProtocol) -WorkingDirectory $Work `
+                    -EventProtocol $EventProtocol -TimeoutMs 1000 -CloseStdIn
+
+                $elapsed.ElapsedMilliseconds | Should -BeLessThan 2500
+                $result.TimedOut | Should -BeTrue
+                $result.LimitHit | Should -Be 'timeout'
+                $result.CleanupConfirmed | Should -BeFalse
+                $result.CleanupMethod | Should -Be 'root-exited-before-tree-stop'
+                if ($EventProtocol -eq 'codex-jsonl') {
+                    $result.StdOut | Should -Match 'pipe deadline public reply'
+                }
+            } finally {
+                $remainingMs = [Math]::Max(0, 4000 - [int]$elapsed.ElapsedMilliseconds)
+                if ($remainingMs -gt 0) { Start-Sleep -Milliseconds $remainingMs }
+            }
+        }
+    }
+
     It 'fails closed on an unknown Codex item type' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $marker = Join-Path $Work 'unknown-event-must-not-exist.txt'

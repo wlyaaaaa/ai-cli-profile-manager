@@ -1958,17 +1958,22 @@ function Invoke-AiCliChildCapture {
                     throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
                 }
             }
-            $proc.WaitForExit()
             $stdout = $safeStdOut.ToString()
         } else {
             $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-            if (-not $proc.WaitForExit($TimeoutMs)) {
+            $remainingMs = $TimeoutMs - [int]$stopwatch.ElapsedMilliseconds
+            if ($remainingMs -le 0 -or -not $proc.WaitForExit($remainingMs)) {
                 $termination = Stop-AiCliProcessTree -Process $proc -Reason timeout
                 throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
             }
-            $proc.WaitForExit()
-            $stdout = $stdoutTask.GetAwaiter().GetResult()
         }
+        [System.Threading.Tasks.Task[]]$outputTasks = @($stdoutTask, $stderrTask).Where({ $null -ne $_ })
+        $remainingMs = [Math]::Max(0, $TimeoutMs - [int]$stopwatch.ElapsedMilliseconds)
+        if ($outputTasks.Count -gt 0 -and -not [System.Threading.Tasks.Task]::WaitAll($outputTasks, $remainingMs)) {
+            $termination = Stop-AiCliProcessTree -Process $proc -Reason timeout
+            throw [System.TimeoutException]::new("子进程超时 (${TimeoutMs}ms): $FileName")
+        }
+        if ($stdoutTask) { $stdout = $stdoutTask.GetAwaiter().GetResult() }
         $recoverableUpstreamErrorResolved = (
             $recoverableUpstreamErrorSeen -and
             $proc.ExitCode -eq 0 -and
@@ -2158,14 +2163,14 @@ function Invoke-AiCliChildCapture {
             $safeStdOut.ToString()
         } elseif ($stdoutTask) {
             try {
-                if ($stdoutTask.Wait(5000)) { [string]$stdoutTask.GetAwaiter().GetResult() } else { '' }
+                if ($stdoutTask.IsCompleted -or ($termination.Confirmed -and $stdoutTask.Wait(5000))) { [string]$stdoutTask.GetAwaiter().GetResult() } else { '' }
             } catch { '' }
         } else {
             ''
         }
         $stderr = if ($stderrTask) {
             try {
-                if ($stderrTask.Wait(5000)) { [string]$stderrTask.GetAwaiter().GetResult() } else { '' }
+                if ($stderrTask.IsCompleted -or ($termination.Confirmed -and $stderrTask.Wait(5000))) { [string]$stderrTask.GetAwaiter().GetResult() } else { '' }
             } catch { '' }
         } else {
             ''
@@ -2281,6 +2286,8 @@ function Invoke-AiCliChildCapture {
         if ($privateTaskPipe) {
             try { $privateTaskPipe.Dispose() } catch {}
         }
+        try { $proc.StandardOutput.Dispose() } catch {}
+        try { $proc.StandardError.Dispose() } catch {}
         try { $proc.Dispose() } catch {}
         Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue
     }
