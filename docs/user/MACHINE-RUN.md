@@ -88,7 +88,7 @@ aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 
 产品边界：aicli 只启动、约束并在 exact identity 闭合时恢复同一 thread，不判断低级模型是否胜任，也不在额度、限流或失败时 fallback 到其他 Profile/model/thread。上层模型应给出确定性验收器，依据最终文件、exit code、墙钟时间和结果回执裁决；若必须新建 attempt，使用新工作区从头执行并保留两份回执，旧 partial 不得并入结果。可以持续读取上述安全公共事件，但不要读取、保存或伪装隐藏思考流。
 
-上下文边界：原生 ChatGPT + Codex 保持上游默认。DeepSeek/千问/本地 Qwen 的第三方 Codex/Claude 路径不要主动压缩；受管目录或逐模型元数据只负责声明真实窗口和保留溢出保护，不把客户端摘要变成无损或远程压缩。未知第三方 Claude 模型会清除继承的上下文控制变量，避免沿用上一模型容量。
+上下文边界：原生 ChatGPT + Codex 保持上游默认。第三方模型不要为省上下文提前手动 `/compact`；达到配置阈值的自动压缩与上游溢出保护照常保留。各引擎的窗口、阈值、未知型号处理及压缩前后接续要求统一见[维护契约](../maintainer/项目设计与实施归档.md#profile-身份与模型边界)，不把有损摘要当作无损恢复。
 
 ## 厂商凭据与显式型号
 
