@@ -35,6 +35,64 @@ Describe 'Installer no-effect modes' {
     }
 }
 
+Describe 'Installer same-version safety' {
+    BeforeEach {
+        $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+        $fixture = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $source = Join-Path $fixture 'source'
+        $sourceModule = Join-Path $source 'src\AiCliProfileManager'
+        $modulePath = Join-Path $fixture 'Documents\PowerShell\Modules'
+        $moduleRoot = Join-Path $modulePath 'AiCliProfileManager'
+        $installed = Join-Path $moduleRoot '0.3.5'
+        New-Item -ItemType Directory -Path $sourceModule, $moduleRoot -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $sourceModule 'AiCliProfileManager.psd1'), "@{RootModule='AiCliProfileManager.psm1';ModuleVersion='0.3.5';GUID='a1c11c11-0a11-4c11-b111-a1c110110011';FunctionsToExport=@('Get-AiCliVersion')}")
+        [IO.File]::WriteAllText((Join-Path $sourceModule 'AiCliProfileManager.psm1'), "function Get-AiCliVersion { '0.3.5' }")
+        $pathBefore = $env:PSModulePath
+        $env:PSModulePath = $modulePath
+    }
+    AfterEach { $env:PSModulePath = $pathBefore }
+
+    It 'rejects a same-version module junction before candidate copy' {
+        $external = Join-Path $fixture 'external-module'
+        New-Item -ItemType Directory -Path $external | Out-Null
+        $canary = Join-Path $external 'canary.txt'
+        [IO.File]::WriteAllText($canary, 'preserve')
+        New-Item -ItemType Junction -Path $installed -Target $external | Out-Null
+
+        { & (Join-Path $root 'scripts\Install.ps1') -SourceRoot $source -Force -SkipShellIntegration } |
+            Should -Throw '*普通目录*'
+
+        [IO.File]::ReadAllText($canary) | Should -BeExactly 'preserve'
+        (Get-Item -LiteralPath $installed -Force).Attributes.HasFlag([IO.FileAttributes]::ReparsePoint) |
+            Should -BeTrue
+        @(Get-ChildItem -LiteralPath $moduleRoot -Force).Count | Should -Be 1
+    }
+
+    It 'restores an existing same-version module when installed validation fails after promotion' {
+        New-Item -ItemType Directory -Path $installed | Out-Null
+        Copy-Item -LiteralPath (Join-Path $sourceModule 'AiCliProfileManager.psd1') -Destination $installed
+        $oldModule = Join-Path $installed 'AiCliProfileManager.psm1'
+        [IO.File]::WriteAllText($oldModule, "function Get-AiCliVersion { '0.3.5-old' }")
+        $oldHash = (Get-FileHash -LiteralPath $oldModule).Hash
+        $marker = Join-Path $installed 'old-marker.txt'
+        [IO.File]::WriteAllText($marker, 'old payload')
+        [IO.File]::WriteAllText((Join-Path $sourceModule 'AiCliProfileManager.psm1'), @'
+function Get-AiCliVersion {
+    if ($PSScriptRoot -notmatch '\.install-') { throw 'simulated installed validation failure' }
+    '0.3.5'
+}
+'@)
+
+        { & (Join-Path $root 'scripts\Install.ps1') -SourceRoot $source -Force -SkipShellIntegration } |
+            Should -Throw '*simulated installed validation failure*'
+
+        (Get-FileHash -LiteralPath $oldModule).Hash | Should -BeExactly $oldHash
+        [IO.File]::ReadAllText($marker) | Should -BeExactly 'old payload'
+        Test-Path -LiteralPath (Join-Path $installed 'AiCliProfileManager.psd1') | Should -BeTrue
+        @(Get-ChildItem -LiteralPath $moduleRoot -Force).Count | Should -Be 1
+    }
+}
+
 Describe 'Installer obsolete version cleanup' {
     It 'removes verified old versions and transaction leftovers while retaining unknown and newer directories' {
         $root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path

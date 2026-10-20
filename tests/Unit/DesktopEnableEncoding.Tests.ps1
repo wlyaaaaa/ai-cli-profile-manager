@@ -71,6 +71,34 @@ Describe 'Desktop bridge release retention' {
         Remove-ObsoleteDesktopReleases $current $previous
         $occupied | Should -Not -Exist
     }
+    It 'retains an obsolete release intact while its executable is running' {
+        $script:InstallRoot = Join-Path $TestDrive 'desktop-running'
+        $release = Join-Path $InstallRoot 'releases\6666666666666666'
+        $files = @('GetDesktopModelPlan.ps1', 'GetDesktopProviderToken.ps1', 'ResolveDesktopEngine.ps1', 'bridge\AiCli.CodexDesktopBridge.exe', 'bridge\AiCli.CodexDesktopBridge.dll', 'bridge\AiCli.CodexDesktopBridge.deps.json', 'bridge\AiCli.CodexDesktopBridge.runtimeconfig.json')
+        foreach ($file in $files) {
+            $path = Join-Path $release $file
+            [IO.Directory]::CreateDirectory((Split-Path $path -Parent)) | Out-Null
+            [IO.File]::WriteAllText($path, 'fixture')
+        }
+        $executable = Join-Path $release 'bridge\AiCli.CodexDesktopBridge.exe'
+        Copy-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('System')) 'ping.exe') -Destination $executable -Force
+        $start = [Diagnostics.ProcessStartInfo]::new($executable, '-t 127.0.0.1')
+        $start.UseShellExecute = $false
+        $start.CreateNoWindow = $true
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+        $process = [Diagnostics.Process]::Start($start)
+        try {
+            $process.WaitForExit(1000) | Should -BeFalse
+            Remove-ObsoleteDesktopReleases '' ''
+            @(Get-ChildItem -LiteralPath $release -File -Recurse).Count | Should -Be $files.Count
+        } finally {
+            if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+            $process.Dispose()
+        }
+        Remove-ObsoleteDesktopReleases '' ''
+        $release | Should -Not -Exist
+    }
 }
 
 Describe 'Desktop bridge protected approval gate' {

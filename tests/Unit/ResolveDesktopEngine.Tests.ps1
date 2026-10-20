@@ -240,9 +240,10 @@ Describe 'Resolve-AiCliDesktopEngine' {
     It 'retires only verified old cache after a successful rename: <Case>' -TestCases (@(
         'old', 'current', 'result', 'bridge', 'incomplete-process', 'once-per-source',
         'extra', 'subdirectory', 'link', 'file-link', 'ads', 'directory-ads', 'signature', 'hash',
-        'appx-changed', 'delete-failure', 'lock-failure', 'staging', 'recheck-appx', 'logical-reference'
+        'appx-changed', 'delete-failure', 'lock-failure', 'staging', 'recheck-appx', 'logical-reference', 'running', 'long-path'
     ) | ForEach-Object { @{ Case = $_ } }) {
         param($Case)
+        if ($Case -eq 'long-path') { $script:AiCliLocal = Join-Path $script:AiCliLocal ('long-' + ('a' * [Math]::Max(1, 170 - $script:AiCliLocal.Length))) }
         $root = Join-Path $script:AiCliLocal 'desktop\upstream'
         $hash = Get-AiCliDesktopEngineHash -Path (Join-Path $script:PackageA 'app\resources\codex.exe')
         $old = Join-Path $root $hash
@@ -255,6 +256,7 @@ Describe 'Resolve-AiCliDesktopEngine' {
         Mock Get-AppxPackage { $package }
         $sourceHash = Get-AiCliDesktopEngineHash -Path (Join-Path $script:PackageB 'app\resources\codex.exe')
         $result = New-AiCliDesktopEngineResult -FileName (Join-Path $script:PackageB 'app\resources\codex.exe') -Resolution 'official-cache' -ContentHash $sourceHash
+        $process = $null
         switch ($Case) {
             'current' { $sourceHash = $hash; Mock Get-AiCliDesktopEngineHash { $hash } -ParameterFilter { $Path -like '*package-b*' } }
             'result' { $result.ContentHash = $hash }
@@ -264,8 +266,8 @@ Describe 'Resolve-AiCliDesktopEngine' {
             'subdirectory' { New-Item -ItemType Directory -Path (Join-Path $old 'keep') | Out-Null }
             'link' { Rename-Item -LiteralPath $old -NewName ($hash + '-target'); New-Item -ItemType Junction -Path $old -Target ($old + '-target') | Out-Null }
             'file-link' { Mock Get-ChildItem { foreach ($name in $names) { [pscustomobject]@{ Name=$name; FullName=(Join-Path $LiteralPath $name); PSIsContainer=$false; Attributes=$(if ($name -eq 'codex.exe') { [IO.FileAttributes]::ReparsePoint } else { [IO.FileAttributes]::Normal }) } } } -ParameterFilter { $LiteralPath -like '*.retiring' } }
-            'ads' { Set-Content -LiteralPath (Join-Path $old 'codex.exe') -Stream keep -Value 'unique' }
-            'directory-ads' { Set-Content -LiteralPath $old -Stream keep -Value 'unique' }
+            'ads' { Set-Content -LiteralPath ('\\?\' + (Join-Path $old 'codex.exe')) -Stream keep -Value 'unique' }
+            'directory-ads' { Set-Content -LiteralPath ('\\?\' + $old) -Stream keep -Value 'unique' }
             'signature' { Mock Test-AiCliOpenAICodexSignature { $false } -ParameterFilter { $Path -like '*codex-command-runner.exe' } }
             'hash' { [IO.File]::WriteAllText((Join-Path $old 'codex.exe'), 'changed') }
             'appx-changed' { Mock Get-AppxPackage { [pscustomobject]@{ Version=[version]'3.0'; InstallLocation=$script:PackageA; PackageFullName='OpenAI.Codex_3' } } }
@@ -274,9 +276,30 @@ Describe 'Resolve-AiCliDesktopEngine' {
             'staging' { Rename-Item -LiteralPath $old -NewName ('.' + $hash + '.pending.tmp'); $old = Join-Path $root ('.' + $hash + '.pending.tmp') }
             'recheck-appx' { Mock Get-AppxPackage { $script:RetentionChecks++; if ($script:RetentionChecks -eq 1) { $package } else { [pscustomobject]@{ Version=[version]'3.0'; InstallLocation=$script:PackageA; PackageFullName='OpenAI.Codex_3' } } } }
             'logical-reference' { $physical = Join-Path $script:FixtureRoot 'physical-upstream'; Move-Item -LiteralPath $root -Destination $physical; New-Item -ItemType Junction -Path $root -Target $physical | Out-Null }
+            'running' {
+                $executable = Join-Path $old 'codex-command-runner.exe'
+                Copy-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('System')) 'ping.exe') -Destination $executable -Force
+                $launch = Join-Path $script:FixtureRoot 'running'
+                New-Item -ItemType Junction -Path $launch -Target $old | Out-Null
+                $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $launch 'codex-command-runner.exe'), '-t 127.0.0.1')
+                $start.UseShellExecute = $false
+                $start.CreateNoWindow = $true
+                $start.RedirectStandardOutput = $true
+                $start.RedirectStandardError = $true
+                $process = [Diagnostics.Process]::Start($start)
+            }
         }
-        { Remove-AiCliObsoleteUpstreamCache -Result $result -Package $package -SourceHash $sourceHash } | Should -Not -Throw
-        Test-Path -LiteralPath $old | Should -Be ($Case -notin @('old', 'logical-reference'))
+        try {
+            if ($process) { $process.WaitForExit(500) | Should -BeFalse }
+            { Remove-AiCliObsoleteUpstreamCache -Result $result -Package $package -SourceHash $sourceHash } | Should -Not -Throw
+            if ($process) { @(Get-ChildItem -LiteralPath $old -File).Count | Should -Be $names.Count }
+        } finally {
+            if ($process) {
+                if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+                $process.Dispose()
+            }
+        }
+        Test-Path -LiteralPath $old | Should -Be ($Case -notin @('old', 'logical-reference', 'long-path'))
         if ($Case -eq 'delete-failure') { Should -Invoke Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -like '*.retiring' } }
         if ($Case -eq 'link') { Test-Path -LiteralPath ($old + '-target\codex.exe') | Should -BeTrue }
         if ($Case -in @('bridge', 'incomplete-process')) { Should -Invoke Test-AiCliOpenAICodexSignature -Times 0 -Exactly }

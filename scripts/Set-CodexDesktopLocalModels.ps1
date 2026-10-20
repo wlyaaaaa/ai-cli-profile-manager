@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 [CmdletBinding()]
 param(
     [ValidateSet('Status', 'Build', 'Enable', 'Disable')][string]$Mode = 'Status',
@@ -55,10 +55,10 @@ function Remove-ObsoleteDesktopReleases {
                 $required = @($expected | Where-Object { $_ -notin @('GetDesktopProviderToken.ps1', 'ResolveDesktopEngine.ps1') })
                 if (@($relative | Where-Object { $_ -cnotin $expected }).Count -or
                     @($required | Where-Object { $_ -cnotin $relative }).Count) { continue }
-                # Hold every file before deleting anything: an active bridge or
-                # helper keeps its complete release intact for a later retry.
+                # Running images allow read handles, so require write access to
+                # every file before deleting anything and retain the full release if busy.
                 foreach ($file in $files) {
-                    $handles.Add([IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Delete))
+                    $handles.Add([IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Delete))
                 }
                 Remove-Item -LiteralPath $candidate -Recurse -Force -ErrorAction Stop
             }

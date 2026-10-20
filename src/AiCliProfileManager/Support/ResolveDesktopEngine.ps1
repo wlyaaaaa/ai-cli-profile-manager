@@ -294,15 +294,16 @@ function Remove-AiCliObsoleteUpstreamCache {
                 $directory.Name -in @($SourceHash, $Result.ContentHash) -or
                 ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
             $retired = Join-Path $root ('.' + $directory.Name + '.' + [Guid]::NewGuid().ToString('N') + '.retiring')
+            $handles = [Collections.Generic.List[IDisposable]]::new()
             try {
-                # Rename while holding the publication lock. A busy directory is
-                # retained without inspecting unrelated processes or signatures.
+                # Rename under the publication lock; an executable image can
+                # still be running after its parent directory was renamed.
                 Rename-Item -LiteralPath $directory.FullName -NewName ([IO.Path]::GetFileName($retired)) -ErrorAction Stop
                 $entries = @(Get-ChildItem -LiteralPath $retired -Force -ErrorAction Stop)
                 $safe = $entries.Count -eq 5 -and @($entries | Where-Object { $_.PSIsContainer -or $_.Name -cnotin $expected }).Count -eq 0
                 foreach ($item in @((Get-Item -LiteralPath $retired -Force -ErrorAction Stop)) + $entries) {
                     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
-                        @(Get-Item -LiteralPath $item.FullName -Stream * -ErrorAction Stop | Where-Object Stream -NE ':$DATA').Count) { $safe = $false; break }
+                        @(Get-Item -LiteralPath ('\\?\' + $item.FullName) -Stream * -ErrorAction Stop | Where-Object Stream -NE ':$DATA').Count) { $safe = $false; break }
                     if (-not $item.PSIsContainer -and -not (Test-AiCliOpenAICodexSignature -Path $item.FullName)) { $safe = $false; break }
                 }
                 if ((Get-AiCliDesktopEngineHash -Path (Join-Path $retired 'codex.exe')) -cne $directory.Name) { $safe = $false }
@@ -313,11 +314,17 @@ function Remove-AiCliObsoleteUpstreamCache {
                 $fresh = @(Get-ChildItem -LiteralPath $retired -Force -ErrorAction Stop)
                 if ($fresh.Count -ne 5 -or @($fresh | Where-Object { $_.PSIsContainer -or $_.Name -cnotin $expected -or ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) }).Count -or
                     -not (& $samePackage)) { continue }
+                # ReadWrite rejects mapped executable images. Hold every file
+                # until deletion so a failed open retains the whole directory.
+                foreach ($file in $fresh) {
+                    $handles.Add([IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Delete))
+                }
                 Remove-Item -LiteralPath $retired -Recurse -Force -ErrorAction Stop
                 Write-AiCliLog -Level Info -Message "Retired upstream cache: $($directory.Name)."
             }
             catch { Write-AiCliLog -Level Warn -Message "Upstream cache retained: $($directory.Name); cleanup failed." }
             finally {
+                foreach ($handle in $handles) { $handle.Dispose() }
                 if (Test-Path -LiteralPath $retired) {
                     try { Rename-Item -LiteralPath $retired -NewName $directory.Name -ErrorAction Stop }
                     catch { Write-AiCliLog -Level Warn -Message "Upstream cache name could not be restored: $retired." }
