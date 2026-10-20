@@ -278,62 +278,82 @@ function Remove-AiCliObsoleteUpstreamCache {
         if (-not (Test-Path -LiteralPath $logicalRoot -PathType Container)) { return }
         $root = Resolve-AiCliPhysicalDirectory -Path $logicalRoot
         $lock = Enter-AiCliFileLock -TargetPath $root -TimeoutMs 250
-        $statePath = Join-Path $root 'cleanup-state.json'
-        $state = Read-AiCliJsonFile -Path $statePath -Default @{}
-        if ($state -is [Collections.IDictionary] -and $state['sourceHash'] -ceq $SourceHash) { return }
         $samePackage = {
             $latest = @(Get-AppxPackage -Name $PackageName -ErrorAction Stop | Sort-Object Version -Descending)
             $latest.Count -gt 0 -and $latest[0].PackageFullName -ceq $Package.PackageFullName -and
                 (Get-AiCliDesktopEngineHash -Path (Join-Path $latest[0].InstallLocation 'app\resources\codex.exe')) -ceq $SourceHash
         }
-        if (-not (& $samePackage)) { return }
+        $packageVerified = $false
         $expected = @('codex.exe', 'codex-code-mode-host.exe', 'codex-command-runner.exe',
             'codex-windows-sandbox-service.exe', 'codex-windows-sandbox-setup.exe')
         foreach ($directory in @(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction Stop)) {
-            if ($directory.Name -cnotmatch '^[a-f0-9]{64}$' -or
-                $directory.Name -in @($SourceHash, $Result.ContentHash) -or
+            # Staging uses this same lock. Only complete, verified leftovers
+            # from an obsolete source can be retired, regardless of their age.
+            $residual = $directory.Name -cmatch '^\.([a-f0-9]{64})\.[a-f0-9]{32}\.(retiring|tmp)$'
+            $hash = if ($residual) { $Matches[1] } else { $directory.Name }
+            if ($hash -cnotmatch '^[a-f0-9]{64}$' -or
+                $hash -in @($SourceHash, $Result.ContentHash) -or
                 ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
-            $retired = Join-Path $root ('.' + $directory.Name + '.' + [Guid]::NewGuid().ToString('N') + '.retiring')
+            if (-not $packageVerified) {
+                if (-not (& $samePackage)) { return }
+                $packageVerified = $true
+            }
+            $retired = $directory.FullName
+            $renamed = $false
+            $deletionStarted = $false
             $handles = [Collections.Generic.List[IDisposable]]::new()
             try {
-                # Rename under the publication lock; an executable image can
-                # still be running after its parent directory was renamed.
-                Rename-Item -LiteralPath $directory.FullName -NewName ([IO.Path]::GetFileName($retired)) -ErrorAction Stop
-                $entries = @(Get-ChildItem -LiteralPath $retired -Force -ErrorAction Stop)
+                $entries = @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)
                 $safe = $entries.Count -eq 5 -and @($entries | Where-Object { $_.PSIsContainer -or $_.Name -cnotin $expected }).Count -eq 0
-                foreach ($item in @((Get-Item -LiteralPath $retired -Force -ErrorAction Stop)) + $entries) {
+                foreach ($item in @($directory) + $entries) {
                     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
                         @(Get-Item -LiteralPath ('\\?\' + $item.FullName) -Stream * -ErrorAction Stop | Where-Object Stream -NE ':$DATA').Count) { $safe = $false; break }
-                    if (-not $item.PSIsContainer -and -not (Test-AiCliOpenAICodexSignature -Path $item.FullName)) { $safe = $false; break }
                 }
-                if ((Get-AiCliDesktopEngineHash -Path (Join-Path $retired 'codex.exe')) -cne $directory.Name) { $safe = $false }
+                if (-not $safe) { Write-AiCliLog -Level Debug -Message "Upstream cache retained: $($directory.Name) (unverified)."; continue }
+                # Busy images are detected before renaming or expensive signature
+                # checks, and are retried on the next refresh with the same source.
+                foreach ($file in $entries) {
+                    [IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None).Dispose()
+                }
+                foreach ($file in $entries) {
+                    if (-not (Test-AiCliOpenAICodexSignature -Path $file.FullName)) { $safe = $false; break }
+                }
+                if ((Get-AiCliDesktopEngineHash -Path (Join-Path $directory.FullName 'codex.exe')) -cne $hash) { $safe = $false }
                 if (-not $safe) {
                     Write-AiCliLog -Level Debug -Message "Upstream cache retained: $($directory.Name) (unverified)."
                     continue
                 }
-                $fresh = @(Get-ChildItem -LiteralPath $retired -Force -ErrorAction Stop)
+                $fresh = @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)
                 if ($fresh.Count -ne 5 -or @($fresh | Where-Object { $_.PSIsContainer -or $_.Name -cnotin $expected -or ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) }).Count -or
                     -not (& $samePackage)) { continue }
-                # ReadWrite rejects mapped executable images. Hold every file
-                # until deletion so a failed open retains the whole directory.
-                foreach ($file in $fresh) {
-                    $handles.Add([IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Delete))
+                if (-not $residual) {
+                    # Windows refuses the parent rename while these writable
+                    # handles are held, so recheck, close, then rename under lock.
+                    foreach ($file in $fresh) {
+                        [IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None).Dispose()
+                    }
+                    $retired = Join-Path $root ('.' + $hash + '.' + [Guid]::NewGuid().ToString('N') + '.retiring')
+                    Rename-Item -LiteralPath $directory.FullName -NewName ([IO.Path]::GetFileName($retired)) -ErrorAction Stop
+                    $renamed = $true
                 }
+                # A late image/open is caught before any deletion. Hold every
+                # file through deletion, restoring the intact name on open failure.
+                foreach ($file in $fresh) {
+                    $handles.Add([IO.File]::Open((Join-Path $retired $file.Name), [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Delete))
+                }
+                $deletionStarted = $true
                 Remove-Item -LiteralPath $retired -Recurse -Force -ErrorAction Stop
                 Write-AiCliLog -Level Info -Message "Retired upstream cache: $($directory.Name)."
             }
-            catch { Write-AiCliLog -Level Warn -Message "Upstream cache retained: $($directory.Name); cleanup failed." }
+            catch { Write-AiCliLog -Level $(if ($deletionStarted) { 'Warn' } else { 'Debug' }) -Message "Upstream cache retained: $($directory.Name); cleanup deferred." }
             finally {
                 foreach ($handle in $handles) { $handle.Dispose() }
-                if (Test-Path -LiteralPath $retired) {
+                if ($renamed -and -not $deletionStarted -and (Test-Path -LiteralPath $retired)) {
                     try { Rename-Item -LiteralPath $retired -NewName $directory.Name -ErrorAction Stop }
                     catch { Write-AiCliLog -Level Warn -Message "Upstream cache name could not be restored: $retired." }
                 }
             }
         }
-        # Failed candidates can be retried after the next package engine update;
-        # model-list refreshes for this source must not repeat signature checks.
-        Write-AiCliJsonFile -Path $statePath -Value @{ sourceHash = $SourceHash } -SkipLock
     }
     catch { Write-AiCliLog -Level Debug -Message 'Upstream cache retention deferred; inspection or lock unavailable.' }
     finally { Exit-AiCliFileLock -Lock $lock }
