@@ -61,9 +61,9 @@ pwsh -File .\scripts\Install.ps1 -Force
 2. 创建 `%LOCALAPPDATA%\aicli\bin\aicli.cmd` 与 `aicli.ps1` 垫片，并尝试加入用户 `PATH`。
 3. 尝试在当前用户 PowerShell 7 配置中加入模块自动导入块。
 4. 先验证临时候选版本，再替换目标版本；失败时恢复原版本。
-5. 从 `0.3.10` 之前的版本升级时，先预检再隔离可证明由 AICLI 管理的 Qwen3.7 旧入口，同时保留新 06-08 exact Profile。
+5. 正式版本验证成功后，删除同模块根目录中身份匹配的低版本与可识别安装残留；未知身份、重解析点或无法删除的目录保留并提示。
 
-退役迁移不会把 Qwen3.7 自动改投 Qwen3.8，也不读取、复制、移动或删除 SecretRef/密钥。身份、marker、body/state 哈希与内容寻址都闭合的旧用户 Profile、Codex TOML/catalog 和旧模块版本会移入可恢复目录 `%LOCALAPPDATA%\AiCliProfileManager\retirement\qwen37-v1`。任何未知、用户改写或 reparse 项都会在任何安装变更前失败关闭；先审计该路径，不要盲目删除。
+安装器不再执行已完成的 Qwen3.7 一次性退役迁移，也不再存档旧模块。运行时仍精确拒绝已退役的 Profile ID 与模型 ID，不自动改绑其他型号；用户 Profile 和 SecretRef 保留。
 
 新开一个 PowerShell 7 窗口后验证：
 
@@ -298,34 +298,6 @@ aicli start codex-official -- --model gpt-5.6-terra
 ```
 
 与本工具启动计划冲突的 Provider、认证、`--profile`、`--settings` 或 `-c` 覆盖会被拒绝。不要用透传参数绕过 Profile 的安全边界。
-
-### 3.5 从 OpenClaw 安全导入（可选）
-
-如果 OpenClaw 已经保存了 DeepSeek 配置，可以用发行包里的导入脚本减少重复录入。它默认只预览，不修改 Profile，也不显示 Key；Qwen3.7 配置会被明确忽略：
-
-```powershell
-pwsh -File .\scripts\Import-FromOpenClaw.ps1
-```
-
-配置文件不在默认的 `%USERPROFILE%\.openclaw\openclaw.json` 时，显式指定路径：
-
-```powershell
-pwsh -File .\scripts\Import-FromOpenClaw.ps1 -OpenClawJson "D:\配置\openclaw.json"
-```
-
-确认预览内容后再导入：
-
-```powershell
-pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply
-```
-
-已有同名 Profile 时默认跳过；只有明确要替换时才使用：
-
-```powershell
-pwsh -File .\scripts\Import-FromOpenClaw.ps1 -Apply -Force
-```
-
-脚本只接受能由 HTTPS 主机名证明身份的 DeepSeek 配置，并要求主机为 `api.deepseek.com`。当前只导入 `codex-deepseek-flash`；V4 Pro、Claude Code、Open Interpreter、Qwen3.7、Qwen Code 与 OpenCode 都不会由该脚本自动创建。未知/OpenAI Base URL 会被拒绝，避免把某家的 Key 误送到另一家。导入的 Key 立即使用 Windows CurrentUser DPAPI 保存；输出、Profile JSON 和日志中都不出现明文。该脚本用于历史环境维护；它产生的旧 DPAPI 副本不会覆盖密码中心的厂商登记，也不是 0.3.19 三家厂商的取密来源。当前版本应直接配置厂商引用；不同 DeepSeek 条目未经确认不合并。需要真实连通证据时再显式执行 Live Test。
 
 ## 4. Doctor 与 Live Test
 

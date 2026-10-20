@@ -39,17 +39,37 @@ Describe 'Desktop enable UTF-8 discovery handoff' {
     }
 }
 
-Describe 'Desktop bridge managed rotation state' {
-    It 'records the immediately previous managed bridge for continuity' {
+Describe 'Desktop bridge release retention' {
+    BeforeAll {
         $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-        $text = Get-Content -LiteralPath (
-            Join-Path $repoRoot 'scripts\Set-CodexDesktopLocalModels.ps1'
-        ) -Raw
-        $text | Should -BeLike '*$previousManagedExecutable = if (*'
-        $text | Should -BeLike '*schemaVersion = 2*'
-        $text | Should -BeLike '*previousManagedExecutable = $previousManagedExecutable*'
-        $text | Should -BeLike '*managedRotationCandidates = @($managedRotationCandidates)*'
-        $text | Should -BeLike '*$state.managedRotationCandidates*'
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repoRoot 'scripts\Set-CodexDesktopLocalModels.ps1'), [ref]$null, [ref]$null)
+        $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Remove-ObsoleteDesktopReleases' }, $true)
+        . ([scriptblock]::Create($definition.Extent.Text))
+    }
+    It 'keeps current and previous releases and retries an occupied obsolete release intact' {
+        $script:InstallRoot = Join-Path $TestDrive 'desktop'
+        $ids = @('1111111111111111', '2222222222222222', '3333333333333333', '4444444444444444', '5555555555555555')
+        $files = @('GetDesktopModelPlan.ps1', 'GetDesktopProviderToken.ps1', 'ResolveDesktopEngine.ps1', 'bridge\AiCli.CodexDesktopBridge.exe', 'bridge\AiCli.CodexDesktopBridge.dll', 'bridge\AiCli.CodexDesktopBridge.deps.json', 'bridge\AiCli.CodexDesktopBridge.runtimeconfig.json')
+        foreach ($id in $ids) { foreach ($file in $files) {
+            if ($id -eq $ids[4] -and $file -in @('GetDesktopProviderToken.ps1', 'ResolveDesktopEngine.ps1')) { continue }
+            $path = Join-Path $InstallRoot "releases\$id\$file"
+            [IO.Directory]::CreateDirectory((Split-Path $path -Parent)) | Out-Null
+            [IO.File]::WriteAllText($path, 'fixture')
+        } }
+        $current = Join-Path $InstallRoot "releases\$($ids[0])\bridge\AiCli.CodexDesktopBridge.exe"
+        $previous = Join-Path $InstallRoot "releases\$($ids[1])\bridge\AiCli.CodexDesktopBridge.exe"
+        $occupied = Join-Path $InstallRoot "releases\$($ids[2])"
+        $handle = [IO.File]::Open((Join-Path $occupied $files[4]), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        try {
+            Remove-ObsoleteDesktopReleases $current $previous
+            $current | Should -Exist
+            $previous | Should -Exist
+            @(Get-ChildItem -LiteralPath $occupied -File -Recurse).Count | Should -Be $files.Count
+            (Join-Path $InstallRoot "releases\$($ids[3])") | Should -Not -Exist
+            (Join-Path $InstallRoot "releases\$($ids[4])") | Should -Not -Exist
+        } finally { $handle.Dispose() }
+        Remove-ObsoleteDesktopReleases $current $previous
+        $occupied | Should -Not -Exist
     }
 }
 

@@ -278,29 +278,13 @@ function Remove-AiCliObsoleteUpstreamCache {
         if (-not (Test-Path -LiteralPath $logicalRoot -PathType Container)) { return }
         $root = Resolve-AiCliPhysicalDirectory -Path $logicalRoot
         $lock = Enter-AiCliFileLock -TargetPath $root -TimeoutMs 250
+        $statePath = Join-Path $root 'cleanup-state.json'
+        $state = Read-AiCliJsonFile -Path $statePath -Default @{}
+        if ($state -is [Collections.IDictionary] -and $state['sourceHash'] -ceq $SourceHash) { return }
         $samePackage = {
             $latest = @(Get-AppxPackage -Name $PackageName -ErrorAction Stop | Sort-Object Version -Descending)
             $latest.Count -gt 0 -and $latest[0].PackageFullName -ceq $Package.PackageFullName -and
                 (Get-AiCliDesktopEngineHash -Path (Join-Path $latest[0].InstallLocation 'app\resources\codex.exe')) -ceq $SourceHash
-        }
-        $idle = {
-            param([string]$Directory)
-            $references = @($Directory, (Join-Path $logicalRoot ([IO.Path]::GetFileName($Directory))))
-            $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-            $caller = $processes | Where-Object ProcessId -EQ $PID | Select-Object -First 1
-            foreach ($process in $processes | Where-Object ProcessId -NE $PID) {
-                if ($process.Name -match '^(codex.*|AiCli\.CodexDesktopBridge|pwsh|powershell)\.exe$' -and
-                    (-not $process.ExecutablePath -or -not $process.CommandLine)) { return $false }
-                # A bridge can hold a freshly resolved plan before spawning its engine.
-                if ($process.Name -eq 'AiCli.CodexDesktopBridge.exe' -and
-                    ($null -eq $caller -or $process.ProcessId -ne $caller.ParentProcessId)) { return $false }
-                if ($process.CommandLine -match '(GetDesktopModelPlan|ResolveDesktopEngine)\.ps1') { return $false }
-                foreach ($reference in $references) {
-                    if (($process.ExecutablePath -and $process.ExecutablePath.StartsWith($reference + '\', [StringComparison]::OrdinalIgnoreCase)) -or
-                        ($process.CommandLine -and $process.CommandLine.IndexOf($reference, [StringComparison]::OrdinalIgnoreCase) -ge 0)) { return $false }
-                }
-            }
-            return $true
         }
         if (-not (& $samePackage)) { return }
         $expected = @('codex.exe', 'codex-code-mode-host.exe', 'codex-command-runner.exe',
@@ -309,27 +293,40 @@ function Remove-AiCliObsoleteUpstreamCache {
             if ($directory.Name -cnotmatch '^[a-f0-9]{64}$' -or
                 $directory.Name -in @($SourceHash, $Result.ContentHash) -or
                 ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+            $retired = Join-Path $root ('.' + $directory.Name + '.' + [Guid]::NewGuid().ToString('N') + '.retiring')
             try {
-                $entries = @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)
+                # Rename while holding the publication lock. A busy directory is
+                # retained without inspecting unrelated processes or signatures.
+                Rename-Item -LiteralPath $directory.FullName -NewName ([IO.Path]::GetFileName($retired)) -ErrorAction Stop
+                $entries = @(Get-ChildItem -LiteralPath $retired -Force -ErrorAction Stop)
                 $safe = $entries.Count -eq 5 -and @($entries | Where-Object { $_.PSIsContainer -or $_.Name -cnotin $expected }).Count -eq 0
-                foreach ($item in @($directory) + $entries) {
+                foreach ($item in @((Get-Item -LiteralPath $retired -Force -ErrorAction Stop)) + $entries) {
                     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
                         @(Get-Item -LiteralPath $item.FullName -Stream * -ErrorAction Stop | Where-Object Stream -NE ':$DATA').Count) { $safe = $false; break }
                     if (-not $item.PSIsContainer -and -not (Test-AiCliOpenAICodexSignature -Path $item.FullName)) { $safe = $false; break }
                 }
-                if ((Get-AiCliDesktopEngineHash -Path (Join-Path $directory.FullName 'codex.exe')) -cne $directory.Name) { $safe = $false }
-                if (-not $safe -or -not (& $idle $directory.FullName)) {
-                    Write-AiCliLog -Level Debug -Message "Upstream cache retained: $($directory.Name) (unverified or active)."
+                if ((Get-AiCliDesktopEngineHash -Path (Join-Path $retired 'codex.exe')) -cne $directory.Name) { $safe = $false }
+                if (-not $safe) {
+                    Write-AiCliLog -Level Debug -Message "Upstream cache retained: $($directory.Name) (unverified)."
                     continue
                 }
-                $fresh = @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)
+                $fresh = @(Get-ChildItem -LiteralPath $retired -Force -ErrorAction Stop)
                 if ($fresh.Count -ne 5 -or @($fresh | Where-Object { $_.PSIsContainer -or $_.Name -cnotin $expected -or ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) }).Count -or
-                    -not (& $samePackage) -or -not (& $idle $directory.FullName)) { continue }
-                Remove-Item -LiteralPath $directory.FullName -Recurse -Force -ErrorAction Stop
+                    -not (& $samePackage)) { continue }
+                Remove-Item -LiteralPath $retired -Recurse -Force -ErrorAction Stop
                 Write-AiCliLog -Level Info -Message "Retired upstream cache: $($directory.Name)."
             }
             catch { Write-AiCliLog -Level Warn -Message "Upstream cache retained: $($directory.Name); cleanup failed." }
+            finally {
+                if (Test-Path -LiteralPath $retired) {
+                    try { Rename-Item -LiteralPath $retired -NewName $directory.Name -ErrorAction Stop }
+                    catch { Write-AiCliLog -Level Warn -Message "Upstream cache name could not be restored: $retired." }
+                }
+            }
         }
+        # Failed candidates can be retried after the next package engine update;
+        # model-list refreshes for this source must not repeat signature checks.
+        Write-AiCliJsonFile -Path $statePath -Value @{ sourceHash = $SourceHash } -SkipLock
     }
     catch { Write-AiCliLog -Level Debug -Message 'Upstream cache retention deferred; inspection or lock unavailable.' }
     finally { Exit-AiCliFileLock -Lock $lock }

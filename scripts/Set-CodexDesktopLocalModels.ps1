@@ -26,6 +26,49 @@ function Write-State($Value) {
     } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force } }
 }
 
+function Remove-ObsoleteDesktopReleases {
+    param([string]$CurrentExecutable, [AllowEmptyString()][string]$PreviousExecutable)
+
+    try {
+        $root = [IO.Path]::GetFullPath((Join-Path $InstallRoot 'releases'))
+        if (-not (Test-Path -LiteralPath $root -PathType Container)) { return }
+        if ((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
+        $keep = @(@($CurrentExecutable, $PreviousExecutable) | Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_)
+        } | ForEach-Object {
+            [IO.Path]::GetFullPath((Split-Path (Split-Path ([IO.Path]::GetFullPath($_)) -Parent) -Parent))
+        })
+        $expected = @('GetDesktopModelPlan.ps1', 'GetDesktopProviderToken.ps1', 'ResolveDesktopEngine.ps1',
+            'bridge\AiCli.CodexDesktopBridge.exe', 'bridge\AiCli.CodexDesktopBridge.dll',
+            'bridge\AiCli.CodexDesktopBridge.deps.json', 'bridge\AiCli.CodexDesktopBridge.runtimeconfig.json') | Sort-Object
+        foreach ($directory in @(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction Stop)) {
+            $candidate = [IO.Path]::GetFullPath($directory.FullName)
+            if ($directory.Name -cnotmatch '^[a-f0-9]{16}$' -or $candidate -in $keep -or
+                (Split-Path $candidate -Parent) -ne $root -or
+                ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+            $handles = [Collections.Generic.List[IO.FileStream]]::new()
+            try {
+                $entries = @(Get-ChildItem -LiteralPath $candidate -Recurse -Force -ErrorAction Stop)
+                if (@($entries | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count) { continue }
+                $files = @($entries | Where-Object { -not $_.PSIsContainer })
+                $relative = @($files | ForEach-Object { $_.FullName.Substring($candidate.Length + 1) } | Sort-Object)
+                $required = @($expected | Where-Object { $_ -notin @('GetDesktopProviderToken.ps1', 'ResolveDesktopEngine.ps1') })
+                if (@($relative | Where-Object { $_ -cnotin $expected }).Count -or
+                    @($required | Where-Object { $_ -cnotin $relative }).Count) { continue }
+                # Hold every file before deleting anything: an active bridge or
+                # helper keeps its complete release intact for a later retry.
+                foreach ($file in $files) {
+                    $handles.Add([IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Delete))
+                }
+                Remove-Item -LiteralPath $candidate -Recurse -Force -ErrorAction Stop
+            }
+            catch { Write-Verbose "Desktop bridge release retained: $($directory.Name); cleanup deferred." }
+            finally { foreach ($handle in $handles) { $handle.Dispose() } }
+        }
+    }
+    catch { Write-Verbose 'Desktop bridge release cleanup deferred.' }
+}
+
 function Set-UserDesktopEntry([AllowNull()][string]$Value) {
     # Environment.SetEnvironmentVariable(User) performs its own long broadcast
     # to every window. Write the same user setting, then use our bounded notice.
@@ -324,35 +367,11 @@ if ($Mode -eq 'Build') {
         [string]$state.previousManagedExecutable
     }
     else { '' }
-    $managedRotationCandidates = @()
-    if ($null -ne $state) {
-        if (-not [string]::IsNullOrWhiteSpace(
-                [string]$state.previousManagedExecutable
-            )) {
-            $managedRotationCandidates += [string]$state.previousManagedExecutable
-        }
-        foreach ($candidate in @($state.managedRotationCandidates)) {
-            if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
-                $managedRotationCandidates += [string]$candidate
-            }
-        }
-    }
-    if (-not [string]::IsNullOrWhiteSpace($previousManagedExecutable)) {
-        $managedRotationCandidates = @(
-            $previousManagedExecutable
-        ) + @(
-            $managedRotationCandidates | Where-Object {
-                [IO.Path]::GetFullPath($_) -ne
-                    [IO.Path]::GetFullPath($previousManagedExecutable)
-            }
-        )
-    }
     $newState = [ordered]@{
         schemaVersion = 2
         executable = $installedExe
         previousUserValue = $previous
         previousManagedExecutable = $previousManagedExecutable
-        managedRotationCandidates = @($managedRotationCandidates)
         enabled = $true
         updatedUtc = [DateTime]::UtcNow.ToString('o')
     }
@@ -360,6 +379,7 @@ if ($Mode -eq 'Build') {
     Set-UserDesktopEntry $installedExe
     if ([Environment]::GetEnvironmentVariable('CODEX_CLI_PATH', 'User') -ne $installedExe) { throw 'Desktop entry readback failed.' }
     Notify-EnvironmentChange
+    Remove-ObsoleteDesktopReleases -CurrentExecutable $installedExe -PreviousExecutable $previousManagedExecutable
     $result = [ordered]@{ status = 'enabled'; releaseId = (Split-Path $release -Leaf); executable = $installedExe; restartRequired = $true; models = @($plan.models | ForEach-Object { $_.catalogModel.display_name }) }
 } elseif ($Mode -eq 'Disable') {
     if ($null -eq $state -or -not $state.enabled) {

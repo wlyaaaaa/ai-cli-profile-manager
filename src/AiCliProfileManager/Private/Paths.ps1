@@ -123,7 +123,6 @@ function Get-AiCliAppPaths {
             SettingsDir   = Join-Path $root 'AppData'
             SecretsDir    = Join-Path $root 'Local\secrets'
             StateDir      = Join-Path $root 'Local\state'
-            ProxiesDir    = Join-Path $root 'Local\proxies'
             CacheDir      = Join-Path $root 'Local\cache'
             LogsDir       = Join-Path $root 'Local\logs'
             BackupsDir    = Join-Path $root 'Local\backups'
@@ -143,7 +142,6 @@ function Get-AiCliAppPaths {
         SettingsDir   = $appData
         SecretsDir    = Join-Path $local 'secrets'
         StateDir      = Join-Path $local 'state'
-        ProxiesDir    = Join-Path $local 'proxies'
         CacheDir      = Join-Path $local 'cache'
         LogsDir       = Join-Path $local 'logs'
         BackupsDir    = Join-Path $local 'backups'
@@ -158,7 +156,7 @@ function Initialize-AiCliDirectories {
     [CmdletBinding()]
     param()
     $p = Get-AiCliAppPaths
-    foreach ($key in @('SettingsDir','SecretsDir','StateDir','ProxiesDir','CacheDir','LogsDir','BackupsDir','LocksDir','ProfilesDir')) {
+    foreach ($key in @('SettingsDir','SecretsDir','StateDir','CacheDir','LogsDir','BackupsDir','LocksDir','ProfilesDir')) {
         $dir = $p[$key]
         if (-not (Test-Path -LiteralPath $dir)) {
             New-Item -ItemType Directory -Force -Path $dir | Out-Null

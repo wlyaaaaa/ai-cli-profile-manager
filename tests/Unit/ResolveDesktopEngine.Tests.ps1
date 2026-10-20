@@ -30,8 +30,7 @@ Describe 'Resolve-AiCliDesktopEngine' {
         [IO.File]::WriteAllText((Join-Path $script:PackageB 'app\resources\codex-command-runner.exe'), 'runner-b')
 
         Mock Get-AiCliKnownFolder { $script:OfficialCache } -ParameterFilter { $Name -eq 'LocalAppData' }
-        Mock Get-AiCliAppPaths { [ordered]@{ LocalRoot = $script:AiCliLocal; LocksDir = (Join-Path $script:FixtureRoot 'locks') } }
-        Mock Get-CimInstance { @() }
+        Mock Get-AiCliAppPaths { [ordered]@{ LocalRoot = $script:AiCliLocal; LocksDir = (Join-Path $script:FixtureRoot 'locks'); BackupsDir = (Join-Path $script:FixtureRoot 'backups') } }
         Mock Test-AiCliOpenAICodexSignature { $true }
         Mock Get-AiCliCodexCliVersion {
             $content = Get-Content -LiteralPath $Path -Raw
@@ -238,10 +237,10 @@ Describe 'Resolve-AiCliDesktopEngine' {
         $resolved.FallbackKind | Should -Be 'native'
     }
 
-    It 'retires only verified idle old cache: <Case>' -TestCases (@(
-        'old', 'current', 'result', 'active', 'preparing', 'bridge', 'process-failure', 'incomplete-process',
+    It 'retires only verified old cache after a successful rename: <Case>' -TestCases (@(
+        'old', 'current', 'result', 'bridge', 'incomplete-process', 'once-per-source',
         'extra', 'subdirectory', 'link', 'file-link', 'ads', 'directory-ads', 'signature', 'hash',
-        'appx-changed', 'delete-failure', 'lock-failure', 'staging', 'own-bridge', 'referenced-command', 'recheck-process', 'recheck-appx', 'logical-reference'
+        'appx-changed', 'delete-failure', 'lock-failure', 'staging', 'recheck-appx', 'logical-reference'
     ) | ForEach-Object { @{ Case = $_ } }) {
         param($Case)
         $root = Join-Path $script:AiCliLocal 'desktop\upstream'
@@ -259,33 +258,38 @@ Describe 'Resolve-AiCliDesktopEngine' {
         switch ($Case) {
             'current' { $sourceHash = $hash; Mock Get-AiCliDesktopEngineHash { $hash } -ParameterFilter { $Path -like '*package-b*' } }
             'result' { $result.ContentHash = $hash }
-            'active' { Mock Get-CimInstance { @([pscustomobject]@{ Name='codex.exe'; ProcessId=123; ExecutablePath=(Join-Path $script:RetentionPath 'codex.exe'); CommandLine='codex app-server' }) } }
-            'preparing' { Mock Get-CimInstance { @([pscustomobject]@{ Name='pwsh.exe'; ProcessId=123; ExecutablePath='C:\pwsh.exe'; CommandLine='pwsh -File GetDesktopModelPlan.ps1' }) } }
-            'bridge' { Mock Get-CimInstance { @([pscustomobject]@{ Name='AiCli.CodexDesktopBridge.exe'; ProcessId=123; ExecutablePath='C:\bridge.exe'; CommandLine='bridge' }) } }
-            'process-failure' { Mock Get-CimInstance { throw 'unavailable' } }
-            'incomplete-process' { Mock Get-CimInstance { @([pscustomobject]@{ Name='codex.exe'; ProcessId=123; ExecutablePath=$null; CommandLine=$null }) } }
+            { $_ -in @('bridge', 'incomplete-process') } { Mock Rename-Item { throw 'in use' } -ParameterFilter { $LiteralPath -eq $script:RetentionPath } }
+            'once-per-source' { Mock Test-AiCliOpenAICodexSignature { $false } }
             'extra' { [IO.File]::WriteAllText((Join-Path $old 'keep.txt'), 'unique') }
             'subdirectory' { New-Item -ItemType Directory -Path (Join-Path $old 'keep') | Out-Null }
             'link' { Rename-Item -LiteralPath $old -NewName ($hash + '-target'); New-Item -ItemType Junction -Path $old -Target ($old + '-target') | Out-Null }
-            'file-link' { Mock Get-ChildItem { foreach ($name in $names) { [pscustomobject]@{ Name=$name; FullName=(Join-Path $script:RetentionPath $name); PSIsContainer=$false; Attributes=$(if ($name -eq 'codex.exe') { [IO.FileAttributes]::ReparsePoint } else { [IO.FileAttributes]::Normal }) } } } -ParameterFilter { $LiteralPath -eq $script:RetentionPath } }
+            'file-link' { Mock Get-ChildItem { foreach ($name in $names) { [pscustomobject]@{ Name=$name; FullName=(Join-Path $LiteralPath $name); PSIsContainer=$false; Attributes=$(if ($name -eq 'codex.exe') { [IO.FileAttributes]::ReparsePoint } else { [IO.FileAttributes]::Normal }) } } } -ParameterFilter { $LiteralPath -like '*.retiring' } }
             'ads' { Set-Content -LiteralPath (Join-Path $old 'codex.exe') -Stream keep -Value 'unique' }
             'directory-ads' { Set-Content -LiteralPath $old -Stream keep -Value 'unique' }
             'signature' { Mock Test-AiCliOpenAICodexSignature { $false } -ParameterFilter { $Path -like '*codex-command-runner.exe' } }
             'hash' { [IO.File]::WriteAllText((Join-Path $old 'codex.exe'), 'changed') }
             'appx-changed' { Mock Get-AppxPackage { [pscustomobject]@{ Version=[version]'3.0'; InstallLocation=$script:PackageA; PackageFullName='OpenAI.Codex_3' } } }
-            'delete-failure' { Mock Remove-Item { throw 'in use' } -ParameterFilter { $LiteralPath -eq $script:RetentionPath } }
+            'delete-failure' { Mock Remove-Item { throw 'in use' } -ParameterFilter { $LiteralPath -like '*.retiring' } }
             'lock-failure' { Mock Enter-AiCliFileLock { throw 'busy' } }
             'staging' { Rename-Item -LiteralPath $old -NewName ('.' + $hash + '.pending.tmp'); $old = Join-Path $root ('.' + $hash + '.pending.tmp') }
-            'own-bridge' { Mock Get-CimInstance { @([pscustomobject]@{ Name='pwsh.exe'; ProcessId=$PID; ParentProcessId=123; ExecutablePath='C:\pwsh.exe'; CommandLine='exporter' }, [pscustomobject]@{ Name='AiCli.CodexDesktopBridge.exe'; ProcessId=123; ExecutablePath='C:\bridge.exe'; CommandLine='bridge' }) } }
-            'referenced-command' { Mock Get-CimInstance { @([pscustomobject]@{ Name='other.exe'; ProcessId=123; ExecutablePath='C:\other.exe'; CommandLine=$script:RetentionPath }) } }
-            'recheck-process' { Mock Get-CimInstance { $script:RetentionChecks++; if ($script:RetentionChecks -eq 1) { @() } else { @([pscustomobject]@{ Name='codex.exe'; ProcessId=123; ExecutablePath=(Join-Path $script:RetentionPath 'codex.exe'); CommandLine='codex' }) } } }
             'recheck-appx' { Mock Get-AppxPackage { $script:RetentionChecks++; if ($script:RetentionChecks -eq 1) { $package } else { [pscustomobject]@{ Version=[version]'3.0'; InstallLocation=$script:PackageA; PackageFullName='OpenAI.Codex_3' } } } }
-            'logical-reference' { $physical = Join-Path $script:FixtureRoot 'physical-upstream'; Move-Item -LiteralPath $root -Destination $physical; New-Item -ItemType Junction -Path $root -Target $physical | Out-Null; Mock Get-CimInstance { @([pscustomobject]@{ Name='codex.exe'; ProcessId=123; ExecutablePath=(Join-Path $script:RetentionPath 'codex.exe'); CommandLine='codex' }) } }
+            'logical-reference' { $physical = Join-Path $script:FixtureRoot 'physical-upstream'; Move-Item -LiteralPath $root -Destination $physical; New-Item -ItemType Junction -Path $root -Target $physical | Out-Null }
         }
         { Remove-AiCliObsoleteUpstreamCache -Result $result -Package $package -SourceHash $sourceHash } | Should -Not -Throw
-        Test-Path -LiteralPath $old | Should -Be ($Case -notin @('old', 'own-bridge'))
-        if ($Case -eq 'delete-failure') { Should -Invoke Remove-Item -Times 1 -Exactly }
+        Test-Path -LiteralPath $old | Should -Be ($Case -notin @('old', 'logical-reference'))
+        if ($Case -eq 'delete-failure') { Should -Invoke Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -like '*.retiring' } }
         if ($Case -eq 'link') { Test-Path -LiteralPath ($old + '-target\codex.exe') | Should -BeTrue }
+        if ($Case -in @('bridge', 'incomplete-process')) { Should -Invoke Test-AiCliOpenAICodexSignature -Times 0 -Exactly }
+        if ($Case -eq 'once-per-source') {
+            Remove-AiCliObsoleteUpstreamCache -Result $result -Package $package -SourceHash $sourceHash
+            Should -Invoke Test-AiCliOpenAICodexSignature -Times 1 -Exactly
+            Test-Path -LiteralPath $old | Should -BeTrue
+            Mock Test-AiCliOpenAICodexSignature { $true }
+            [IO.File]::WriteAllText((Join-Path $script:PackageB 'app\resources\codex.exe'), 'engine-newest')
+            $sourceHash = Get-AiCliDesktopEngineHash -Path (Join-Path $script:PackageB 'app\resources\codex.exe')
+            Remove-AiCliObsoleteUpstreamCache -Result $result -Package $package -SourceHash $sourceHash
+            Test-Path -LiteralPath $old | Should -BeFalse
+        }
     }
 
     It 'runs retention only after successful AppX resolution: <Route>' -TestCases @(@{Route='official'}, @{Route='staged'}, @{Route='fallback'}) {

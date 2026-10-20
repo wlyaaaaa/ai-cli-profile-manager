@@ -700,8 +700,7 @@ Describe 'Installer safety' {
         try {
             $env:PSModulePath = $moduleRoot
             & (Join-Path $script:SecurityRepoRoot 'scripts\Install.ps1') `
-                -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration `
-                -RetirementRootOverride (Join-Path $TestDrive 'retirement-root')
+                -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration
             $version = [string](Import-PowerShellDataFile -LiteralPath (
                 Join-Path $script:SecurityRepoRoot 'src\AiCliProfileManager\AiCliProfileManager.psd1'
             )).ModuleVersion
@@ -710,8 +709,7 @@ Describe 'Installer safety' {
             $before = (Get-FileHash -LiteralPath $installedManifest -Algorithm SHA256).Hash
 
             { & (Join-Path $script:SecurityRepoRoot 'scripts\Install.ps1') `
-                    -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration `
-                    -RetirementRootOverride (Join-Path $TestDrive 'retirement-root') } |
+                    -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration } |
                 Should -Throw '*默认拒绝覆盖*'
             (Get-FileHash -LiteralPath $installedManifest -Algorithm SHA256).Hash | Should -Be $before
         } finally {
@@ -721,7 +719,6 @@ Describe 'Installer safety' {
 
     It 'keeps the old module whole when an atomic same-parent backup move is locked' {
         $moduleRoot = Join-Path $TestDrive 'locked-install\Documents\PowerShell\Modules'
-        $retirementRoot = Join-Path $TestDrive 'locked-install\retirement-root'
         New-Item -ItemType Directory -Force -Path $moduleRoot | Out-Null
         $installScript = Join-Path $script:SecurityRepoRoot 'scripts\Install.ps1'
         $version = [string](Import-PowerShellDataFile -LiteralPath (
@@ -754,8 +751,7 @@ $stream.Dispose()
         $holder = $null
         try {
             $env:PSModulePath = $moduleRoot
-            & $installScript -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration `
-                -RetirementRootOverride $retirementRoot
+            & $installScript -SourceRoot $script:SecurityRepoRoot -SkipShellIntegration
             $before = Get-TestInstallInventory -Root $installed
 
             $psi = [Diagnostics.ProcessStartInfo]::new()
@@ -772,8 +768,7 @@ $stream.Dispose()
             }
             Test-Path -LiteralPath $readyPath -PathType Leaf | Should -BeTrue
 
-            { & $installScript -SourceRoot $script:SecurityRepoRoot -Force -SkipShellIntegration `
-                    -RetirementRootOverride $retirementRoot } | Should -Throw
+            { & $installScript -SourceRoot $script:SecurityRepoRoot -Force -SkipShellIntegration } | Should -Throw
             Test-Path -LiteralPath $installed -PathType Container | Should -BeTrue
             @(Get-ChildItem -LiteralPath (Split-Path -Parent $installed) -Directory -Force |
                 Where-Object Name -Like ".$version.backup-*").Count | Should -Be 0
@@ -781,8 +776,7 @@ $stream.Dispose()
             $holder.WaitForExit()
             Get-TestInstallInventory -Root $installed | Should -Be $before
 
-            & $installScript -SourceRoot $script:SecurityRepoRoot -Force -SkipShellIntegration `
-                -RetirementRootOverride $retirementRoot
+            & $installScript -SourceRoot $script:SecurityRepoRoot -Force -SkipShellIntegration
             Test-Path -LiteralPath (Join-Path $installed 'AiCliProfileManager.psd1') -PathType Leaf | Should -BeTrue
             @(Get-ChildItem -LiteralPath (Split-Path -Parent $installed) -Directory -Force |
                 Where-Object Name -Like ".$version.backup-*").Count | Should -Be 0

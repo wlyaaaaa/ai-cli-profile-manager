@@ -8,8 +8,7 @@ param(
     [switch]$DryRun,
     [string]$SourceRoot = (Split-Path -Parent $PSScriptRoot),
     [switch]$Force,
-    [switch]$SkipShellIntegration,
-    [string]$RetirementRootOverride
+    [switch]$SkipShellIntegration
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,21 +33,6 @@ $dest = Join-Path $destRoot $moduleName
 $destVer = Join-Path $dest $version
 $tempVer = Join-Path $dest (".$version.install-" + [guid]::NewGuid().ToString('N'))
 $backupVer = Join-Path $dest (".$version.backup-" + [guid]::NewGuid().ToString('N'))
-$migrationScript = Join-Path $SourceRoot 'scripts\Invoke-AiCliRetirementMigration.ps1'
-if (-not (Test-Path -LiteralPath $migrationScript -PathType Leaf)) {
-    throw "找不到退役迁移脚本: $migrationScript"
-}
-$migrationParameters = @{
-    ModuleRoot = $dest
-    CurrentVersion = $version
-    FailOnBlocked = $true
-}
-if (-not [string]::IsNullOrWhiteSpace($RetirementRootOverride)) {
-    $retirementRoot = [IO.Path]::GetFullPath($RetirementRootOverride)
-    $migrationParameters.RoamingRoot = Join-Path $retirementRoot 'Roaming\AiCliProfileManager'
-    $migrationParameters.LocalRoot = Join-Path $retirementRoot 'Local\AiCliProfileManager'
-    $migrationParameters.CodexHome = Join-Path $retirementRoot 'codex'
-}
 
 function Test-InstallCandidateModule {
     param(
@@ -116,6 +100,44 @@ function Test-InstallDirectoryMoveRetryableLock {
     return $false
 }
 
+function Remove-ObsoleteInstallDirectories {
+    param(
+        [Parameter(Mandatory)][string]$ModuleRoot,
+        [Parameter(Mandatory)][version]$CurrentVersion
+    )
+    foreach ($directory in Get-ChildItem -LiteralPath $ModuleRoot -Directory -Force) {
+        $directoryVersion = $directory.Name
+        $isResidual = $directory.Name -match '^\.(\d+\.\d+\.\d+(?:\.\d+)?)\.(backup|install)-[a-f0-9]{32}$'
+        if ($isResidual) { $directoryVersion = $Matches[1] }
+        $parsedVersion = $null
+        if (-not [version]::TryParse($directoryVersion, [ref]$parsedVersion) -or
+            $parsedVersion.ToString() -cne $directoryVersion -or
+            $parsedVersion -gt $CurrentVersion -or
+            (-not $isResidual -and $parsedVersion -eq $CurrentVersion)) { continue }
+        try {
+            $manifest = Join-Path $directory.FullName 'AiCliProfileManager.psd1'
+            $rootModule = Join-Path $directory.FullName 'AiCliProfileManager.psm1'
+            if (($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                -not (Test-Path -LiteralPath $manifest -PathType Leaf) -or
+                -not (Test-Path -LiteralPath $rootModule -PathType Leaf)) {
+                throw '模块身份不完整或目录是重解析点'
+            }
+            $reparsePoints = @(Get-ChildItem -LiteralPath $directory.FullName -Recurse -Force |
+                Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 })
+            if ($reparsePoints.Count -gt 0) { throw '模块包含重解析点' }
+            $identity = Import-PowerShellDataFile -LiteralPath $manifest
+            if ([string]$identity.GUID -cne 'a1c11c11-0a11-4c11-b111-a1c110110011' -or
+                [string]$identity.RootModule -cne 'AiCliProfileManager.psm1' -or
+                [string]$identity.ModuleVersion -cne $directoryVersion) {
+                throw '模块身份不匹配'
+            }
+            Remove-InstallDirectorySafely -Path $directory.FullName -ExpectedParent $ModuleRoot
+        } catch {
+            Write-Warning "保留未清理的安装目录 $($directory.FullName): $($_.Exception.Message)"
+        }
+    }
+}
+
 function Move-InstallDirectoryAtomically {
     param(
         [Parameter(Mandatory)][string]$Source,
@@ -176,7 +198,18 @@ if ($DryRun) {
     [ordered]@{schema='aicli.install-plan.v1';write_mode='zero_write';source=$src;destination=$destVer;version=$version;installed=$false} | ConvertTo-Json
     return
 }
-if (-not $PSCmdlet.ShouldProcess($destVer, 'Install the verified AICLI module and run its managed retirement migration')) { return }
+if (-not $PSCmdlet.ShouldProcess($destVer, 'Install the verified AICLI module and remove obsolete managed versions')) { return }
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+try {
+    $installationLock = [IO.FileStream]::new((Join-Path $dest '.install.lock'), [IO.FileMode]::OpenOrCreate,
+        [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 4096, [IO.FileOptions]::DeleteOnClose)
+} catch {
+    if (Test-InstallDirectoryMoveRetryableLock -Exception $_.Exception) {
+        throw '另一个 AICLI 安装事务正在使用模块目录；请在该安装结束后重试。'
+    }
+    throw
+}
+try {
 Write-Host "安装 $moduleName $version → $destVer"
 if ((Test-Path -LiteralPath $destVer) -and -not $Force) {
     throw '目标版本已存在；默认拒绝覆盖。确认要替换时请重新运行并加 -Force。'
@@ -203,12 +236,6 @@ if (Test-Path -LiteralPath $destVer) {
     }
 }
 
-# Abort before copying the new version if any old runnable identity cannot be
-# proven safe to quarantine. Unknown or user-modified files are never deleted.
-$null = & $migrationScript @migrationParameters -PreflightOnly
-
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
-$migrationResult = $null
 $backupCreated = $false
 $candidatePromoted = $false
 try {
@@ -240,13 +267,11 @@ try {
             -ExpectedParent $dest
         $candidatePromoted = $true
 
-        # Keep the previous same-version payload until both the promoted bytes
-        # and the retirement migration have completed. A migration failure is
-        # an installation failure, so the prior installation is restored.
+        # Keep the previous same-version payload until the promoted module
+        # passes validation, so validation failure restores the prior install.
         Test-InstallCandidateModule `
             -CandidateManifest (Join-Path $destVer 'AiCliProfileManager.psd1') `
             -ExpectedVersion $version
-        $migrationResult = & $migrationScript @migrationParameters
     } catch {
         $originalError = $_
         try {
@@ -275,13 +300,17 @@ try {
     }
 }
 
+# Cleanup follows the successful install transaction. An old locked or unknown
+# directory must not roll back a verified new installation.
+try {
+    Remove-ObsoleteInstallDirectories -ModuleRoot $dest -CurrentVersion ([version]$version)
+} catch {
+    Write-Warning "旧安装目录未能清理: $($_.Exception.Message)"
+}
+
 $current = Join-Path $dest 'current-link-note.txt'
 Set-Content -LiteralPath $current -Value "Installed version: $version" -Encoding utf8
 Write-Host "OK: aicli 模块版本 $version"
-if (@($migrationResult.moved).Count -gt 0) {
-    Write-Host ("已将 {0} 个可验证的 Qwen3.7 遗留入口移入可恢复隔离区: {1}" -f `
-        @($migrationResult.moved).Count, $migrationResult.quarantineRoot)
-}
 
 if ($SkipShellIntegration) {
     Write-Host '已跳过 PATH 与 PowerShell Profile 集成。'
@@ -383,4 +412,7 @@ if (-not $__aicliOk) {
 } catch {
     Write-Host "OK: 模块已安装。未能写入 `$PROFILE: $($_.Exception.Message)"
     Write-Host '可手动: Import-Module AiCliProfileManager; aicli setup'
+}
+} finally {
+    $installationLock.Dispose()
 }
