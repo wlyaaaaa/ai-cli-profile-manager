@@ -156,7 +156,7 @@ function Initialize-AiCliDirectories {
     [CmdletBinding()]
     param()
     $p = Get-AiCliAppPaths
-    foreach ($key in @('SettingsDir','SecretsDir','StateDir','CacheDir','LogsDir','BackupsDir','LocksDir','ProfilesDir')) {
+    foreach ($key in @('SettingsDir','StateDir','CacheDir','LogsDir','BackupsDir','LocksDir','ProfilesDir')) {
         $dir = $p[$key]
         if (-not (Test-Path -LiteralPath $dir)) {
             New-Item -ItemType Directory -Force -Path $dir | Out-Null

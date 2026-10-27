@@ -14,7 +14,7 @@
 
 ## 产品安全边界
 
-- Qwen/GLM/DeepSeek 的 API Key 引用密码中心，其他已有本地凭据存储保持兼容。运行时秘密不进入命令参数、Git、日志、Doctor JSON、异常或新生成的导出脚本。eject 对已有本机配置按字节原样复制，副本可能保留原有秘密；密码中心引用在生成脚本运行时取值。
+- 需要 API Key 的 Profile 一律引用密码中心 `passwordcenter:<vendor>`；厂商必须已在密码中心登记并提供 `native_hosts`。旧本地 DPAPI 密文只在迁移期兼容读取，使用 `Invoke-AiCliSecretMigration` 迁移引用，AICLI 不再创建密文副本。运行时秘密不进入命令参数、Git、日志、Doctor JSON、异常或新生成的导出脚本。eject 对已有本机配置按字节原样复制，副本可能保留原有秘密；密码中心引用在生成脚本运行时取值。
 - 普通端点和工作区 ID 原样显示；输出过滤仍覆盖真实密码、令牌和其他凭据。
 - Provider 环境只注入目标子进程；不永久改写全局 Provider 变量或用户基础配置。
 - 自定义远程明文 HTTP 默认拒绝；仅允许 HTTPS 或 localhost HTTP。

@@ -393,7 +393,6 @@ Describe 'Retired provider identities' {
             Mock Test-AiCliSecretExists { $true }
             Mock Save-AiCliUserProfile { $script:savedQwen37 = $Profile }
             Mock Read-AiCliSecret { throw 'must not read plaintext during reuse' }
-            Mock New-AiCliSecret { throw 'must not create a secret during reuse' }
             Mock Write-AiCliInfo {}
             Mock Write-AiCliWarn {}
             Mock Write-AiCliSuccess {}
@@ -408,7 +407,6 @@ Describe 'Retired provider identities' {
             $script:savedQwen37.secretRef | Should -Be 'passwordcenter:qwen'
             Should -Invoke Read-Host -Times 0 -Exactly
             Should -Invoke Read-AiCliSecret -Times 0 -Exactly
-            Should -Invoke New-AiCliSecret -Times 0 -Exactly
         }
     }
 
@@ -438,7 +436,6 @@ Describe 'Retired provider identities' {
             Mock Test-AiCliSecretExists { $true }
             Mock Save-AiCliUserProfile { throw 'simulated target save failure' }
             Mock Remove-AiCliSecret {}
-            Mock New-AiCliSecret { throw 'must not create a secret during reuse' }
             Mock Read-AiCliSecret { throw 'must not read plaintext during reuse' }
             Mock Write-AiCliInfo {}
             Mock Write-AiCliWarn {}
@@ -448,7 +445,6 @@ Describe 'Retired provider identities' {
                     -ReuseSecretFrom 'codex-deepseek-flash'
             } | Should -Throw '*simulated target save failure*'
             Should -Invoke Remove-AiCliSecret -Times 0 -Exactly
-            Should -Invoke New-AiCliSecret -Times 0 -Exactly
             Should -Invoke Read-AiCliSecret -Times 0 -Exactly
         }
     }

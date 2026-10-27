@@ -7,7 +7,8 @@ AI CLI Profile Manager 默认不包含产品遥测，也不收集提示或回复
 | 内容 | 默认位置 | 说明 |
 |------|----------|------|
 | Profile、书签、默认项和非秘密设置 | `%APPDATA%\AiCliProfileManager` | 可随用户配置保存 |
-| API Key 密文 | `%LOCALAPPDATA%\AiCliProfileManager\secrets` | Windows DPAPI CurrentUser；失败时不回退明文 |
+| API Key 引用 | 用户 Profile 的 `secretRef` | 需要 Key 的 Profile 一律引用密码中心 `passwordcenter:<vendor>`，不另存本地副本 |
+| 旧 API Key 密文 | `%LOCALAPPDATA%\AiCliProfileManager\secrets` | 只在迁移期兼容读取；用 `Invoke-AiCliSecretMigration` 迁移引用，不自动删除旧密文 |
 | 脱敏日志 | `%LOCALAPPDATA%\AiCliProfileManager\logs` | 不保存提示、回复、API Key 或 OAuth 正文 |
 | 命令垫片 | `%LOCALAPPDATA%\aicli\bin` | 仅用于从终端找到本工具 |
 
@@ -23,7 +24,7 @@ Live Test 必须显式使用 `--live`，会联系目标 Provider，并可能消�
 
 ## 删除与远程撤销
 
-普通卸载会移除本工具模块、`aicli` 命令垫片、安装器加入的用户 `PATH` 项和带产品标记的 PowerShell Profile 自动导入块；默认仍保留用户 Profile、DPAPI 密钥和代理数据，便于重装恢复。`aicli uninstall --purge-user-data --yes` 才同时删除本工具的本地数据。
+普通卸载会移除本工具模块、`aicli` 命令垫片、安装器加入的用户 `PATH` 项和带产品标记的 PowerShell Profile 自动导入块；默认仍保留用户 Profile、迁移期旧密文和代理数据，便于重装恢复。`aicli uninstall --purge-user-data --yes` 才同时删除本工具的本地数据。删除 Profile 或卸载 AICLI 都不会删除密码中心里的凭据。
 
 删除本地代理 OAuth 文件不等于远程撤销授权。请另外在对应账号的安全或已授权应用页面确认撤销。
 

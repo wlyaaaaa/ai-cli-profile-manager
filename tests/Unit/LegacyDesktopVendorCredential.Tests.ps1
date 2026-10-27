@@ -1,4 +1,4 @@
-BeforeAll { $script:Repo=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path }
+﻿BeforeAll { $script:Repo=(Resolve-Path (Join-Path $PSScriptRoot '../..')).Path }
 
 Describe 'Running legacy Desktop bridge with the newer module' {
     It 'imports the newest module by name and receives all three vendor keys without a DPAPI copy' {
@@ -10,7 +10,7 @@ Describe 'Running legacy Desktop bridge with the newer module' {
         [IO.Directory]::CreateDirectory((Join-Path $data 'AppData/profiles'))|Out-Null
         $origins=@{qwen='https://dashscope.aliyuncs.com';glm='https://open.bigmodel.cn';deepseek='https://api.deepseek.com'}
         $vendors=@{}
-        foreach($vendor in $origins.Keys){$vendors[$vendor]=@{origins=@{http=$origins[$vendor]}}}
+        foreach($vendor in $origins.Keys){$vendors[$vendor]=@{native_hosts=@(([Uri]$origins[$vendor]).Host);origins=@{http=$origins[$vendor]}}}
         @{api_vendors=$vendors}|ConvertTo-Json -Depth 6|Set-Content (Join-Path $hostRoot 'registries/secret_broker.json') -Encoding utf8
         @{schemaVersion=1;id='codex-qwen3-8-max-paygo';templateId='codex-qwen3-8-max-paygo';endpoint='https://ws-fixture.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'}|
             ConvertTo-Json|Set-Content (Join-Path $data 'AppData/profiles/codex-qwen3-8-max-paygo.json') -Encoding utf8

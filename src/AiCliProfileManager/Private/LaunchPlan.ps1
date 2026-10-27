@@ -175,7 +175,7 @@ $(Get-AiCliProperty $merged 'dataDestination')
     $credentialSetup = ''
     $secretExpression = '$env:AICLI_EJECT_SECRET'
     $secretRef = [string](Get-AiCliProperty $merged 'secretRef')
-    if ($secretRef -match '^passwordcenter:(qwen|glm|deepseek)$') {
+    if ($secretRef -match '^passwordcenter:([a-z0-9][a-z0-9_-]*)$') {
         $vendor = $Matches[1]
         $endpoint = ([string](Get-AiCliProperty $merged 'endpoint')) -replace "'", "''"
         # Reuse the existing pipe delivery implementation in the standalone recipe.

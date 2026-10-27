@@ -92,8 +92,8 @@ aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 
 ## 厂商凭据与显式型号
 
-Qwen、GLM、DeepSeek 的 `secretRef` 是 `passwordcenter:qwen|glm|deepseek`。
-配置 Profile 不录入 Key，旧 DPAPI 文件在迁移期保留，但运行时不回退读取。
+需要 Key 的 Profile 一律使用 `passwordcenter:<vendor>`；厂商须已在密码中心登记并提供 `native_hosts`，如 `passwordcenter:qwen`、`passwordcenter:openrouter`。
+配置 Profile 不录入 Key、不创建本地 DPAPI 副本；未登记厂商时会提示先登记。旧 hex 引用只在迁移期兼容读取，可用 `Import-Module AiCliProfileManager; Invoke-AiCliSecretMigration -DryRun` 预览，再去掉 `-DryRun` 迁移引用。命令按端点主机匹配厂商，同值才改写 Profile，缺条目时经标准输入存入密码中心并回读比对，值不同时保持原状；旧密文保留。
 `configured` 表示引用和路由已配置，真实账号权限须以实际请求判断。
 
 同厂商换型可在交互启动时显式传 `-- --model <厂商型号>`；保存新型号用独立 Profile：

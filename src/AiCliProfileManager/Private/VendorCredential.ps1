@@ -3,7 +3,7 @@ function Get-AiCliVendorSecretRef {
     param($Profile)
     $provider = [string](Get-AiCliProperty $Profile 'provider')
     $auth = [string](Get-AiCliProperty (Get-AiCliProperty $Profile 'auth') 'type')
-    if ($provider -in @('qwen','glm','deepseek') -and $auth -eq 'api-key') {
+    if ($auth -eq 'api-key' -and (Get-AiCliVendorRegistrations).Contains($provider)) {
         return 'passwordcenter:' + $provider
     }
     return $null
@@ -13,13 +13,33 @@ function Get-AiCliVendorBrokerPath {
     return Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'PCConfig\AuthorityHost\tools\Invoke-PasswordCenterVendor.ps1'
 }
 
-function Get-AiCliVendorDefaultEndpoint {
-    param([Parameter(Mandatory)][ValidateSet('qwen','glm','deepseek')][string]$Vendor)
+function Get-AiCliVendorRegistrations {
     $hostRoot = Split-Path (Split-Path (Get-AiCliVendorBrokerPath) -Parent) -Parent
     try {
         $registry = Get-Content -LiteralPath (Join-Path $hostRoot 'registries/secret_broker.json') -Raw -Encoding utf8 |
             ConvertFrom-Json -AsHashtable -Depth 100 -ErrorAction Stop
-        $endpoint = [string]$registry.api_vendors[$Vendor].origins.http
+        if ($registry.api_vendors -isnot [System.Collections.IDictionary]) { throw 'invalid' }
+        $vendors = @{}
+        foreach ($name in $registry.api_vendors.Keys) {
+            $entry = $registry.api_vendors[$name]
+            if (@(Get-AiCliProperty $entry 'native_hosts' @()).Count -gt 0) { $vendors[$name] = $entry }
+        }
+        return $vendors
+    } catch { throw 'Password Center: vendor_registration_unavailable' }
+}
+
+function Get-AiCliVendorRegistration {
+    param([Parameter(Mandatory)][string]$Vendor)
+    $vendors = Get-AiCliVendorRegistrations
+    if (-not $vendors.Contains($Vendor)) { throw 'Password Center: vendor_not_registered；请先在密码中心登记该厂商。' }
+    return $vendors[$Vendor]
+}
+
+function Get-AiCliVendorDefaultEndpoint {
+    param([Parameter(Mandatory)][string]$Vendor)
+    $registration = Get-AiCliVendorRegistration -Vendor $Vendor
+    try {
+        $endpoint = [string]$registration.origins.http
         $uri = [Uri]$endpoint
         if (-not $uri.IsAbsoluteUri -or $uri.Scheme -cne 'https' -or -not $uri.Host) { throw 'invalid' }
         return $endpoint
@@ -28,7 +48,7 @@ function Get-AiCliVendorDefaultEndpoint {
 
 function Get-AiCliProfileCredentialState {
     param([Parameter(Mandatory)]$Profile)
-    if ([string](Get-AiCliProperty $Profile 'secretRef') -match '^passwordcenter:(qwen|glm|deepseek)$') {
+    if ([string](Get-AiCliProperty $Profile 'secretRef') -match '^passwordcenter:([a-z0-9][a-z0-9_-]*)$') {
         return [pscustomobject]@{ Source='passwordcenter'; ReferenceConfigured=$true; ValueVerified=$null;
             Presence='引用已配置，密钥未验证'; Status='可用但有限制' }
     }
@@ -108,8 +128,10 @@ function Request-AiCliVendorCredential {
 function Get-AiCliProfileSecret {
     param([Parameter(Mandatory)]$Profile, [switch]$Desktop)
     $reference = [string](Get-AiCliProperty $Profile 'secretRef')
-    if ($reference -match '^passwordcenter:(qwen|glm|deepseek)$') {
-        return Request-AiCliVendorCredential -Vendor $Matches[1] -Endpoint ([string](Get-AiCliProperty $Profile 'endpoint')) -Desktop:$Desktop
+    if ($reference -match '^passwordcenter:([a-z0-9][a-z0-9_-]*)$') {
+        $vendor = $Matches[1]
+        $null = Get-AiCliVendorRegistration -Vendor $vendor
+        return Request-AiCliVendorCredential -Vendor $vendor -Endpoint ([string](Get-AiCliProperty $Profile 'endpoint')) -Desktop:$Desktop
     }
     return Get-AiCliSecret -SecretId $reference
 }

@@ -348,11 +348,13 @@ Usage by model:
 
 1. 上游官方登录和主配置。
 2. aicli 随版本发布的 Provider 模板。
-3. 你保存的用户 Profile 与凭据引用；Qwen、GLM、DeepSeek 引用密码中心厂商条目，其他已有接法保持兼容。
+3. 你保存的用户 Profile 与凭据引用；需要 Key 的 Profile 一律引用密码中心已登记且带 `native_hosts` 的厂商条目，形式为 `passwordcenter:<vendor>`，不建立本地 DPAPI 副本。
 4. 本次启动计划和子进程环境。
 5. 会话内模型、权限和临时命令。
 
 aicli 使用子进程隔离，是为了避免 `ANTHROPIC_BASE_URL`、`OPENAI_API_KEY` 等全局变量污染其他终端和官方登录。
+
+旧本地密文只在迁移期兼容读取。用 PowerShell 运行 `Import-Module AiCliProfileManager`，再用 `Invoke-AiCliSecretMigration -DryRun` 预览；去掉 `-DryRun` 执行迁移。迁移按端点主机匹配已登记厂商，回读值一致后才备份并改写 Profile，值不同或未登记时保持原状，旧密文不会删除。需要 Key 的新 Profile 只保存密码中心引用，未登记厂商须先登记。完整操作见《[AI CLI Profile Manager 使用手册](<./AI CLI Profile Manager 使用手册.md>)》的“配置第三方 API”。
 
 ### 6.8 从错误回到可验证状态
 

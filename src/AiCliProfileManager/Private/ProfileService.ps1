@@ -78,15 +78,8 @@ function Remove-AiCliUserProfile {
     if (-not (Confirm-AiCliAction -Message "将删除用户 Profile 实例: $Id（不会删除模板）" -Yes:$Yes)) {
         throw [System.OperationCanceledException]::new('用户取消删除')
     }
-    $prof = Read-AiCliJsonFile -Path $path
-    $secretRef = Get-AiCliProperty $prof 'secretRef'
+    # Removing a Profile never deletes Password Center entries or legacy migration files.
     Remove-Item -LiteralPath $path -Force
-    if ($secretRef) {
-        # remove secret only if no other profile references it
-        if (-not (Test-AiCliSecretReferencedByAnotherProfile -SecretId $secretRef)) {
-            Remove-AiCliSecret -SecretId $secretRef
-        }
-    }
     $settings = Get-AiCliSettings
     if ($settings.defaultProfileId -eq $Id) { $settings.defaultProfileId = $null }
     if ($settings.lastProfileId -eq $Id) { $settings.lastProfileId = $null }
@@ -231,7 +224,12 @@ function Merge-AiCliProfile {
         $merged['configured'] = $virt -or (-not $needs)
     }
 
-    $vendorReference = Get-AiCliVendorSecretRef -Profile $merged
+    $vendorReference = [string](Get-AiCliProperty $merged 'secretRef')
+    if ($vendorReference -match '^passwordcenter:([a-z0-9][a-z0-9_-]*)$') {
+        $null = Get-AiCliVendorRegistration -Vendor $Matches[1]
+    } else {
+        $vendorReference = Get-AiCliVendorSecretRef -Profile $merged
+    }
     if ($vendorReference) {
         $merged['secretRef'] = $vendorReference
         # Legacy Desktop helpers use this boolean to decide whether to invoke
@@ -646,30 +644,11 @@ function Invoke-AiCliProfileConfigure {
         }
     }
 
-    $vendorReference = Get-AiCliVendorSecretRef -Profile $template
-    $secretRef = if ($vendorReference) { $vendorReference } else { Resolve-AiCliReusableSecretRef `
-        -Template $template `
-        -ProfileId $id `
-        -ExistingProfile $existing `
-        -ReuseExistingSecret:$ReuseExistingSecret `
-        -ReuseSecretFrom $ReuseSecretFrom `
-        -TargetEndpoint ([string]$endpoint) }
-    $oldSecretRef = if ($existing) { Get-AiCliProperty $existing 'secretRef' } else { $null }
-    $createdNewSecret = $false
-    if ($secretRef) {
-        Write-AiCliInfo '将复用现有 SecretRef；不会读取、回显或复制秘密值。'
-    } elseif ([bool](Get-AiCliProperty $template 'requiresSecret' $false)) {
-        $plain = Read-AiCliSecret -Prompt '请输入 API Key（不回显，不会写入 Git 或日志）'
-        if ([string]::IsNullOrEmpty($plain)) { throw '未录入密钥，配置已取消' }
-        try {
-            $secretRef = New-AiCliSecret -PlainText $plain -Label "$id-api-key"
-            $createdNewSecret = $true
-        } finally {
-            $plain = $null
-        }
-    } elseif ($existing) {
-        $secretRef = Get-AiCliProperty $existing 'secretRef'
+    $secretRef = Get-AiCliVendorSecretRef -Profile $template
+    if ([bool](Get-AiCliProperty $template 'requiresSecret' $false) -and -not $secretRef) {
+        throw '该厂商尚未在密码中心登记；请先登记厂商及原生 API 主机，再配置 Profile。'
     }
+    if ($secretRef) { Write-AiCliInfo '将引用密码中心；不会读取、回显或复制秘密值。' }
 
     $userProf = [ordered]@{
         schemaVersion = 1
@@ -688,18 +667,7 @@ function Invoke-AiCliProfileConfigure {
         $userProf['modelCatalog'] = $ModelCatalog
         $userProf['models'] = @{ primary=$Model; small=$Model; candidates=@($Model) }
     }
-    try {
-        Save-AiCliUserProfile -Profile $userProf
-    } catch {
-        if ($createdNewSecret -and $secretRef) {
-            try { Remove-AiCliSecret -SecretId $secretRef } catch {}
-        }
-        throw
-    }
-    if (-not $vendorReference -and $oldSecretRef -and $oldSecretRef -ne $secretRef -and
-        -not (Test-AiCliSecretReferencedByAnotherProfile -SecretId $oldSecretRef -ExceptProfileId $id)) {
-        Remove-AiCliSecret -SecretId $oldSecretRef
-    }
+    Save-AiCliUserProfile -Profile $userProf
     Write-AiCliSuccess "已保存 Profile: $id"
     Write-AiCliInfo "下一步：aicli doctor $id"
     return $userProf

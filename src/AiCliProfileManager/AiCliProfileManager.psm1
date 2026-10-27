@@ -53,5 +53,6 @@ Export-ModuleMember -Function @(
     'aicli',
     'Get-AiCliBrand',
     'Get-AiCliVersion',
+    'Invoke-AiCliSecretMigration',
     'Get-AiCliAppPaths'
 )
