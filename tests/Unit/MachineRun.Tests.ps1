@@ -136,8 +136,8 @@ $text = [Console]::In.ReadToEnd()
             $result.effortEvidence | Should -Be 'launch-plan'
             $result.attestedEffort | Should -BeNullOrEmpty
             Should -Invoke Invoke-AiCliChildCapture -Times 1 -Exactly -ParameterFilter {
-                $StdInText -eq 'TASK' -and $TimeoutMs -eq 9000 -and $MaxCaptureChars -eq 4096 -and
-                $SandboxWorkspace -eq $Work -and $EventProtocol -eq 'codex-jsonl' -and
+                $StdInText -eq 'TASK' -and $TimeoutMs -gt 0 -and $TimeoutMs -le 9000 -and $MaxCaptureChars -eq 4096 -and
+                [string]::IsNullOrEmpty($SandboxWorkspace) -and $EventProtocol -eq 'codex-jsonl' -and
                 $SecretValues -contains 'CANARY_SECRET'
             }
         }
@@ -2592,8 +2592,11 @@ Start-Sleep -Seconds 2
         }
     }
 
-    It 'maps a read-only machine policy to the read-only outer sandbox' {
-        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+    It 'maps explicit <Policy> to its outer sandbox profile and disables network' -ForEach @(
+        @{ Policy = 'read-only'; Profile = ':read-only' },
+        @{ Policy = 'workspace-write'; Profile = ':workspace' }
+    ) {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Policy = $Policy; Profile = $Profile } {
             Mock Resolve-AiCliLaunchExecutable {
                 [pscustomobject]@{
                     FileName = 'C:\codex\codex.exe'
@@ -2604,14 +2607,17 @@ Start-Sleep -Seconds 2
             }
 
             $wrapped = ConvertTo-AiCliSandboxedCommand -FileName 'C:\tools\agent.exe' `
-                -Workspace $Work -Policy 'read-only'
+                -Workspace $Work -Policy $Policy
 
-            $wrapped.ArgumentList[2] | Should -Be ':read-only'
+            $wrapped.ArgumentList[2] | Should -Be $Profile
+            $wrapped.ArgumentList | Should -Contain '--sandbox-state-disable-network'
         }
     }
 
-    It 'runs read-only agents from a disposable writable runtime with the source workspace read-only' {
-        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+    It 'wraps children only for an explicit <Policy> sandbox policy' -ForEach @(
+        @{ Policy = 'read-only' }, @{ Policy = 'workspace-write' }
+    ) {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Policy = $Policy } {
             $source = Join-Path $Work 'source'
             $runtime = Join-Path $Work 'runtime'
             $tmp = Join-Path $runtime 'tmp'
@@ -2626,22 +2632,60 @@ Start-Sleep -Seconds 2
                 }
             }
 
+            $expectedSandboxRoot = if ($Policy -eq 'read-only') { $runtime } else { $source }
             $result = Invoke-AiCliChildCapture -FileName $tool -ArgumentList @('--flag') `
                 -EnvironmentDelta @{ TEMP = $tmp } -WorkingDirectory $source `
-                -SandboxWorkspace $source -SandboxPolicy 'read-only' -TimeoutMs 1000
+                -SandboxWorkspace $source -SandboxPolicy $Policy -TimeoutMs 1000
 
             $result.ExitCode | Should -Be 0
             Should -Invoke ConvertTo-AiCliSandboxedCommand -Times 1 -Exactly -ParameterFilter {
-                $Workspace -eq $runtime -and $Policy -eq 'workspace-write' -and $AdditionalReadRoots -contains $source
+                $Workspace -eq $expectedSandboxRoot -and
+                $Policy -eq 'workspace-write' -and
+                ($Workspace -eq $source -or $AdditionalReadRoots -contains $source)
             }
         }
     }
 
-    It 'creates and removes a private Qwen machine runtime inside the workspace' {
+    It 'executes the target directly on the host and cleans its temporary runtime by default' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
+            $probe = Join-Path $Work 'host-probe.ps1'
+            @'
+[Console]::Out.Write((@{ fileName=[Environment]::ProcessPath; arguments=[Environment]::GetCommandLineArgs(); temp=$env:TEMP; tmp=$env:TMP } | ConvertTo-Json -Compress))
+'@ | Set-Content -LiteralPath $probe -Encoding utf8
+            Mock Build-AiCliLaunchPlan {
+                [pscustomobject]@{
+                    engine='interpreter'; fileName=(Join-Path $PSHOME 'pwsh.exe')
+                    argumentList=@('-NoProfile','-File',$probe); workingDirectory=$Work
+                    environmentDelta=@{}; removeEnvironment=@()
+                }
+            }
+            Mock ConvertTo-AiCliSandboxedCommand { throw 'Host execution must not invoke Codex sandbox' }
+            $result = Invoke-AiCliProfileCapture -ProfileId 'host-fixture' -ProjectPath $Work `
+                -StdInText 'TASK' -WatchdogOnly -TimeoutMs 5000
+            $result.exitCode | Should -Be 0
+            $observed = $result.stdout | ConvertFrom-Json
+            $observed.fileName | Should -Be (Join-Path $PSHOME 'pwsh.exe')
+            $observed.arguments | Should -Contain $probe
+            $observed.arguments | Should -Not -Contain 'sandbox'
+            $observed.arguments | Should -Not -Contain '--sandbox-state-disable-network'
+            $observed.tmp | Should -Be $observed.temp
+            $runtimeRoot = Split-Path -Parent $observed.temp
+            (Split-Path -Parent $runtimeRoot) | Should -Be ([IO.Path]::GetTempPath().TrimEnd('\'))
+            Test-Path -LiteralPath $runtimeRoot | Should -BeFalse
+            Should -Invoke ConvertTo-AiCliSandboxedCommand -Times 0 -Exactly
+        }
+    }
+
+    It 'creates and removes a private Qwen runtime for <Policy>' -ForEach @(
+        @{ Policy = 'danger-full-access' }, @{ Policy = 'read-only' }, @{ Policy = 'workspace-write' }
+    ) {
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Policy = $Policy } {
+            $entry = Join-Path $Work 'qwen-package\cli-entry.js'
+            New-Item -ItemType Directory -Path (Split-Path -Parent $entry) -Force | Out-Null
+            Set-Content -LiteralPath $entry -Value '// fixture' -Encoding ascii
             $plan = [pscustomobject]@{
                 engine = 'qwen-code'
-                argumentList = @('-p', '', '--output-format', 'json')
+                argumentList = @($entry, '-p', '', '--output-format', 'json')
                 workingDirectory = $Work
                 environmentDelta = @{}
                 machineRuntime = [ordered]@{
@@ -2650,14 +2694,20 @@ Start-Sleep -Seconds 2
                     model = 'qwen3.6-35b:256k'
                 }
             }
+            $runtimeOptions = @{}
+            if ($Policy -ne 'danger-full-access') { $runtimeOptions.Policy = $Policy }
             $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' `
-                -Policy 'workspace-write' -MaxSteps 30 -MaxToolCalls 120
+                @runtimeOptions -MaxSteps 30 -MaxToolCalls 120
             try {
                 Test-Path -LiteralPath (Join-Path $runtime.RuntimePath 'settings.json') | Should -BeTrue
                 $runtime.EnvironmentDelta.QWEN_HOME | Should -Be $runtime.RuntimePath
                 $runtime.EnvironmentDelta.TEMP | Should -Be (Join-Path $runtime.RuntimePath 'tmp')
                 $runtime.StdInText | Should -Be 'TASK'
-                $runtime.RuntimePath | Should -BeLike "$([IO.Path]::GetFullPath($Work))*"
+                $runtime.UseOuterSandbox | Should -Be ($Policy -ne 'danger-full-access')
+                Test-Path (Join-Path $runtime.RuntimePath 'qwen-package') | Should -Be $runtime.UseOuterSandbox
+                if (-not $runtime.UseOuterSandbox) { $runtime.ArgumentList[0] | Should -Be $entry }
+                $base = if ($Policy -eq 'workspace-write') { $Work } else { [IO.Path]::GetTempPath() }
+                (Split-Path -Parent $runtime.RuntimePath) | Should -Be ([IO.Path]::GetFullPath($base).TrimEnd('\'))
             } finally {
                 Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath -Workspace $Work
             }
@@ -2678,13 +2728,14 @@ Start-Sleep -Seconds 2
                 }
             }
             $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' `
-                -Policy 'workspace-write' -MaxSteps 30 -MaxToolCalls 120
+                -MaxSteps 30 -MaxToolCalls 120
             $isolatedInterpreterHome = Join-Path $runtime.RuntimePath 'interpreter-home'
             try {
                 $runtime.EnvironmentDelta.INTERPRETER_HOME | Should -Be $isolatedInterpreterHome
                 $runtime.EnvironmentDelta.CODEX_HOME | Should -Be $isolatedInterpreterHome
                 Test-Path -LiteralPath $isolatedInterpreterHome -PathType Container | Should -BeTrue
-                $runtime.RuntimePath | Should -BeLike "$([IO.Path]::GetFullPath($Work))*"
+                $runtime.UseOuterSandbox | Should -BeFalse
+                (Split-Path -Parent $runtime.RuntimePath) | Should -Be ([IO.Path]::GetTempPath().TrimEnd('\'))
             } finally {
                 Remove-AiCliMachineRuntime -RuntimePath $runtime.RuntimePath -Workspace $Work
             }
@@ -2844,8 +2895,9 @@ foreach ($argument in @('-NoProfile','-File',$ChildScript,'-LockPath',$LockPath,
                 }
             }
             $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'PRIVATE_TASK_CANARY' `
-                -Policy 'workspace-write' -MaxSteps 30 -MaxToolCalls 120
+                -MaxSteps 30 -MaxToolCalls 120
             try {
+                $runtime.UseOuterSandbox | Should -BeFalse
                 ($runtime.ArgumentList -join ' ') | Should -Not -Match 'PRIVATE_TASK_CANARY'
                 $runtime.StdInText | Should -Be ''
                 $openCodeConfig = $runtime.EnvironmentDelta.OPENCODE_CONFIG_CONTENT | ConvertFrom-Json -Depth 30
@@ -3375,7 +3427,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         }
     }
 
-    It 'isolates Claude settings and enables autonomous execution only inside the outer sandbox' {
+    It 'preserves temporary Claude settings and turn budgets on the host' {
         InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive } {
             $plan = [pscustomobject]@{
                 engine = 'claude'
@@ -3385,8 +3437,9 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
                 machineRuntime = [ordered]@{ kind='claude' }
             }
 
-            $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK' -Policy 'workspace-write'
+            $runtime = Initialize-AiCliMachineRuntime -Plan $plan -StdInText 'TASK'
             try {
+                $runtime.UseOuterSandbox | Should -BeFalse
                 Test-Path -LiteralPath $runtime.EnvironmentDelta.CLAUDE_CONFIG_DIR | Should -BeTrue
                 $runtime.EnvironmentDelta.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB | Should -Be '0'
                 $runtime.ArgumentList | Should -Contain '--max-turns'

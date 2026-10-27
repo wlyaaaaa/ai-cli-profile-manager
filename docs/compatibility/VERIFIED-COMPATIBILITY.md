@@ -41,7 +41,7 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 
 2026-07-29（UTC+8）又对本机 `qwen-main-v1` 做了更新后复核：Codex CLI 0.145.0、Claude Code 2.1.220、Qwen Code 0.21.0、OpenCode 1.18.8 均已通过修复后的本地文本 smoke。2026-08-03 的 installed payload 进一步补齐 OpenCode 262144/8192 limit、20000 reserved、最近 4 轮/16384 token、`prune=false` 与本地 compaction model；真实 `opencode debug config --pure` 已成功解析这些一次性设置，修复 context=0 导致自动压缩失效。这些仍是静态/runtime-config 证据，不是新模型 Live。完整任务中 Codex 的硬预算/事件协议 3/3；Claude、Qwen Code、OpenCode 仍只能报告 `upstream` 或 `not-enforced`，不能晋升为受管默认。
 
-Qwen Code 0.21.0 与 OpenCode 1.18.8 的上游原生能力不能自动变成 AICLI 公开 DeepSeek 路径。当前这两套 runner 仅允许 machine-only 禁网沙箱；若直接接远程 DeepSeek，真实 Key 会进入可执行 Shell 的子进程环境，同时缺少受控远程 egress relay。边界未补齐前状态为“不可用（未开放）”，不创建假 Profile。
+Qwen Code 0.21.0 与 OpenCode 1.18.8 的上游原生能力不能自动变成 AICLI 公开 DeepSeek 路径。AICLI 目前只为这两个引擎提供接本地模型的 machine-only 入口，尚未接入 DeepSeek Profile；这两类 DeepSeek 路径的状态仍为“不可用（未开放）”。
 
 ## 3. 验收命令
 

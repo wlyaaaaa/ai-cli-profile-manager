@@ -265,7 +265,7 @@ function Start-AiCliProfile {
     $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId -ProjectPath $ProjectPath -NativeArgs $NativeArgs
     $engine = Get-AiCliProperty $plan 'engine'
     if ([bool](Get-AiCliProperty $plan 'machineOnly' $false)) {
-        throw "Profile $ProfileId 仅用于 aicli run 机器调用，不提供无沙箱交互启动。"
+        throw "Profile $ProfileId 仅用于 aicli run 机器调用（参数和临时配置按机器模式生成），不提供交互启动。"
     }
     Write-AiCliInfo ("启动 {0}…" -f (Get-AiCliProfileDisplayName -Profile $merged -Model ([string](Get-AiCliProperty $plan 'model'))))
     foreach ($n in @((Get-AiCliProperty $plan 'notes') | ForEach-Object { $_ })) {
@@ -447,7 +447,7 @@ function Invoke-AiCliProfileCapture {
             Write-AiCliLocalGpuBrokerAuthorityPrelude `
                 -Observation $localGpuBrokerBindingObservation
         }
-        $sandboxWorkspace = if ([bool](Get-AiCliProperty $runtime 'UseOuterSandbox' $true)) {
+        $sandboxWorkspace = if ([bool](Get-AiCliProperty $runtime 'UseOuterSandbox' $false)) {
             Get-AiCliProperty $plan 'workingDirectory'
         } else {
             $null

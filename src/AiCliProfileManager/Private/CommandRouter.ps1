@@ -455,9 +455,9 @@ function Invoke-AiCliRunCommand {
             if ($disableWebSearch) {
                 throw '参数 --no-web-search 仅适用于 Codex harness。'
             }
-            if ([string]::IsNullOrWhiteSpace($sandboxPolicy)) { $sandboxPolicy = 'read-only' }
-            if ($sandboxPolicy -notin @('read-only','workspace-write')) {
-                throw '非 Codex machine run 的 --sandbox-policy 只能是 read-only 或 workspace-write。'
+            if ([string]::IsNullOrWhiteSpace($sandboxPolicy)) { $sandboxPolicy = 'danger-full-access' }
+            if ($sandboxPolicy -notin @('danger-full-access','read-only','workspace-write')) {
+                throw '非 Codex machine run 的 --sandbox-policy 只能是 danger-full-access、read-only 或 workspace-write。'
             }
         }
         $maxStepsText = Get-AiCliFlagValue -Tokens $split.Before -Name '--max-steps' -Default '20'

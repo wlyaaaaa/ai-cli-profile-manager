@@ -115,7 +115,7 @@ Describe 'Recoverable run command routing' {
             Mock Invoke-AiCliProfileCapture {
                 $run = [ordered]@{
                     profileId='oi-test'; engine='interpreter'; exitCode=0; timedOut=$false
-                    stdout='ONE_SHOT'; stderr=''; sandboxPolicy='read-only'
+                    stdout='ONE_SHOT'; stderr=''; sandboxPolicy='danger-full-access'
                 }
                 if ($IncludeCleanup) {
                     $run['limitUsage'] = [ordered]@{cleanupConfirmed=[bool]$CleanupConfirmed; cleanupMethod='runtime-directory-busy'}
@@ -136,6 +136,9 @@ Describe 'Recoverable run command routing' {
             $json.run.exitCode|Should -Be 0
             $json.run.timedOut|Should -BeFalse
             $json.run.resumeSupported|Should -BeFalse
+            Should -Invoke Invoke-AiCliProfileCapture -Times 1 -Exactly -ParameterFilter {
+                $SandboxPolicy -eq 'danger-full-access'
+            }
             Should -Invoke New-AiCliRecoverableRun -Times 0 -Exactly
         }
     }
