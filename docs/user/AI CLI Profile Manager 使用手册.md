@@ -202,11 +202,11 @@ aicli profile remove qwen-work
 | `profile list` | 显示可直接启动或已经配置的 Profile | 立即 |
 | `profile list --available` | 显示全部公开模板和当前状态 | 立即 |
 | `profile show` | 脱敏显示 Provider、端点、模型、密钥是否存在和数据去向 | 立即 |
-| `profile configure` | 保存用户 Profile；三家受管厂商只存密码中心引用，其他本地密钥接法保持兼容 | 下次启动 |
+| `profile configure` | 保存用户 Profile；需要 Key 时只存已登记厂商的密码中心引用 | 下次启动 |
 | `profile set-default` | 设置无参数入口优先使用的 Profile | 下次无参数运行 |
 | `profile remove` | 删除用户实例；不删除内置模板 | 立即 |
 
-删除型命令会先确认。使用 `--yes` 可跳过交互确认。删除最后一个引用某密钥的用户 Profile 时，也会删除本工具保存的对应 DPAPI 密钥文件；不会删除上游官方登录。
+删除型命令会先确认。使用 `--yes` 可跳过交互确认。删除用户 Profile 不会删除密码中心里的凭据，也不会删除上游官方登录。
 
 ### 3.2 当前公开 Profile
 
@@ -228,14 +228,14 @@ aicli profile remove qwen-work
 
 两个 Qwen exact Profile 都只接受北京百炼 Workspace 按量 Responses endpoint，并固定 983616 context、95% 有效窗口和 885254 token（最大上下文 90%）自动压缩阈值。`codex-qwen3-7-max-paygo` 只固定 `qwen3.7-max-2026-06-08`；`codex-qwen3-8-max-paygo` 只固定 `qwen3.8-max-0902`。用户 `max` 均映射 effective=`xhigh`。Qwen3.7 的通用 alias、其他快照、preview、Plus，以及 Qwen3.8 的可变 alias、preview、Token Plan 与模型覆盖继续失败关闭。
 
-配置过 `codex-qwen3-8-max-paygo` 后，Codex 桌面桥接会在每次启动时请求原生引擎刷新在线模型目录，并只接受带 `etag`、抓取时间和客户端版本的原生在线缓存，再把 `Qwen3.8 Max 0902` 合并进模型选择器。刷新会做三次有界重试；仍不可验证时交还原生 Codex。`debug models` 内部即使静默退回可能含旧模型的内置目录，其输出也不会进入菜单。密钥由受管 Profile 的加密副本按需交给 Codex 的 command-backed auth（命令取令牌认证）通道，不写入基础 `config.toml`、模型目录或全局环境变量。上游官方模型仍动态刷新；关闭或移除这条云 Profile 不会固定、过滤或覆盖 OpenAI 模型。
+配置过 `codex-qwen3-8-max-paygo` 后，Codex 桌面桥接会在每次启动时请求原生引擎刷新在线模型目录，并只接受带 `etag`、抓取时间和客户端版本的原生在线缓存，再把 `Qwen3.8 Max 0902` 合并进模型选择器。刷新会做三次有界重试；仍不可验证时交还原生 Codex。`debug models` 内部即使静默退回可能含旧模型的内置目录，其输出也不会进入菜单。密钥由密码中心按需交给 Codex 的 command-backed auth（命令取令牌认证）通道，不写入基础 `config.toml`、模型目录或全局环境变量。上游官方模型仍动态刷新；关闭或移除这条云 Profile 不会固定、过滤或覆盖 OpenAI 模型。
 
 `codex-deepseek-flash` 使用 DeepSeek 官方 Responses 端点 `https://api.deepseek.com` 和模型 ID `deepseek-flash`。桌面菜单显示“DeepSeek Flash”，不写死 V4.1 版本号；官方会把这个 Flash ID 指向当前 Flash 版本。它支持文本、图像、工具调用和 1M 上下文。旧 `deepseek-v4-flash` 已退役并拒绝启动；`deepseek-v4-pro` 仍是官方合法 ID，仅保留在独立 CLI Profile，不显示在桌面菜单。
 
 `codex-glm-5-3` 与 `codex-glm-5-3-flash` 使用智谱中国区 `https://open.bigmodel.cn/api/v1` Responses 端点，分别固定模型 ID `glm-5.3` 与 `glm-5.3-flash`，不使用 alias（动态别名）或 fallback（后备模型）。两者均声明 1048576 token 上下文、95% 有效窗口、943718 token（最大上下文 90%）自动压缩线和 `low` / `high` / `max` 推理档位；Flash 在 Codex 桌面目录中声明文本与图像输入。根任务和子代理默认使用简体中文，思考摘要与进度重点解释与你的目标有关的发现、原因和影响；需要调查或分步处理时，开始前会主动说明准备解决的问题，过程中在重要发现、阶段进展或调整方向时继续解释，不把说明全部留到结束。不固定行数，用你关心的目的和影响解释内部操作，也不为增加篇幅凑话。最终答复按问题需要展开，让必要细节足够清楚。两项 GLM 模型使用 Codex 的延迟工具搜索，插件工具按需加载；智谱 Responses 返回原始 reasoning content 时，桌面桥会把同一内容映射为可见思考。两个 Profile 共享 Password Center 的 `zhipu-glm-api` 凭据来源，但各自保留独立 Provider 与模型目录，切换不同服务的历史任务时仍需新建任务。
 
 同一套“开始前说明、多步过程中讲清重要发现和影响、最终答复保留必要解释”的表达方式也用于 AICLI 受管的本地 Qwen、云端 Qwen 和 DeepSeek Codex 模型。它不会改变你在菜单中选择的模型、模型速度、上下文长度或 OpenAI 官方模型；OpenAI 模型仍由 Codex 自己动态更新。其他模型的实际表达效果会随模型本身而不同，当前已由实际使用验收的是 GLM。
-Qwen、GLM 和 DeepSeek 的 Key 按厂商保存在密码中心，Profile 只引用 `passwordcenter:<厂商>`。CLI 在每次使用时通过一次性本机管道接收值，再注入实际客户端子进程环境；新版 Codex Desktop 的 command-backed auth 经桌面身份入口取值，原生认证管道不会把 Key 写入模型目录或普通配置。旧桌面桥按名字加载 0.3.19 模块时，其 `Get-AiCliSecret` 调用会转到同一厂商的普通终端交付，不再执行 `aicli-glm-codex-profile-import`，也不创建 DPAPI 副本。正在运行的旧桥可以继续取 key，不必为这次模块兼容改动重发旧桥。
+需要 Key 的 Profile 一律按厂商引用密码中心，`secretRef` 为 `passwordcenter:<vendor>`；厂商必须已在密码中心登记并提供 `native_hosts`，如 Qwen、GLM、DeepSeek 或 OpenRouter。CLI 在每次使用时通过一次性本机管道接收值，再注入实际客户端子进程环境；新版 Codex Desktop 的 command-backed auth 经桌面身份入口取值，原生认证管道不会把 Key 写入模型目录或普通配置。旧桌面桥按名字加载 0.3.19 模块时，其 `Get-AiCliSecret` 调用会转到同一厂商的普通终端交付，不再执行 `aicli-glm-codex-profile-import`，也不创建 DPAPI 副本。正在运行的旧桥可以继续取 key，不必为这次模块兼容改动重发旧桥。
 
 只配置引用不证明密码库已有可用 key。`profile show`、列表和 `doctor` 明确显示“引用已配置，密钥未验证”；真实调用成功才构成可用证据。桌面 auth.command 刷新间隔为 0，每轮可能重新解开密码库，验收应跑两轮并记录耗时。
 
@@ -277,7 +277,17 @@ aicli profile configure codex-deepseek-flash
 aicli profile configure codex-deepseek-v4-pro --reuse-secret-from codex-deepseek-flash
 ```
 
-配置过程中先显示引擎、Provider、套餐和数据去向。Qwen、GLM、DeepSeek 直接保存厂商引用，不询问或复制 Key；保留的其他本地密钥接法仍使用 CurrentUser 存储。运行时秘密不写入 Git、日志、`profile show`、`native` 或 `eject` 新生成的启动脚本；`eject` 复制的已有配置保留原始内容。
+配置过程中先显示引擎、Provider、套餐和数据去向。需要 Key 时，Provider 名称须对应密码中心中已登记且带 `native_hosts` 的厂商；配置只保存 `passwordcenter:<vendor>` 引用，不询问 Key、不创建本地 DPAPI 副本。未登记厂商或读取不到登记时会给出明确提示，须先在密码中心完成登记。运行时秘密不写入 Git、日志、`profile show`、`native` 或 `eject` 新生成的启动脚本；`eject` 复制的已有配置保留原始内容。
+
+旧本地密文只在迁移期兼容读取。用 PowerShell 导入已安装模块后，先预览，再迁移：
+
+```powershell
+Import-Module AiCliProfileManager
+Invoke-AiCliSecretMigration -DryRun
+Invoke-AiCliSecretMigration
+```
+
+迁移命令扫描用户 Profile 中的旧 hex 引用，以端点主机匹配密码中心 `api_vendors` 的 `native_hosts`，例如 `api.deepseek.com` 对应 DeepSeek、`openrouter.ai` 对应 OpenRouter。密码中心已有值且与旧值相同才备份并原子改写 Profile；条目缺失时，旧值仅经子进程标准输入存入密码中心，回读一致后才改写。值不同报告 `value_differs`，未匹配到厂商报告 `vendor_not_registered`，两种情况都保持原 Profile 不动。`-DryRun` 不写入 Profile 或密码中心。输出只含 Profile ID、厂商、动作和状态码；命令不会删除旧密文文件。
 
 ### 3.4 启动、查看与导出
 
@@ -466,7 +476,7 @@ aicli uninstall --yes
 
 普通卸载会完整移除当前用户模块、`%LOCALAPPDATA%\aicli\bin` 命令垫片、安装器加入的用户 `PATH` 项，以及带产品标记的 PowerShell Profile 自动导入块；不需要再手动清理这些安装集成。
 
-普通卸载默认保留用户 Profile、DPAPI 密钥和导出物，便于以后重装恢复。它不会卸载 Codex、Claude Code、Open Interpreter、Ollama、本地模型，也不会删除上游官方登录。
+普通卸载默认保留用户 Profile、迁移期旧密文和导出物，便于以后重装恢复。它不会卸载 Codex、Claude Code、Open Interpreter、Ollama、本地模型，也不会删除密码中心凭据或上游官方登录。
 
 ### 8.2 彻底清理本工具数据
 
@@ -474,14 +484,14 @@ aicli uninstall --yes
 aicli uninstall --purge-user-data --yes
 ```
 
-`--purge-user-data` 删除本工具的 Profile、DPAPI 密钥、日志和缓存。它不代表远程 OAuth 已撤销。
+`--purge-user-data` 删除本工具的 Profile、迁移期旧密文、日志和缓存；密码中心里的凭据保留。它不代表远程 OAuth 已撤销。
 
 ### 8.3 数据位置与去向
 
 | 内容 | 默认位置 |
 |------|----------|
 | Profile、书签和非秘密设置 | `%APPDATA%\AiCliProfileManager` |
-| DPAPI 密文、状态、缓存和日志 | `%LOCALAPPDATA%\AiCliProfileManager` |
+| 迁移期旧密文、状态、缓存和日志 | `%LOCALAPPDATA%\AiCliProfileManager` |
 | 命令垫片 | `%LOCALAPPDATA%\aicli\bin` |
 
 工具自身默认无遥测。使用某个 Profile 时，提示、项目上下文和相关数据会发送到 `profile show` 显示的 Provider；Ollama 在本机处理，Open Interpreter 还可能在本机执行代码。Live Test 会联系目标 Provider，并可能消耗额度，但不保存提示或回复正文。

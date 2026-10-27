@@ -579,9 +579,6 @@ function New-AiCliRecoverableRun {
         Out-Null
     $null = Assert-AiCliRecoveryPathChain -Path (Join-Path $root 'segments')
     $null = Assert-AiCliRecoveryPathChain -Path (Join-Path $root 'codex-home')
-    if (-not [bool](Get-AiCliProperty (Get-AiCliAppPaths) 'IsTestRoot' $false)) {
-        Set-AiCliSecretAcl -Path $root
-    }
     $now = (Get-Date).ToUniversalTime().ToString('o')
     $state = [ordered]@{
         schema = 'aicli.recoverable-run.v1'

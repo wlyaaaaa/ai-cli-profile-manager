@@ -1,4 +1,4 @@
-﻿# DPAPI CurrentUser secret store — secrets never logged or exported in cleartext.
+﻿# Password Center references; DPAPI decryption is read-only legacy migration compatibility.
 
 try {
     Add-Type -AssemblyName System.Security.Cryptography.ProtectedData -ErrorAction Stop
@@ -15,16 +15,7 @@ function Get-AiCliSecretEntropy {
     return [Text.Encoding]::UTF8.GetBytes($s)
 }
 
-function Protect-AiCliSecretBytes {
-    param([byte[]]$PlainBytes, [int]$FormatVersion = 1)
-    $entropy = Get-AiCliSecretEntropy -FormatVersion $FormatVersion
-    return [System.Security.Cryptography.ProtectedData]::Protect(
-        $PlainBytes,
-        $entropy,
-        [System.Security.Cryptography.DataProtectionScope]::CurrentUser
-    )
-}
-
+# Retained only to read old 32-hex references during migration; never write new ciphertext.
 function Unprotect-AiCliSecretBytes {
     param([byte[]]$CipherBytes, [int]$FormatVersion = 1)
     $entropy = Get-AiCliSecretEntropy -FormatVersion $FormatVersion
@@ -35,86 +26,12 @@ function Unprotect-AiCliSecretBytes {
     )
 }
 
-function Set-AiCliSecretAcl {
-    param([string]$Path)
-    try {
-        $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-        $icacls = Join-Path $env:SystemRoot 'System32\icacls.exe'
-        $apply = {
-            param([string]$Target, [bool]$Container)
-            $suffix = if ($Container) { ':(OI)(CI)F' } else { ':F' }
-            $psi = [System.Diagnostics.ProcessStartInfo]::new()
-            $psi.FileName = $icacls
-            $psi.UseShellExecute = $false
-            $psi.CreateNoWindow = $true
-            $psi.RedirectStandardOutput = $true
-            $psi.RedirectStandardError = $true
-            foreach ($arg in @(
-                $Target, '/inheritance:r',
-                '/grant:r', ('*' + $sid + $suffix),
-                '/grant:r', ('*S-1-5-18' + $suffix),
-                '/grant:r', ('*S-1-5-32-544' + $suffix),
-                '/Q'
-            )) { [void]$psi.ArgumentList.Add($arg) }
-            $proc = [System.Diagnostics.Process]::Start($psi)
-            $proc.WaitForExit()
-            if ($proc.ExitCode -ne 0) {
-                $err = Protect-AiCliSecretText $proc.StandardError.ReadToEnd()
-                throw "icacls exit=$($proc.ExitCode) $err"
-            }
-            $proc.Dispose()
-        }
-        $item = Get-Item -LiteralPath $Path -Force
-        $isContainer = $item.PSIsContainer
-        & $apply $item.FullName $isContainer
-        if ($isContainer) {
-            foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force -Recurse -ErrorAction Stop)) {
-                & $apply $child.FullName $child.PSIsContainer
-            }
-        }
-    } catch {
-        Write-AiCliLog -Level Warn -Message "无法收紧秘密目录 ACL: $($_.Exception.Message)"
-    }
-}
-
-function New-AiCliSecret {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$PlainText,
-        [string]$Label = 'api-key'
-    )
-    if ([string]::IsNullOrEmpty($PlainText)) {
-        throw '秘密值不能为空'
-    }
-    $paths = Initialize-AiCliDirectories
-    Set-AiCliSecretAcl -Path $paths.SecretsDir
-    $id = [guid]::NewGuid().ToString('N')
-    $formatVersion = 1
-    $plainBytes = [Text.Encoding]::UTF8.GetBytes($PlainText)
-    try {
-        $cipher = Protect-AiCliSecretBytes -PlainBytes $plainBytes -FormatVersion $formatVersion
-    } finally {
-        [Array]::Clear($plainBytes, 0, $plainBytes.Length)
-    }
-    $meta = [ordered]@{
-        schemaVersion = 1
-        formatVersion = $formatVersion
-        id            = $id
-        label         = $Label
-        createdUtc    = (Get-Date).ToUniversalTime().ToString('o')
-        cipherBase64  = [Convert]::ToBase64String($cipher)
-    }
-    $file = Join-Path $paths.SecretsDir "$id.json"
-    Write-AiCliJsonFile -Path $file -Value $meta
-    return $id
-}
-
 function Get-AiCliSecret {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$SecretId)
     # Old Desktop releases import the newest module by name and call this
     # function with the resolved reference. Keep that call shape compatible.
-    if ($SecretId -match '^passwordcenter:(qwen|glm|deepseek)$') {
+    if ($SecretId -match '^passwordcenter:([a-z0-9][a-z0-9_-]*)$') {
         $vendor = $Matches[1]
         return Request-AiCliVendorCredential -Vendor $vendor -Endpoint (Get-AiCliVendorDefaultEndpoint -Vendor $vendor)
     }
@@ -144,7 +61,7 @@ function Test-AiCliSecretExists {
     param([string]$SecretId)
     # A reference cannot prove that the vault contains a usable key. No fetch
     # is performed by this local-presence probe; null explicitly means unknown.
-    if ($SecretId -match '^passwordcenter:(qwen|glm|deepseek)$') { return $null }
+    if ($SecretId -match '^passwordcenter:') { return $null }
     if ([string]::IsNullOrWhiteSpace($SecretId)) { return $false }
     try { $safeId = Assert-AiCliSecretIdentifier -Id $SecretId } catch { return $false }
     $paths = Get-AiCliAppPaths

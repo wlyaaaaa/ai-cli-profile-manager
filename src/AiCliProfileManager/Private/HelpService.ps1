@@ -40,6 +40,7 @@ $name — 命令帮助
   $cmd test <profile> --live [--level text|tool|agent|all] [--yes]
   $cmd native <profile>
   $cmd eject <profile>
+  Invoke-AiCliSecretMigration [-DryRun]  # PowerShell：迁移旧密文引用到密码中心，保留旧密文
   $cmd help setup|profile|start|run|diagnose|doctor|test|update|native|eject|uninstall
   $cmd help compact|model|effort|permissions|resume|compare
 
@@ -214,7 +215,7 @@ function Show-AiCliHelpCommand {
     param([Parameter(Mandatory)][string]$Command)
     $rows = [ordered]@{
         setup     = @('首次引导与本机体检。','aicli setup','显示环境状态并选择要配置的 Profile。')
-        profile   = @('查看、配置、设默认值或删除用户 Profile。','aicli profile list --available；aicli profile configure <模板 ID> [--reuse-existing-secret | --reuse-secret-from <Profile ID>]；aicli profile remove <ID>','秘密复用只允许同一凭据域且不读取明文；删除最后一个引用某密钥的 Profile 时，也会删除对应 DPAPI 密钥文件。')
+        profile   = @('查看、配置、设默认值或删除用户 Profile。','aicli profile list --available；aicli profile configure <模板 ID>；aicli profile remove <ID>','需要 Key 的 Profile 只保存密码中心引用；删除 Profile 保留密码中心凭据和迁移期旧密文。')
         start     = @('在指定项目目录中启动真实上游 CLI。','aicli start <精确 Profile ID> --project <项目路径>','第三方 Profile 封闭 Provider、模型、Responses、max 映射和 SecretRef；用户无需拼底层参数。')
         run       = @('供上层程序通过 stdin 调用可恢复、受墙钟/步数/工具/输出预算监管的任务；预算不等于权限沙箱。','aicli run start <Profile ID> --stdin --json --project <路径> [--background]；aicli run status|resume|abort <run-id> --json','所有当前及未来 Codex harness Profile 固定使用原生 danger-full-access，并默认提供受管 public_web_search。每个 run 绑定持久 thread/session 与工作区/Profile/模型/Provider/effort；恢复身份变化、证据链损坏或新 thread 都失败关闭。后台控制器可供 benchmark 轮询，瞬态错误最多自动 exact-resume 3 次。')
         diagnose  = @('只读查看模块来源、版本与桌面发布文件；不初始化目录、不读凭据、不调用模型。','aicli diagnose --json [--bridge-registry <登记文件>]','配置、安装哈希、实际进程加载和端到端证据分别报告；未验证项保持 unknown。')
@@ -223,7 +224,7 @@ function Show-AiCliHelpCommand {
         update    = @('检查本工具和上游 CLI 版本，或显示官方更新命令。','aicli update check；aicli update guide codex','只报告与指导，不静默自动升级。')
         native    = @('查看实际可执行文件、参数、子进程环境和数据去向。','aicli native <Profile ID>','秘密字段始终脱敏。')
         eject     = @('导出不含秘密的独立启动配方。','aicli eject <Profile ID> --output <新目录>','不会导出 API Key/OAuth；运行前需自行提供密钥。')
-        uninstall = @('卸载模块；默认保留用户数据。','aicli uninstall [--purge-user-data] [--yes]','purge 才删除 Profile、DPAPI 密钥和日志等本工具数据；不等于远程撤销 OAuth。')
+        uninstall = @('卸载模块；默认保留用户数据。','aicli uninstall [--purge-user-data] [--yes]','purge 才删除 Profile、迁移期旧密文和日志等本工具数据；保留密码中心凭据，不等于远程撤销 OAuth。')
     }
     $row = $rows[$Command]
     Write-Host ("# {0}`n`n功能：{1}`n`n命令：{2}`n`n效果：{3}" -f $Command,$row[0],$row[1],$row[2])

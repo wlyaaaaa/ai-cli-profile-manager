@@ -5,6 +5,52 @@
 }
 
 Describe 'Vendor credential references' {
+    BeforeEach {
+        InModuleScope AiCliProfileManager {
+            Mock Get-AiCliVendorRegistrations { @{
+                qwen=@{native_hosts=@('dashscope.aliyuncs.com');origins=@{http='https://dashscope.aliyuncs.com'}}
+                glm=@{native_hosts=@('open.bigmodel.cn');origins=@{http='https://open.bigmodel.cn/api/v1'}}
+                deepseek=@{native_hosts=@('api.deepseek.com');origins=@{http='https://api.deepseek.com'}}
+                openrouter=@{native_hosts=@('openrouter.ai');origins=@{http='https://openrouter.ai'}}
+            } }
+        }
+    }
+    It 'accepts a newly registered vendor and rejects an unregistered reference' {
+        InModuleScope AiCliProfileManager {
+            $profile = @{ provider='openrouter'; auth=@{type='api-key'}; secretRef='passwordcenter:openrouter'; endpoint='https://openrouter.ai/api' }
+            Get-AiCliVendorSecretRef $profile | Should -BeExactly 'passwordcenter:openrouter'
+            Mock Request-AiCliVendorCredential { 'synthetic-openrouter-key' }
+            Get-AiCliProfileSecret $profile | Should -BeExactly 'synthetic-openrouter-key'
+            { Get-AiCliSecret 'passwordcenter:unknown-vendor' } | Should -Throw '*vendor_not_registered*'
+            Should -Invoke Request-AiCliVendorCredential -Times 1 -Exactly
+        }
+    }
+    It 'preserves the registered reference of a migrated custom Profile' {
+        InModuleScope AiCliProfileManager {
+            Mock Get-AiCliSettings { @{ verification=@{} } }
+            Mock Get-AiCliVendorSecretRef { throw 'must preserve the explicit reference' }
+            $profile = Merge-AiCliProfile -Template (Get-AiCliProviderManifest 'claude-custom') -UserProfile @{
+                id='claude-openrouter-fixture'; templateId='claude-custom'; secretRef='passwordcenter:openrouter'
+                endpoint='https://openrouter.ai/api'; models=@{primary='fixture-model'}
+            }
+            $profile.secretRef | Should -BeExactly 'passwordcenter:openrouter'
+            $profile.configured | Should -BeTrue
+            $profile.secretConfigured | Should -BeTrue
+            $profile.referenceConfigured | Should -BeTrue
+            $profile.keyAvailability | Should -BeExactly 'not-checked'
+        }
+    }
+    It 'asks for registration rather than a key for an unregistered provider' {
+        InModuleScope AiCliProfileManager {
+            $template = Get-AiCliProviderManifest 'codex-glm-5-3'
+            $template.provider = 'not-registered'
+            Mock Get-AiCliProviderManifest { $template }
+            Mock Get-AiCliUserProfile { $null }
+            Mock Read-AiCliSecret { throw 'must not ask for a key' }
+            { Invoke-AiCliProfileConfigure 'codex-glm-5-3' } | Should -Throw '*请先登记厂商*'
+            Should -Invoke Read-AiCliSecret -Times 0
+        }
+    }
     It 'does not turn a configured vendor reference into verified key presence' {
         InModuleScope AiCliProfileManager {
             Mock Get-AiCliUserProfile { $null }
@@ -62,7 +108,6 @@ Describe 'Vendor credential references' {
         InModuleScope AiCliProfileManager {
             Mock Get-AiCliUserProfile { $null }
             Mock Save-AiCliUserProfile {}
-            Mock New-AiCliSecret { throw 'must not copy a key' }
             Mock Read-AiCliSecret { throw 'must not ask for a key' }
             $profile = Invoke-AiCliProfileConfigure -TemplateId 'codex-glm-5-3' -ProfileId 'codex-vendor-custom' -Model 'glm-future-99'
             $profile.secretRef | Should -BeExactly 'passwordcenter:glm'
@@ -70,7 +115,7 @@ Describe 'Vendor credential references' {
             $merged = Merge-AiCliProfile -Template (Get-AiCliProviderManifest 'codex-glm-5-3') -UserProfile $profile
             $merged.models.primary | Should -BeExactly 'glm-future-99'
             $merged.codexModelCatalog | Should -BeNullOrEmpty
-            Should -Invoke New-AiCliSecret -Times 0
+            Get-Command New-AiCliSecret -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
             Should -Invoke Read-AiCliSecret -Times 0
         }
     }
@@ -113,6 +158,22 @@ try {$p.Connect(10000); $b=[Text.Encoding]::UTF8.GetBytes('synthetic-aicli-vendo
                 $value = $null
             }
             @(Get-ChildItem -LiteralPath (Join-Path $Work 'vendor-requests') -File).Count | Should -Be 0
+        }
+    }
+}
+
+Describe 'Installed vendor metadata' {
+    It 'requires native hosts and reports an unreadable registration explicitly' {
+        $hostRoot = Join-Path $TestDrive 'authority-host'
+        [IO.Directory]::CreateDirectory((Join-Path $hostRoot 'registries')) | Out-Null
+        $registry = Join-Path $hostRoot 'registries/secret_broker.json'
+        @{api_vendors=@{openrouter=@{native_hosts=@('openrouter.ai');origins=@{http='https://openrouter.ai'}};no_native=@{origins=@{http='https://invalid.example'}}}} | ConvertTo-Json -Depth 8 | Set-Content $registry
+        InModuleScope AiCliProfileManager -Parameters @{ HostRoot=$hostRoot; Registry=$registry } {
+            Mock Get-AiCliVendorBrokerPath { Join-Path $HostRoot 'tools/Invoke-PasswordCenterVendor.ps1' }
+            (Get-AiCliVendorRegistrations).Contains('no_native') | Should -BeFalse
+            Get-AiCliVendorDefaultEndpoint 'openrouter' | Should -BeExactly 'https://openrouter.ai'
+            Remove-Item -LiteralPath $Registry
+            { Get-AiCliVendorRegistrations } | Should -Throw '*vendor_registration_unavailable*'
         }
     }
 }

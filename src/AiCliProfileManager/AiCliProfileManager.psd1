@@ -7,7 +7,7 @@
     Copyright         = 'Copyright (c) 2026 AI CLI Profile Manager Contributors'
     Description       = 'Windows PowerShell profile launcher and sandboxed machine runner for Codex CLI, Claude Code, Qwen Code, OpenCode, and Open Interpreter.'
     PowerShellVersion = '7.0'
-    FunctionsToExport = @('Invoke-AiCli', 'aicli', 'Get-AiCliBrand', 'Get-AiCliVersion', 'Get-AiCliAppPaths')
+    FunctionsToExport = @('Invoke-AiCli', 'aicli', 'Get-AiCliBrand', 'Get-AiCliVersion', 'Get-AiCliAppPaths', 'Invoke-AiCliSecretMigration')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()
