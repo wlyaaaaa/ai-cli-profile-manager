@@ -14,13 +14,14 @@
 
 ## 产品安全边界
 
-- API Key 使用 Windows DPAPI CurrentUser 保存，不进入命令参数、Git、日志、Doctor JSON、异常、导出脚本或测试快照。
+- Qwen/GLM/DeepSeek 的 API Key 引用密码中心，其他已有本地凭据存储保持兼容。运行时秘密不进入命令参数、Git、日志、Doctor JSON、异常或新生成的导出脚本。eject 对已有本机配置按字节原样复制，副本可能保留原有秘密；密码中心引用在生成脚本运行时取值。
+- 普通端点和工作区 ID 原样显示；输出过滤仍覆盖真实密码、令牌和其他凭据。
 - Provider 环境只注入目标子进程；不永久改写全局 Provider 变量或用户基础配置。
 - 自定义远程明文 HTTP 默认拒绝；仅允许 HTTPS 或 localhost HTTP。
 - 受管代理只允许 IPv4 loopback `127.0.0.1`，不开放防火墙或远程管理。
 - 第三方代理 Windows artifact 必须匹配产品批准的精确 SHA256，并在安装前通过安全解压与结构验证；启动时还必须通过进程身份、健康响应和 IPv4 loopback 监听验证，才会保存运行状态。`0.1.0` 不执行已安装代理的受管版本切换。
 - Live Tool Test 只允许隔离的单用途 nonce 工具；无法证明隔离时跳过并报告限制。
-- Open Interpreter 只支持官方 Rust `0.0.21+`；默认不启用审批或沙箱绕过。
+- Open Interpreter 只支持官方 Rust `0.0.21+`；默认沿用上游权限设置，允许显式透传 `--yolo`、`--dangerously-bypass-approvals-and-sandbox`。旧 Python 参数和与 Profile 冲突的参数仍拒绝。
 - 官方或需模型传输联网的 Codex machine run 使用 Codex 原生 app-server 沙箱；本地 Ollama Codex 及其他适用引擎使用禁网的 Windows 外层沙箱。没有可验证的对应边界时拒绝运行，不无沙箱降级。
 - Codex CLI `0.145.x` 的原生 `workspace-write` 必须在 `thread/start` 和 `turn/start` 同时传入 `permissions=:workspace` 与唯一的 `runtimeWorkspaceRoots`，且该根精确等于请求 `cwd`。桥接器回读实际 `workspaceWrite`、`:workspace` 和同一根，并在模型调用前执行写探针；空根、根漂移或探针失败都会提前失败。`approvalPolicy=never` 是固定合同，任何审批或用户输入 RPC 均失败关闭。
 - machine run 的调用接口只从 stdin 接收任务正文，不把正文放入进程参数。Codex 原生路径直接通过内存桥接；外层沙箱路径才使用受限 ACL 的随机命名管道。临时 Qwen/Codex/Claude/OpenCode 配置与运行目录在任务结束后删除。

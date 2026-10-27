@@ -21,7 +21,7 @@
 ## 配置、恢复与验证
 
 - 不永久写全局 Provider 变量，不覆盖用户基础 config/settings 或官方登录；只在真实 CODEX_HOME 维护身份可验证的派生配置，保留未知或用户改过的文件。
-- Qwen/GLM/DeepSeek 使用 passwordcenter:厂商 引用密码中心已有凭据，不按 Profile 创建 DPAPI 副本；其他已有凭据存储保持兼容。值只进入一次性管道或必要客户端子进程；不进入参数、Git、日志、异常、导出或快照。禁止字符串执行用户参数。自定义远端明文 HTTP 默认拒绝。
+- Qwen/GLM/DeepSeek 使用 passwordcenter:厂商 引用密码中心已有凭据，不按 Profile 创建 DPAPI 副本；其他已有凭据存储保持兼容。运行时凭据值只进入一次性管道或必要客户端子进程，不进入参数、Git、日志、异常或新生成的启动脚本。eject 将已有本机配置按字节原样复制到选定目录，生成脚本保留密码中心引用或运行时输入。普通端点与工作区 ID 原样显示；真实凭据仍须过滤输出。Open Interpreter 允许显式传入上游支持的权限参数，保留不存在或冲突参数检查。禁止字符串执行用户参数。自定义远端明文 HTTP 默认拒绝。
 - 普通卸载保留上游 CLI、登录、本地模型、Profile 和秘密；彻底清理另列准确范围。删除本地 OAuth 文件不代表远端撤销；模块更新不顺手替换独立登记的 Desktop 桥。
 - Windows 路径用 Known Folders；中文 PowerShell 脚本用 UTF-8 BOM，Markdown/JSON 用 UTF-8 无 BOM。
 - 离线验证：`pwsh -File scripts/Test-Release.ps1`、Pester 5.5+ 的 `Invoke-Pester -Path tests`；发行再跑 `scripts/Build.ps1`。覆盖参数、中文路径、隔离、原子写入、端口竞争和恢复。

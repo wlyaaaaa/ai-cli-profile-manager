@@ -275,7 +275,7 @@ aicli profile configure codex-deepseek-flash
 aicli profile configure codex-deepseek-v4-pro --reuse-secret-from codex-deepseek-flash
 ```
 
-配置过程中先显示引擎、Provider、套餐和数据去向。Qwen、GLM、DeepSeek 直接保存厂商引用，不询问或复制 Key；保留的其他本地密钥接法仍使用 CurrentUser 存储。秘密不写入 Git、日志、`profile show`、`native` 或 `eject`。
+配置过程中先显示引擎、Provider、套餐和数据去向。Qwen、GLM、DeepSeek 直接保存厂商引用，不询问或复制 Key；保留的其他本地密钥接法仍使用 CurrentUser 存储。运行时秘密不写入 Git、日志、`profile show`、`native` 或 `eject` 新生成的启动脚本；`eject` 复制的已有配置保留原始内容。
 
 ### 3.4 启动、查看与导出
 
@@ -286,8 +286,8 @@ aicli eject claude-custom --output .\export-claude-custom
 ```
 
 - `start` 启动真实上游 CLI。
-- `native` 脱敏显示可执行文件、配置、环境差异和数据去向，不执行模型请求。
-- `eject` 导出不含 Key/OAuth 的独立配方；目标目录已存在时应换一个新目录。
+- `native` 显示可执行文件、配置、环境差异和数据去向，保留普通端点与工作区 ID，过滤真实凭据，不执行模型请求。
+- `eject` 将已有本机配置按字节原样复制，保留编码、换行和其中原有的内容；生成的 `start.ps1` 不嵌入 Key/OAuth，密码中心引用在运行时通过本机交付入口取值，其他凭据使用 `AICLI_EJECT_SECRET`。目标目录已存在时应换一个新目录；分享副本前请自行检查已有配置。
 
 原生参数必须放在双横线之后：
 
@@ -365,7 +365,7 @@ aicli doctor
 aicli start oi-ollama
 ```
 
-aicli 通过 Rust CLI 的临时 `-c` 配置层写入 Provider、模型、`base_url` 和 `wire_api`。云端 Key 只进入目标子进程环境变量，且明确从 OI Shell 工具环境中排除；不会放进命令行参数。默认不启用跳过审批、跳过沙箱或旧版 `auto_run` 参数。
+aicli 通过 Rust CLI 的临时 `-c` 配置层写入 Provider、模型、`base_url` 和 `wire_api`。云端 Key 只进入目标子进程环境变量，且明确从 OI Shell 工具环境中排除；不会放进命令行参数。默认沿用上游权限设置；可在 `--` 后显式传入 Rust CLI 支持的 `--yolo` 或 `--dangerously-bypass-approvals-and-sandbox`。旧 Python 版 `--auto_run`、`--auto-run`、`-y` 及与 Profile 冲突的参数仍拒绝。
 
 Open Interpreter 仍具备本机代码执行能力。只在信任的项目目录和 Provider 中使用，并在 OI 自己的 `/permissions` 中确认权限。
 

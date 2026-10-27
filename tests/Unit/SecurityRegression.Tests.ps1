@@ -626,23 +626,64 @@ Describe 'Secret redaction and eject' {
         }
     }
 
-    It 'never writes an environment canary into an eject directory' {
+    It 'copies existing config bytes while keeping generated recipes and output free of credentials' -TestCases @(
+        @{ Reference = $null }, @{ Reference = 'passwordcenter:deepseek' }
+    ) {
+        param($Reference)
         $out = Join-Path $TestDrive 'eject-canary'
-        InModuleScope AiCliProfileManager -Parameters @{ Out = $out } {
+        if ($Reference) { $out += '-vendor' }
+        $config = Join-Path $TestDrive '配置.toml'
+        $raw = "endpoint='https://ws-example.cn-beijing.maas.aliyuncs.com'`r`napi_key=CANARY_EXISTING_CONFIG_123`r`n# 中文`r`n"
+        [IO.File]::WriteAllText($config, $raw, [Text.UTF8Encoding]::new($true))
+        InModuleScope AiCliProfileManager -Parameters @{ Out = $out; Config = $config; Reference = $Reference } {
             Mock Get-AiCliResolvedProfile {
-                [ordered]@{ id='fake'; engine='interpreter'; dataDestination='test'; configured=$true }
+                [ordered]@{ id='fake'; engine='interpreter'; dataDestination='test'; configured=$true
+                    secretRef=$Reference; endpoint='https://example.com/v1' }
             }
             Mock Build-AiCliLaunchPlan {
                 [pscustomobject]@{
                     engine='interpreter'; fileName='C:\fake\interpreter.exe'; argumentList=@('-c','model="x"')
                     workingDirectory='C:\work'; environmentDelta=@{ AICLI_OI_PROVIDER_KEY='CANARY_EJECT_SECRET_123' }
-                    removeEnvironment=@(); configFiles=@(); notes=@('test')
+                    removeEnvironment=@(); configFiles=@($Config); notes=@('test')
                 }
             }
-            Export-AiCliEject -ProfileId 'fake' -OutputPath $Out | Out-Null
-            $allText = (Get-ChildItem -LiteralPath $Out -Recurse -File | Get-Content -Raw) -join "`n"
+            $output = Export-AiCliEject -ProfileId 'fake' -OutputPath $Out 6>&1 | Out-String
+            $start = Get-Content -LiteralPath (Join-Path $Out 'start.ps1') -Raw
+            $allText = $start + (Get-Content -LiteralPath (Join-Path $Out 'README.md') -Raw) + $output
             $allText | Should -Not -Match 'CANARY_EJECT_SECRET_123'
-            $allText | Should -Match 'AICLI_EJECT_SECRET'
+            $allText | Should -Not -Match 'CANARY_EXISTING_CONFIG_123'
+            $copy = Join-Path $Out (Split-Path -Leaf $Config)
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes($copy)) |
+                Should -BeExactly ([Convert]::ToBase64String([IO.File]::ReadAllBytes($Config)))
+            $tokens = $null; $parseErrors = $null
+            $ast = [Management.Automation.Language.Parser]::ParseInput($start, [ref]$tokens, [ref]$parseErrors)
+            $parseErrors | Should -BeNullOrEmpty
+            if ($Reference) {
+                $start | Should -Match 'passwordcenter:deepseek'
+                $start | Should -Match "Request-AiCliVendorCredential -Vendor 'deepseek' -Endpoint 'https://example.com/v1'"
+                $start | Should -Match 'NamedPipeServerStream'
+                # Run the exported resolver with a synthetic pipe broker, without aicli functions.
+                $broker = Join-Path $Out 'synthetic-broker.ps1'
+                [IO.File]::WriteAllText($broker, @'
+param($Vendor, $RequestPath, [switch]$Json, [switch]$NativeClient)
+$request = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json
+$pipe = [IO.Pipes.NamedPipeClientStream]::new('.', $request.pipe_name, [IO.Pipes.PipeDirection]::Out)
+$pipe.Connect(5000)
+$writer = [IO.StreamWriter]::new($pipe, [Text.UTF8Encoding]::new($false))
+$writer.Write('PUBLIC_TEST_PIPE_CREDENTIAL'); $writer.Dispose(); $pipe.Dispose()
+'@, [Text.UTF8Encoding]::new($true))
+                $definitions = $ast.FindAll({ param($node)
+                    $node -is [Management.Automation.Language.FunctionDefinitionAst]
+                }, $false)
+                $resolved = & {
+                    foreach ($definition in $definitions) {
+                        . ([scriptblock]::Create($definition.Extent.Text))
+                    }
+                    function Get-AiCliVendorBrokerPath { $broker }
+                    Request-AiCliVendorCredential -Vendor 'deepseek' -Endpoint 'https://example.com/v1'
+                }
+                $resolved | Should -BeExactly 'PUBLIC_TEST_PIPE_CREDENTIAL'
+            } else { $start | Should -Match 'AICLI_EJECT_SECRET' }
         }
     }
 }

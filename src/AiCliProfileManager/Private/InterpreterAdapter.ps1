@@ -107,7 +107,6 @@ function Get-AiCliInterpreterReservedArgs {
     return @(
         '-c', '--config', '-m', '--model', '--oss', '--local-provider', '-p', '--profile',
         '--remote', '--remote-auth-token-env',
-        '--dangerously-bypass-approvals-and-sandbox', '--yolo',
         '--auto_run', '--auto-run', '-y',
         '--api_base', '--api-base', '-ab', '--api_key', '--api-key', '-ak',
         '--offline', '--disable_telemetry'
@@ -121,7 +120,7 @@ function Assert-AiCliInterpreterNativeArgs {
         $value = [string]$arg
         foreach ($reservedArg in $reserved) {
             if ($value -eq $reservedArg -or $value.StartsWith("$reservedArg=")) {
-                throw "Parameter $value conflicts with the managed Open Interpreter provider or safety configuration."
+                throw "Parameter $value is unsupported by Rust Open Interpreter or conflicts with the managed provider/model configuration."
             }
         }
     }
@@ -243,7 +242,7 @@ function Build-AiCliInterpreterLaunchPlan {
         "base_url: $endpoint"
         "model: $model; wire_api: $wireApi"
         'API key is injected only as AICLI_OI_PROVIDER_KEY in the child process environment.'
-        'The shell tool explicitly excludes AICLI_OI_PROVIDER_KEY; no auto-run or sandbox bypass is enabled.'
+        'The shell tool explicitly excludes AICLI_OI_PROVIDER_KEY; permissions follow native defaults and explicit caller arguments.'
         "launcher: $($resolved.Kind) -> $($resolved.FileName)"
     )
     $destination = Get-AiCliProperty $MergedProfile 'dataDestination'

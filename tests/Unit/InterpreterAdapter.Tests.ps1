@@ -64,9 +64,10 @@ Describe 'Rust Open Interpreter adapter' {
                 requiresSecret = $true; secretConfigured = $true; secretRef = 'secret-ref'
             }
 
-            $plan = Build-AiCliInterpreterLaunchPlan -MergedProfile $profile -ProjectPath 'C:\work'
+            $plan = Build-AiCliInterpreterLaunchPlan -MergedProfile $profile -ProjectPath 'C:\work' -NativeArgs @('--yolo')
             $argv = $plan.argumentList -join ' '
 
+            $plan.argumentList | Should -Contain '--yolo'
             $argv | Should -Not -Match 'CANARY_OI_SECRET_123456'
             $argv | Should -Not -Match '(?i)api[_-]?key'
             $argv | Should -Match 'model_provider="aicli_qwen"'
@@ -131,8 +132,16 @@ Describe 'Rust Open Interpreter adapter' {
             $plan.environmentDelta.ContainsKey('CODEX_HOME') | Should -BeFalse
         }
 
+        It 'passes native permission options to the upstream parser' {
+            foreach ($argsToPass in @(@('--yolo'), @('--dangerously-bypass-approvals-and-sandbox'), @('--ask-for-approval', 'never'), @('--sandbox', 'danger-full-access'))) {
+                { Assert-AiCliInterpreterNativeArgs -NativeArgList $argsToPass } | Should -Not -Throw
+            }
+        }
+
         It 'blocks legacy auto-run and provider override flags' {
-            { Assert-AiCliInterpreterNativeArgs -NativeArgList @('--auto_run') } | Should -Throw
+            foreach ($legacyArg in @('--auto_run', '--auto-run', '-y')) {
+                { Assert-AiCliInterpreterNativeArgs -NativeArgList @($legacyArg) } | Should -Throw
+            }
             { Assert-AiCliInterpreterNativeArgs -NativeArgList @('--api_key', 'x') } | Should -Throw
             { Assert-AiCliInterpreterNativeArgs -NativeArgList @('-c', 'model_provider="other"') } | Should -Throw
         }

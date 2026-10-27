@@ -151,13 +151,13 @@ function Export-AiCliEject {
     $readme = @"
 # 导出配方: $ProfileId
 
-由 $(Get-AiCliProductName) eject 生成。不含 API Key / OAuth。
+由 $(Get-AiCliProductName) eject 生成。已有配置文件按原始字节复制；生成的启动脚本不嵌入 API Key / OAuth。
 
 ## 引擎
 $((Get-AiCliProperty $plan 'engine'))
 
 ## 启动
-见 ``start.ps1``。运行前请自行设置密钥环境变量。
+见 ``start.ps1``。密码中心引用在运行时取值，需要本机已安装密码中心交付入口；其他凭据请在运行前设置 ``AICLI_EJECT_SECRET``。
 
 ## 说明
 $(($plan.notes | ForEach-Object { "- $_" }) -join "`n")
@@ -166,17 +166,34 @@ $(($plan.notes | ForEach-Object { "- $_" }) -join "`n")
 $(Get-AiCliProperty $merged 'dataDestination')
 
 ## 限制
-- 不包含秘密
+- 已有配置副本保留全部原始内容；请自行决定是否对外分享
 - 本目录可脱离 aicli 维护
 "@
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText((Join-Path $out 'README.md'), $readme, $utf8NoBom)
 
+    $credentialSetup = ''
+    $secretExpression = '$env:AICLI_EJECT_SECRET'
+    $secretRef = [string](Get-AiCliProperty $merged 'secretRef')
+    if ($secretRef -match '^passwordcenter:(qwen|glm|deepseek)$') {
+        $vendor = $Matches[1]
+        $endpoint = ([string](Get-AiCliProperty $merged 'endpoint')) -replace "'", "''"
+        # Reuse the existing pipe delivery implementation in the standalone recipe.
+        $credentialSetup = @"
+# Credential reference: $secretRef
+function Get-AiCliVendorBrokerPath { ${function:Get-AiCliVendorBrokerPath} }
+function Get-AiCliVendorDeliveryError { ${function:Get-AiCliVendorDeliveryError} }
+function Get-AiCliAppPaths { [pscustomobject]@{ LocalRoot = [IO.Path]::GetTempPath() } }
+function Request-AiCliVendorCredential { ${function:Request-AiCliVendorCredential} }
+`$aicliEjectCredential = Request-AiCliVendorCredential -Vendor '$vendor' -Endpoint '$endpoint'
+"@
+        $secretExpression = '$aicliEjectCredential'
+    }
     $envLines = @()
     foreach ($k in $plan.environmentDelta.Keys) {
         $val = $plan.environmentDelta[$k]
         if ($k -match '(?i)(KEY|TOKEN|SECRET|PASSWORD)') {
-            $envLines += "`$env:$k = `$env:AICLI_EJECT_SECRET  # 请在运行前设置"
+            $envLines += "`$env:$k = $secretExpression"
         } else {
             $safe = $val -replace "'", "''"
             $envLines += "`$env:$k = '$safe'"
@@ -192,6 +209,7 @@ $(Get-AiCliProperty $merged 'dataDestination')
 # Requires: PowerShell 7+, upstream CLI installed
 `$ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath '$($plan.workingDirectory -replace "'", "''")'
+$credentialSetup
 $($envLines -join "`n")
 `$exe = '$($plan.fileName -replace "'", "''")'
 `$args = @($argList)
@@ -206,7 +224,7 @@ $($envLines -join "`n")
 # Re-apply env to psi
 $(($plan.environmentDelta.Keys | ForEach-Object {
   if ($_ -match '(?i)(KEY|TOKEN|SECRET|PASSWORD)') {
-    "`$psi.Environment['$_'] = [string]`$env:AICLI_EJECT_SECRET"
+    "`$psi.Environment['$_'] = [string]$secretExpression"
   } else {
     $v = $plan.environmentDelta[$_] -replace "'", "''"
     "`$psi.Environment['$_'] = '$v'"
@@ -224,10 +242,7 @@ exit `$p.ExitCode
     foreach ($cf in $plan.configFiles) {
         if (Test-Path -LiteralPath $cf) {
             $dest = Join-Path $out (Split-Path -Leaf $cf)
-            $raw = Get-Content -LiteralPath $cf -Raw -Encoding utf8
-            # strip any accidental secrets (should only be structure)
-            $raw = Protect-AiCliSecretText -Text $raw
-            [System.IO.File]::WriteAllText($dest, $raw, $utf8NoBom)
+            Copy-Item -LiteralPath $cf -Destination $dest -ErrorAction Stop
         }
     }
 

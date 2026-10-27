@@ -46,14 +46,16 @@ Describe 'Redaction' {
         $o.model | Should -Be 'x'
     }
 
-    It 'redacts Qwen Workspace identifiers while preserving the endpoint family' {
-        $workspaceId = 'ws-sensitive-workspace-123'
+    It 'preserves Qwen Workspace endpoints while redacting credentials in the same text' {
+        $workspaceId = 'ws-example-workspace-123'
+        $endpoint = "https://$workspaceId.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
         $safe = Protect-AiCliSecretText (
-            "https://$workspaceId.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+            "$endpoint Authorization: Bearer PUBLIC_TEST_CREDENTIAL_SENTINEL"
         )
 
-        $safe | Should -Not -Match ([regex]::Escape($workspaceId))
-        $safe | Should -Be 'https://ws-***.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
+        (Protect-AiCliSecretText $endpoint) | Should -BeExactly $endpoint
+        $safe | Should -BeExactly "$endpoint Authorization=***REDACTED***"
+        $safe | Should -Not -Match 'PUBLIC_TEST_CREDENTIAL_SENTINEL'
     }
 
     It 'recursively redacts PSCustomObject and dictionaries alike' {
