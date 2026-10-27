@@ -129,8 +129,14 @@ Describe 'Codex Responses loopback capture' -Tag 'Integration' {
             $request.reasoning.effort | Should -Be 'max'
             if ($Catalog) {
                 $entry = (Get-Content $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100).models[0]
-                $request.instructions | Should -BeExactly $entry.model_messages.instructions_template
-                $request.instructions | Should -Match 'AICLI user-visible summary presentation'
+                $effectiveInstructions = $request.instructions
+                if ($null -eq $effectiveInstructions) {
+                    $firstInput = @($request.input)[0]
+                    $firstInput.role | Should -BeExactly 'developer' -Because 'Codex 0.164+ sends base instructions as the first developer input message instead of top-level instructions.'
+                    $effectiveInstructions = (@($firstInput.content) | Where-Object type -EQ 'input_text' | ForEach-Object text) -join ''
+                }
+                $effectiveInstructions | Should -BeExactly $entry.model_messages.instructions_template
+                $effectiveInstructions | Should -Match 'AICLI user-visible summary presentation'
             }
         } finally {
             if ($process) {
