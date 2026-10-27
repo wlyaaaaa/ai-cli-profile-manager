@@ -7,6 +7,10 @@ Describe 'Read-only machine run preflight' {
     }
     It 'uses the real parser for <Engine> without controller, mirror or runtime creation' -ForEach @(
         @{Engine='codex';Policy='danger-full-access'},
+        @{Engine='claude';Policy='danger-full-access'},
+        @{Engine='opencode';Policy='danger-full-access'},
+        @{Engine='qwen-code';Policy='danger-full-access'},
+        @{Engine='interpreter';Policy='danger-full-access'},
         @{Engine='claude';Policy='workspace-write'},
         @{Engine='opencode';Policy='read-only'},
         @{Engine='qwen-code';Policy='workspace-write'}
@@ -22,9 +26,10 @@ Describe 'Read-only machine run preflight' {
             $output=[IO.StringWriter]::new();$previous=[Console]::Out
             try {
                 [Console]::SetOut($output)
-                $code=Invoke-AiCliRunCommand -Tokens @('public-profile','--project',$Work,
-                    '--stdin','--json','--sandbox-policy',$Policy,'--watchdog-only',
-                    '--timeout-seconds','300','--dry-run') -StdInText ''
+                $tokens=@('public-profile','--project',$Work,'--stdin','--json',
+                    '--watchdog-only','--timeout-seconds','300','--dry-run')
+                if($Policy -ne 'danger-full-access'){$tokens+=@('--sandbox-policy',$Policy)}
+                $code=Invoke-AiCliRunCommand -Tokens $tokens -StdInText ''
             } finally {[Console]::SetOut($previous)}
             $code|Should -Be 0
             $result=$output.ToString()|ConvertFrom-Json

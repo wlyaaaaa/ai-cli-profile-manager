@@ -1,6 +1,6 @@
 ﻿# Ephemeral runtime for machine-facing agent calls. The parent creates only
 # deterministic configuration. Public Codex harness calls deliberately use
-# native danger-full-access; other engines retain their explicit sandbox policy.
+# native danger-full-access; other engines use the host unless a sandbox is selected.
 
 function Resolve-AiCliCodexNativeRuntimeFromEntry {
     [CmdletBinding()]
@@ -69,7 +69,7 @@ function Initialize-AiCliMachineRuntime {
     param(
         [Parameter(Mandatory)]$Plan,
         [string]$StdInText = '',
-        [ValidateSet('danger-full-access','read-only','workspace-write')][string]$Policy = 'read-only',
+        [ValidateSet('danger-full-access','read-only','workspace-write')][string]$Policy = 'danger-full-access',
         [int]$MaxSteps = 20,
         [int]$MaxToolCalls = 80,
         [switch]$DisableWebSearch,
@@ -98,7 +98,7 @@ function Initialize-AiCliMachineRuntime {
     }
     $arguments = @((Get-AiCliProperty $Plan 'argumentList') | ForEach-Object { [string]$_ })
     $effectiveStdIn = if ($null -eq $StdInText) { '' } else { [string]$StdInText }
-    $useOuterSandbox = $true
+    $useOuterSandbox = $Policy -ne 'danger-full-access'
     $runtimeFileName = [string](Get-AiCliProperty $Plan 'fileName')
     $runtimeTargetFileName = $runtimeFileName
     $eventProtocol = $null
@@ -106,7 +106,8 @@ function Initialize-AiCliMachineRuntime {
     $privateTaskPipeName = $null
     try {
         if ($kind -eq 'qwen-code') {
-            for ($index = 0; $index -lt $arguments.Count; $index++) {
+            # Only the outer sandbox needs a readable mirror of the installed package.
+            for ($index = 0; $useOuterSandbox -and $index -lt $arguments.Count; $index++) {
                 $candidate = [string]$arguments[$index]
                 if ($candidate.EndsWith('cli-entry.js', [StringComparison]::OrdinalIgnoreCase) -and
                     (Test-Path -LiteralPath $candidate -PathType Leaf)) {
@@ -366,8 +367,8 @@ function Initialize-AiCliMachineRuntime {
             $claudeConfig = Join-Path $runtimePath 'claude-config'
             New-Item -ItemType Directory -Path $claudeConfig -Force | Out-Null
             $environment['CLAUDE_CONFIG_DIR'] = $claudeConfig
-            # The host is protected by the mandatory outer Codex sandbox. Let
-            # Claude operate autonomously inside that boundary without prompts.
+            # Preserve the transient machine configuration in the autonomous
+            # Claude child, whether it runs on the host or in an explicit sandbox.
             $environment['CLAUDE_CODE_SUBPROCESS_ENV_SCRUB'] = '0'
             $environment['DISABLE_AUTOUPDATER'] = '1'
             if ($arguments -notcontains '--max-turns') {

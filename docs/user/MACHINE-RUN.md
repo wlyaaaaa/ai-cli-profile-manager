@@ -8,7 +8,7 @@ aicli run <profile-id> --project <existing-workspace> --stdin --json --watchdog-
 
 `--dry-run` 不等待或读取 stdin，不创建运行目录、恢复任务或事件文件，也不调用模型。返回 `aicli.machine-run-preflight.v1`，明确实际模型、Profile、模块版本/位置、策略与预算。它验证的是配置和接口，`authenticationChecked=false`、`liveAcceptance=not_checked`，不是凭据可用性或能力实测证明。
 
-当前 Codex machine 接口使用 `danger-full-access`，拒绝其他策略。非 Codex runner 按其支持的 `workspace-write` / `read-only` 工作，不支持 Codex 恢复专用 `--event-file`。工具调用者应传结构化参数，不再拼接 `exec --disable plugins` 或原生 `--image`。原生图片当前不属于该机器入口支持能力。
+当前 Codex machine 接口使用 `danger-full-access`，拒绝其他策略。非 Codex runner 默认以 `danger-full-access` 在宿主上普通执行，网络正常；显式选择 `read-only` / `workspace-write` 时才使用禁网的外层 Codex 沙箱。非 Codex runner 不支持 Codex 恢复专用 `--event-file`。工具调用者应传结构化参数，不再拼接 `exec --disable plugins` 或原生 `--image`。原生图片当前不属于该机器入口支持能力。
 
 `aicli run` 是供上层 AI/程序调用原生智能体的底层入口，不是新的 Agent，也不负责选择模型或自动 fallback。
 
@@ -64,7 +64,8 @@ aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 - machine child 的父环境从 Windows、PowerShell、Node/TLS 运行所需的 allowlist 重建，不继承完整父环境或调试变量。受管运行计划仍可通过 `EnvironmentDelta` 显式注入目标 Profile 必需的 Provider/运行时变量，因此调用方不得把无关变量放入该显式增量。
 - 官方云端 Codex 可恢复 run 同时忽略用户配置和规则。run 独占的持久 `CODEX_HOME` 只复制现有 `auth.json`，不需要付费 API Key；不会复制用户 `config.toml`、rules、skills 或其他 sessions/history。状态终态后保留它是为了证据与显式恢复判断，不得当作通用聊天历史库。
 - Codex harness 本来就是全访问，因此应传入隔离 worktree 或暂存目录；canonical raw 数据和无关秘密应保留在边界外。AICLI 不自动 fallback 到另一个 Profile。
-- Qwen Code/OpenCode 是 machine-only；交互式 `start` 会拒绝这两个 Profile。
+- 非 Codex runner 在宿主模式下仍使用一次性运行根和临时配置，重定向 TEMP/TMP，并保留步数预算、超时、进程树清理和凭据输出过滤。只有 `workspace-write` 的运行根放在工作区，其余策略放在系统临时目录；结束后清理。
+- Qwen Code/OpenCode 是 machine-only，参数和临时配置按机器模式生成；交互式 `start` 会拒绝这两个 Profile。
 - OpenCode 的 inline 配置只启用 `aicli_ollama`，主/小/压缩模型都固定为当前 exact Profile 的模型；`opencode-ollama-main` 使用 `qwen3.8-27b:256k`，`opencode-ollama-qwen3-8-27b` 使用固定 256K 运行标签。两者显式 `auto=true`、`prune=false`、20000 reserve、最近 4 轮/16384 token 原样保留。`agent.build.steps=maxSteps` 只是上游软收尾，`maxToolCalls` 仍未获得硬映射，不能标成 AICLI `hard`。
 - OpenCode 的 XDG config/data/cache/state 位于一次性 `.aicli-runtime-*` 并在结束时清理，所以 session summary/checkpoint 不能跨 run 继承。一个 run 只做一个里程碑；压缩前把目标与验收、约束/授权/owner、规则与关键文件、改动和脏改动归属、决定、测试/Live 缺口、阻塞与下一步写入项目已有状态，再开新 run。自动压缩后把摘要当线索，重读项目规则（`AGENTS.md`/`CLAUDE.md`）、状态文件和 `git status` / `git diff`；不得建立第二事实源。
 - Codex harness 以 npm `codex-cli 0.147.0` 为当前最低身份验证基线，由内部桥使用 app-server JSON-RPC v2 的 `thread/start`、`turn/start` 与通知流。CLI 更新后默认尝试运行，但每次仍严格验证初始化、actual identity、全访问权限、通知 allowlist、thread/turn 归属、item 生命周期、成功轮次 `status=completed` 和清理结果；必要协议缺失、结构漂移、歧义事件或清理不可靠就明确失败。

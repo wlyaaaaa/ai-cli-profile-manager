@@ -167,7 +167,9 @@ aicli version
 
 `aicli run` 是供上层程序使用的 Codex harness，不等于交互式 `start`：所有当前和未来 Codex 模型固定使用原生 `danger-full-access` 与 `approvalPolicy=never`。规则按 `engine=codex` 生效，因此未来新增 Profile 自动继承；显式请求 `read-only` / `workspace-write` 会在模型调用前失败关闭。运行还必须回读 actual model、modelProvider 与 `dangerFullAccess` 权限身份，并拒绝任何模型重路由。只把受信任工作区交给该入口。
 
-同一通用规则默认注册受管 `public_web_search`：仅访问固定 `https://cn.bing.com/search` RSS，拒绝重定向、Cookie、模型指定 endpoint/Header/Key，并把结果标作不可信公共文本。Windows 系统代理只用于固定 HTTPS 出口且不提供默认凭据。事件和回执仅记录搜索生命周期、provider 与次数，不记录查询/结果正文；本次不需要网络时使用 `--no-web-search`，权限仍是 `danger-full-access`。
+非 Codex 引擎的 `aicli run` 默认使用 `danger-full-access`，直接在宿主上普通执行，网络正常；只有显式传入 `--sandbox-policy read-only` 或 `workspace-write` 才套用禁网的外层 Codex 沙箱。宿主模式仍保留一次性运行根、临时配置、TEMP/TMP 重定向、预算、超时、进程树清理与凭据输出过滤。Qwen Code/OpenCode 的参数和临时配置按机器模式生成，因此仍只提供 machine-only 入口，不支持交互式 `start`。
+
+Codex harness 默认注册受管 `public_web_search`：仅访问固定 `https://cn.bing.com/search` RSS，拒绝重定向、Cookie、模型指定 endpoint/Header/Key，并把结果标作不可信公共文本。Windows 系统代理只用于固定 HTTPS 出口且不提供默认凭据。事件和回执仅记录搜索生命周期、provider 与次数，不记录查询/结果正文；本次不需要网络时使用 `--no-web-search`，权限仍是 `danger-full-access`。
 
 `0.3.11` 起，`aicli run start` 为每个任务建立 root-owned 持久 run；任务正文仍只从 stdin 输入，不写入恢复状态。调用方用 `run status` 读取状态，用 `run resume` 继续被中断的 exact thread，用 `run abort` 协作中止；`start/resume --background` 会立即返回 run id。恢复前后必须一致回读 thread/session、workspace、Profile 指纹、model/provider、requested/effective effort 和权限；任一项变化都会失败关闭。不能证明 exact resume 时，只能在新 workspace 建立新 attempt 全量重跑，不得合并旧 partial。
 
@@ -243,7 +245,7 @@ Qwen、GLM 和 DeepSeek 的 Key 按厂商保存在密码中心，Profile 只引�
 
 本机主用入口 `codex-ollama-main`、`claude-ollama-main`、`opencode-ollama-main`、`qwen-code-ollama-main` 统一使用 Qwen3.8 27B 的受管运行标签 `qwen3.8-27b:256k`，保留 262144（256K）最大上下文。Codex 使用 Responses、`max` 和独立受管目录；原显式 27B Profile 保留兼容。运行标签复用官方 `qwen3.8:27b` 的 Q4_K_M 权重，固定 `num_ctx 262144` 与 `draft_num_predict 0`，避免 Ollama 0.33.1 的 MTP 草稿上下文初始化崩溃，不降低模型思考等级。先运行 `scripts\Setup-Qwen38-27B256K.ps1` 安装并回读；它可更新 OpenCode Desktop 的现有 27B 目录项。`codex-ollama-review` 继续使用 Qwen3.6 35B 的独立复核路线。
 
-Codex 的 DeepSeek Key 与 Qwen、GLM 一样按厂商引用密码中心，不在 AICLI 内另存 Profile DPAPI 副本。受管 Codex TOML 只写 `env_key`，不会复制官方手工示例中的明文 `experimental_bearer_token` 或 `preferred_auth_method`。Qwen Code 0.21 与 OpenCode 1.18.8 虽有上游原生 DeepSeek 接入，但 AICLI 当前只为它们提供禁网的 machine-only 沙箱，且尚无隔离真实 Key 的远程 egress relay；因此不提供这两类 DeepSeek Profile。
+Codex 的 DeepSeek Key 与 Qwen、GLM 一样按厂商引用密码中心，不在 AICLI 内另存 Profile DPAPI 副本。受管 Codex TOML 只写 `env_key`，不会复制官方手工示例中的明文 `experimental_bearer_token` 或 `preferred_auth_method`。Qwen Code 0.21 与 OpenCode 1.18.8 虽有上游原生 DeepSeek 接入，但 AICLI 目前只为这两个引擎提供接本地模型的 machine-only 入口，尚未接入 DeepSeek Profile。
 
 以后更换本地模型时，由维护者先准备 `data/providers/codex-ollama-main.json` 和新模型的独立 catalog，再在仓库根运行：
 

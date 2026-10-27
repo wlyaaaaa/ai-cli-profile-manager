@@ -27,7 +27,7 @@ function Build-AiCliQwenCodeLaunchPlan {
         environmentDelta = @{}
         removeEnvironment = @('OPENAI_API_KEY','OPENAI_BASE_URL','QWEN_API_KEY')
         configFiles = @()
-        notes = @('Machine-only local agent; transient QWEN_HOME and outer Codex sandbox are mandatory.')
+        notes = @('Machine-only local agent with transient QWEN_HOME configuration.')
         model = $model
         machineOnly = $true
         machineRuntime = [ordered]@{ kind='qwen-code'; endpoint=$endpoint; model=$model }

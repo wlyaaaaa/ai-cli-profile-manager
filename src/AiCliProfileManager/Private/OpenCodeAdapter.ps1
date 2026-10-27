@@ -27,7 +27,7 @@ function Build-AiCliOpenCodeLaunchPlan {
         environmentDelta = @{}
         removeEnvironment = @('OPENAI_API_KEY','OPENAI_BASE_URL','OPENCODE_CONFIG','OPENCODE_CONFIG_DIR')
         configFiles = @()
-        notes = @('Machine-only local agent; pure mode, transient config, and outer Codex sandbox are mandatory.')
+        notes = @('Machine-only local agent with pure mode and transient configuration.')
         model = $model
         machineOnly = $true
         machineRuntime = [ordered]@{ kind='opencode'; endpoint=$endpoint; model=$model }
