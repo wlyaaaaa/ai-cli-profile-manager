@@ -208,7 +208,8 @@ $testContainer = {
                     '--enable', 'feature-a',
                     '--disable=feature-b',
                     '--add-dir', (Join-Path $root 'directory with spaces'),
-                    'app-server', '--stdio'
+                    'app-server', '--config', '--print-startup-config',
+                    '--startup-client-info', '--print-startup-config', '--stdio'
                 )
                 $process = New-BridgeProcess -Executable $script:BridgePath -PlanPath $plan.Path -Arguments $arguments -Environment @{
                     AICLI_TEST_EXPECTED_LINE_FILE = $expectedLinePath
@@ -522,13 +523,18 @@ $testContainer = {
             }
             finally { Stop-BridgeProcess $process }
         }
-        It 'passes non-app-server bytes and the upstream exit code without text decoding' {
+        It 'passes one-shot command bytes, full arguments and upstream exit code unchanged: <Label>' -TestCases @(
+            @{ Label = 'version'; Arguments = @('--version') }
+            @{ Label = 'startup config'; Arguments = @('app-server', '--print-startup-config', '--startup-client-info', '{"client":"雪"}') }
+            @{ Label = 'startup sign-out'; Arguments = @('app-server', '--startup-sign-out', '--startup-client-info', '{"flag":"--print-startup-config"}', '--print-startup-config') }
+        ) {
+            param($Arguments)
             $root = New-TestRoot
-            $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-passthrough'
+            $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-passthrough' -ModelState Valid
             $argsFile = Join-Path $root 'args.json'
             $process = $null
             try {
-                $process = New-BridgeProcess -Executable $script:BridgePath -PlanPath $plan.Path -Arguments @('--version') -Environment @{
+                $process = New-BridgeProcess -Executable $script:BridgePath -PlanPath $plan.Path -Arguments $Arguments -Environment @{
                     AICLI_TEST_ARGS_FILE = $argsFile
                 }
                 $payload = [byte[]]@(0x00, 0xff, 0x0a, 0x0d, 0x80, 0x41, 0xe9)
@@ -539,8 +545,7 @@ $testContainer = {
                 [Convert]::ToBase64String($output) | Should -Be ([Convert]::ToBase64String($payload))
                 $process.ExitCode | Should -Be 23
                 $capturedArgs = Get-Content -LiteralPath $argsFile -Raw -Encoding utf8 | ConvertFrom-Json
-                @($capturedArgs.args).Count | Should -Be 1
-                $capturedArgs.args[0] | Should -Be '--version'
+                ConvertTo-Json -InputObject @($capturedArgs.args) -Compress | Should -Be (ConvertTo-Json -InputObject @($Arguments) -Compress)
             }
             finally { Stop-BridgeProcess $process }
         }
@@ -569,7 +574,12 @@ $testContainer = {
             finally { Stop-BridgeProcess $process }
         }
 
-        It 'resolves ordinary commands without loading the local model catalog' {
+        It 'resolves one-shot commands using only the upstream plan: <Label>' -TestCases @(
+            @{ Label = 'version'; Arguments = @('--version') }
+            @{ Label = 'startup config'; Arguments = @('app-server', '--print-startup-config', '--startup-client-info', '{"client":"雪"}') }
+            @{ Label = 'startup sign-out'; Arguments = @('app-server', '--startup-sign-out', '--print-startup-config') }
+        ) {
+            param($Arguments)
             $root = New-TestRoot
             $bridgeCopyRoot = Join-Path $root 'bridge-copy'
             $bridgeDirectory = Join-Path $bridgeCopyRoot 'debug'
@@ -584,7 +594,7 @@ $testContainer = {
             $argsFile = Join-Path $root 'args.json'
             $process = $null
             try {
-                $process = New-BridgeProcess -Executable (Join-Path $bridgeDirectory (Split-Path -Leaf $script:BridgePath)) -PlanPath '' -Arguments @('--version') -Environment @{
+                $process = New-BridgeProcess -Executable (Join-Path $bridgeDirectory (Split-Path -Leaf $script:BridgePath)) -PlanPath '' -Arguments $Arguments -Environment @{
                     AICLI_TEST_PLAN_HOME = $codexHome
                     AICLI_TEST_PLAN_PWSH = $script:PowerShellPath
                     AICLI_TEST_FAKE_CODEX_SCRIPT = $script:FakeCodexPath

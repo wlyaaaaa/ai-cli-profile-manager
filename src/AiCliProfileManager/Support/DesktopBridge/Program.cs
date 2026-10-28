@@ -9,10 +9,11 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
+        var isAppServer = IsAppServerInvocation(args);
         DesktopPlan plan;
         try
         {
-            plan = await DesktopPlan.LoadAsync(upstreamOnly: !IsAppServerInvocation(args)).ConfigureAwait(false);
+            plan = await DesktopPlan.LoadAsync(upstreamOnly: !isAppServer).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -20,7 +21,7 @@ internal static class Program
             return 1;
         }
 
-        if (IsAppServerInvocation(args))
+        if (isAppServer)
             return await RpcTransport.RunAsync(plan.Json, args).ConfigureAwait(false);
 
         return await RunTransparentAsync(plan, args).ConfigureAwait(false);
@@ -197,7 +198,19 @@ internal static class Program
                 return false;
             }
 
-            return string.Equals(arg, "app-server", StringComparison.Ordinal);
+            if (!string.Equals(arg, "app-server", StringComparison.Ordinal)) return false;
+            // Startup policy output is a one-shot native command, not a stdio RPC session.
+            for (++index; index < args.Count; index++)
+            {
+                arg = args[index];
+                if (arg == "--") break;
+                var equals = arg.IndexOf('=');
+                var option = equals >= 0 ? arg[..equals] : arg;
+                if (option == "--print-startup-config") return false;
+                if (equals < 0 && (ValueOptions.Contains(option) ||
+                    option is "--startup-client-info" or "--listen")) index++;
+            }
+            return true;
         }
         return false;
     }
