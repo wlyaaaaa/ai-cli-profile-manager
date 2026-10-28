@@ -574,12 +574,13 @@ $testContainer = {
             finally { Stop-BridgeProcess $process }
         }
 
-        It 'resolves one-shot commands using only the upstream plan: <Label>' -TestCases @(
+        It 'keeps one-shot plans separate from full model startup: <Label>' -TestCases @(
             @{ Label = 'version'; Arguments = @('--version') }
             @{ Label = 'startup config'; Arguments = @('app-server', '--print-startup-config', '--startup-client-info', '{"client":"雪"}') }
             @{ Label = 'startup sign-out'; Arguments = @('app-server', '--startup-sign-out', '--print-startup-config') }
+            @{ Label = 'full plan failure'; Arguments = @('app-server', '--stdio'); FullPlanFailure = $true }
         ) {
-            param($Arguments)
+            param($Arguments, [bool]$FullPlanFailure = $false)
             $root = New-TestRoot
             $bridgeCopyRoot = Join-Path $root 'bridge-copy'
             $bridgeDirectory = Join-Path $bridgeCopyRoot 'debug'
@@ -600,6 +601,15 @@ $testContainer = {
                     AICLI_TEST_FAKE_CODEX_SCRIPT = $script:FakeCodexPath
                     AICLI_TEST_ARGS_FILE = $argsFile
                 }
+                if ($FullPlanFailure) {
+                    $process.StandardInput.Close()
+                    $process.WaitForExit(15000) | Should -BeTrue
+                    $process.ExitCode | Should -Be 1
+                    $process.StandardOutput.ReadToEnd() | Should -BeNullOrEmpty
+                    $process.StandardError.ReadToEnd() | Should -Match 'full model launch plan'
+                    Test-Path -LiteralPath $argsFile | Should -BeFalse
+                    return
+                }
                 $payload = [byte[]]@(0x51, 0x00, 0xfe, 0x0a)
                 $process.StandardInput.BaseStream.Write($payload, 0, $payload.Length)
                 $process.StandardInput.Close()
@@ -612,19 +622,21 @@ $testContainer = {
             finally { Stop-BridgeProcess $process }
         }
 
-        It 'continues upstream requests when local router initialization fails' {
+        It 'fails before starting upstream when configured model routing is invalid' {
             $root = New-TestRoot
-            $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-app-server' -ModelState Invalid
+            $plan = New-DesktopBridgePlan -Root $root -Mode '--fake-passthrough' -ModelState Invalid
+            $argsFile = Join-Path $root 'args.json'
             $process = $null
             try {
-                $process = New-BridgeProcess -Executable $script:BridgePath -PlanPath $plan.Path -Arguments @('app-server')
-                Write-BridgeLine $process '{"jsonrpc":"2.0","id":"fallback-ping","method":"ping","params":{}}'
-                $response = (Read-BridgeLine $process) | ConvertFrom-Json
-                $response.id | Should -Be 'fallback-ping'
-                $response.result.echo | Should -Be 'pong'
+                $process = New-BridgeProcess -Executable $script:BridgePath -PlanPath $plan.Path -Arguments @('app-server') -Environment @{
+                    AICLI_TEST_ARGS_FILE = $argsFile
+                }
                 $process.StandardInput.Close()
                 $process.WaitForExit(10000) | Should -BeTrue
-                $process.StandardError.ReadToEnd() | Should -Match 'upstream Codex engine only'
+                $process.ExitCode | Should -Be 1
+                $process.StandardOutput.ReadToEnd() | Should -BeNullOrEmpty
+                $process.StandardError.ReadToEnd() | Should -Match 'app-server transport failed'
+                Test-Path -LiteralPath $argsFile | Should -BeFalse
             }
             finally { Stop-BridgeProcess $process }
         }

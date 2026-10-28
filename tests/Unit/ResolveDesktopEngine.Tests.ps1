@@ -64,6 +64,23 @@ Describe 'Resolve-AiCliDesktopEngine' {
         Should -Invoke Resolve-AiCliLaunchExecutable -Times 0 -Exactly
     }
 
+    It 'reuses a verified source version after byte checks and still rejects cache tampering: <ChangedFile>' -TestCases @(
+        @{ ChangedFile = 'codex.exe' }, @{ ChangedFile = 'codex-command-runner.exe' }
+    ) {
+        param($ChangedFile)
+        Mock Get-AppxPackage {
+            [pscustomobject]@{ Version = [version]'2.0.0.0'; InstallLocation = $script:PackageB; PackageFullName = 'OpenAI.Codex_2' }
+        } -ParameterFilter { $Name -eq 'OpenAI.Codex' }
+
+        $first = Resolve-AiCliDesktopEngine
+        $second = Resolve-AiCliDesktopEngine
+        $second.FileName | Should -Be $first.FileName
+        Should -Invoke Get-AiCliCodexCliVersion -Times 2 -Exactly -ParameterFilter { $Path -eq (Join-Path $script:PackageB 'app\resources\codex.exe') }
+        Should -Invoke Get-AiCliCodexCliVersion -Times 0 -Exactly -ParameterFilter { $Path -like '*aicli-local*' }
+        [IO.File]::WriteAllText((Join-Path (Split-Path $second.FileName) $ChangedFile), 'changed')
+        { Resolve-AiCliDesktopEngine } | Should -Throw '*changed*'
+    }
+
     It 'reuses only the official cache entry whose hash matches the current package' {
         $current = Join-Path $script:OfficialCache 'OpenAI\Codex\bin\2222222222222222'
         New-Item -ItemType Directory -Path $current -Force | Out-Null
@@ -152,6 +169,7 @@ Describe 'Resolve-AiCliDesktopEngine' {
         $resolved.Resolution | Should -Be 'aicli-upstream-cache'
         (Get-Content -LiteralPath $resolved.FileName -Raw) | Should -Be 'engine-b'
         (Get-Content -LiteralPath (Join-Path (Split-Path $resolved.FileName) 'codex-command-runner.exe') -Raw) | Should -Be 'runner-b'
+        Should -Invoke Get-AiCliCodexCliVersion -Times 1 -Exactly -ParameterFilter { $Path -like '*aicli-local*' }
         Should -Invoke Resolve-AiCliLaunchExecutable -Times 0 -Exactly
     }
 

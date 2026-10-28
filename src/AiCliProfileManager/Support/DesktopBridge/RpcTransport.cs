@@ -52,18 +52,7 @@ internal sealed partial class RpcTransport
         ChildProcessLifetime? lifetime = null;
         try
         {
-            ModelRouter router;
-            try
-            {
-                router = new ModelRouter(plan);
-            }
-            catch (Exception ex) when (plan["models"] is JsonArray models && models.Count > 0)
-            {
-                await Program.WriteErrorAsync($"Local desktop model routing is unavailable ({ex.GetType().Name}); continuing with the upstream Codex engine only.").ConfigureAwait(false);
-                var upstreamOnlyPlan = (JsonObject)plan.DeepClone();
-                upstreamOnlyPlan["models"] = new JsonArray();
-                router = new ModelRouter(upstreamOnlyPlan);
-            }
+            var router = new ModelRouter(plan);
             var engineArgs = args.ToList();
             if (router.StartupCatalogPath is { } catalogPath)
             {

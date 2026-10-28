@@ -187,7 +187,8 @@ function Get-AiCliStagedAppxEngine {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SourceDirectory,
-        [Parameter(Mandatory)][string]$SourceHash
+        [Parameter(Mandatory)][string]$SourceHash,
+        [System.Management.Automation.SemanticVersion]$VerifiedSourceVersion
     )
 
     $paths = Get-AiCliAppPaths
@@ -208,7 +209,9 @@ function Get-AiCliStagedAppxEngine {
                 throw "The staged Desktop engine companion changed: $($companion.Name)"
             }
         }
-        $version = Get-AiCliCodexCliVersion -Path $cachedEngine
+        # Identical verified bytes retain the source's verified signature/version.
+        $version = if ($null -ne $VerifiedSourceVersion) { $VerifiedSourceVersion }
+            else { Get-AiCliCodexCliVersion -Path $cachedEngine }
         if ($null -eq $version) { throw 'The staged Desktop engine could not be verified.' }
         return [pscustomobject]@{ FileName = $cachedEngine; Version = $version; Hash = $SourceHash }
     }
@@ -247,7 +250,8 @@ function Get-AiCliStagedAppxEngine {
         if ((Get-AiCliDesktopEngineHash -Path (Join-Path $staging 'codex.exe')) -ne $SourceHash) {
             throw 'Desktop engine staging hash mismatch.'
         }
-        $version = Get-AiCliCodexCliVersion -Path (Join-Path $staging 'codex.exe')
+        $version = if ($null -ne $VerifiedSourceVersion) { $VerifiedSourceVersion }
+            else { Get-AiCliCodexCliVersion -Path (Join-Path $staging 'codex.exe') }
         if ($null -eq $version) { throw 'The installed Desktop engine has no valid OpenAI signature or version.' }
         if (-not (Test-Path -LiteralPath $destination)) {
             Move-Item -LiteralPath $staging -Destination $physicalDestination -ErrorAction Stop
@@ -427,7 +431,8 @@ function Resolve-AiCliDesktopEngine {
     }
 
     if ($null -eq $staged) {
-        $staged = Get-AiCliStagedAppxEngine -SourceDirectory $sourceDirectory -SourceHash $sourceHash
+        $staged = Get-AiCliStagedAppxEngine -SourceDirectory $sourceDirectory -SourceHash $sourceHash `
+            -VerifiedSourceVersion $sourceVersion
     }
     $result = New-AiCliDesktopEngineResult -FileName $staged.FileName -Resolution 'aicli-upstream-cache' `
         -ContentHash $sourceHash -PackageFullName ([string]$package.PackageFullName)

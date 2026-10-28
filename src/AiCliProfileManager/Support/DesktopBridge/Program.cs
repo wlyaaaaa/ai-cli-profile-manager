@@ -17,7 +17,8 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            await WriteErrorAsync($"Desktop bridge could not load the Codex launch plan ({ex.GetType().Name}).").ConfigureAwait(false);
+            var planKind = isAppServer ? "full model" : "upstream";
+            await WriteErrorAsync($"Desktop bridge could not load the Codex {planKind} launch plan ({ex.GetType().Name}).").ConfigureAwait(false);
             return 1;
         }
 
@@ -251,19 +252,7 @@ internal sealed class DesktopPlan
         }
 
         var scriptPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "GetDesktopModelPlan.ps1"));
-        if (upstreamOnly)
-            return Parse(await ExportPlanAsync(scriptPath, upstreamOnly: true).ConfigureAwait(false));
-        try
-        {
-            jsonText = await ExportPlanAsync(scriptPath, upstreamOnly: false).ConfigureAwait(false);
-            return Parse(jsonText);
-        }
-        catch
-        {
-            await Program.WriteErrorAsync("Local desktop model discovery failed; continuing with the upstream Codex engine only.").ConfigureAwait(false);
-            jsonText = await ExportPlanAsync(scriptPath, upstreamOnly: true).ConfigureAwait(false);
-            return Parse(jsonText);
-        }
+        return Parse(await ExportPlanAsync(scriptPath, upstreamOnly).ConfigureAwait(false));
     }
 
     public static async Task<DesktopPlan> ReloadAsync(CancellationToken cancellationToken)
@@ -319,7 +308,8 @@ internal sealed class DesktopPlan
             var stderrTask = process.StandardError.ReadToEndAsync();
             try
             {
-                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+                var startupLimit = TimeSpan.FromSeconds(upstreamOnly ? 30 : 90);
+                await process.WaitForExitAsync().WaitAsync(startupLimit, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
             {
