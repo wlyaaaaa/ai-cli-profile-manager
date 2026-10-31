@@ -1,0 +1,47 @@
+{
+  "schema": "agents.duplicate-content-exceptions.v1",
+  "exceptions": [
+    {
+      "id": "legacy-user-page-redirect-stub",
+      "paths": [
+        "docs/user/CLAUDE-PERMISSIONS-AND-QWEN.md",
+        "docs/user/CLI-COMMANDS.md",
+        "docs/user/CLI-LEARNING.md",
+        "docs/user/DOCTOR-AND-TEST.md",
+        "docs/user/OPEN-INTERPRETER.md",
+        "docs/user/PRIVACY-AND-UNINSTALL.md",
+        "docs/user/QUICKSTART.md",
+        "docs/user/START-AND-PROFILES.md",
+        "docs/user/TROUBLESHOOTING.md",
+        "docs/user/UPDATE-AND-REPAIR.md"
+      ],
+      "content_hash": "2e2f93349db75b6bd7407df9437a723f43f1ac139fed2acdf1e382488f52c9a1",
+      "owner": "docs/user 两本完整手册",
+      "consumer": "旧链接迁移页",
+      "reason": "每个旧链接页只剩一句相同的迁移说明并链接到现行手册，不承载正文；tests/Contract/Docs.Tests.ps1 仍要求这些文件存在。",
+      "exit_condition": "旧链接不再需要、Docs 合同测试不再要求这些文件时删除迁移页并移除本例外。"
+    },
+    {
+      "id": "doctor-step-in-two-procedures",
+      "paths": [
+        "docs/user/AI CLI Profile Manager 使用手册.md",
+        "docs/user/Codex、Claude Code 与 Open Interpreter CLI 中文手册.md"
+      ],
+      "content_hash": "4c79283a6c9e4b57be11dc36c67459c4e7c710a0e838701602dc328cdb84d766",
+      "owner": "aicli doctor 命令本身",
+      "consumer": "两本手册各自的修复步骤列表",
+      "reason": "“运行 aicli doctor <Profile ID>”只是两条不同修复流程（更新后修复、从错误回到可验证状态）中的同一个命令步骤，不是复制的事实段落；两本手册须各自完整可读并生成 PDF。",
+      "exit_condition": "两本手册合并，或其中一条流程改为链接另一条时移除。"
+    }
+  ],
+  "non_copies": [
+    {
+      "id": "changelog-dated-entries",
+      "kind": "dated_record",
+      "paths": [
+        "CHANGELOG.md"
+      ],
+      "reason": "CHANGELOG 按版本和日期记录当时的变更与验收结果，保留当时的值，不回头改；现行行为以手册、MACHINE-RUN 和 AGENTS 为准。"
+    }
+  ]
+}

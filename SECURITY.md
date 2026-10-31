@@ -22,7 +22,7 @@
 - 第三方代理 Windows artifact 必须匹配产品批准的精确 SHA256，并在安装前通过安全解压与结构验证；启动时还必须通过进程身份、健康响应和 IPv4 loopback 监听验证，才会保存运行状态。`0.1.0` 不执行已安装代理的受管版本切换。
 - Live Tool Test 只允许隔离的单用途 nonce 工具；无法证明隔离时跳过并报告限制。
 - Open Interpreter 只支持官方 Rust `0.0.21+`；默认沿用上游权限设置，允许显式透传 `--yolo`、`--dangerously-bypass-approvals-and-sandbox`。旧 Python 参数和与 Profile 冲突的参数仍拒绝。
-- 所有 Codex machine run 使用原生 `danger-full-access`，权限身份必须可验证。非 Codex runner 默认以 `danger-full-access` 在宿主上普通执行，网络正常；只有显式选择 `read-only` / `workspace-write` 时才使用禁网的外层 Codex 沙箱，并核对对应边界。
+- 所有 Codex machine run 使用原生 `danger-full-access`，权限身份必须可验证。非 Codex runner 的默认执行方式及何时套用禁网外层 Codex 沙箱见 [machine run 说明](docs/user/MACHINE-RUN.md)；选用沙箱时核对对应边界。
 - Codex CLI `0.145.x` 的原生 `workspace-write` 必须在 `thread/start` 和 `turn/start` 同时传入 `permissions=:workspace` 与唯一的 `runtimeWorkspaceRoots`，且该根精确等于请求 `cwd`。桥接器回读实际 `workspaceWrite`、`:workspace` 和同一根，并在模型调用前执行写探针；空根、根漂移或探针失败都会提前失败。`approvalPolicy=never` 是固定合同，任何审批或用户输入 RPC 均失败关闭。
 - machine run 的调用接口只从 stdin 接收任务正文，不把正文放入进程参数。Codex 原生路径直接通过内存桥接；外层沙箱路径才使用受限 ACL 的随机命名管道。临时 Qwen/Codex/Claude/OpenCode 配置与运行目录在任务结束后删除。
 - machine child 的继承环境从 Windows、PowerShell、Node/TLS 所需 allowlist 重建，不继承完整父环境或调试变量。调用计划仍可通过 `EnvironmentDelta` 显式注入目标 Profile 必需的 Provider/运行时变量；因此显式注入属于受信任权限边界，维护者必须避免无关变量进入计划和日志。

@@ -488,13 +488,7 @@ aicli uninstall --purge-user-data --yes
 
 ### 8.3 数据位置与去向
 
-| 内容 | 默认位置 |
-|------|----------|
-| Profile、书签和非秘密设置 | `%APPDATA%\AiCliProfileManager` |
-| 迁移期旧密文、状态、缓存和日志 | `%LOCALAPPDATA%\AiCliProfileManager` |
-| 命令垫片 | `%LOCALAPPDATA%\aicli\bin` |
-
-工具自身默认无遥测。使用某个 Profile 时，提示、项目上下文和相关数据会发送到 `profile show` 显示的 Provider；Ollama 在本机处理，Open Interpreter 还可能在本机执行代码。Live Test 会联系目标 Provider，并可能消耗额度，但不保存提示或回复正文。
+工具自身默认无遥测。各项数据的默认位置、是否含秘密、哪些数据随所选 Profile 离开本机以及 Live Test 的保存范围，统一见根目录《[隐私说明](../../PRIVACY.md)》。
 
 ## 9. 按症状排障
 

@@ -236,8 +236,7 @@ Open Interpreter 面向本机代码执行。使用 `/permissions` 检查当前�
 
 aicli 的公开 Profile：
 
-- 默认沿用上游审批与沙箱设置；可在 `--` 后显式传入 Rust CLI 支持的 `--yolo` 或 `--dangerously-bypass-approvals-and-sandbox`。
-- 旧 Python 版 `--auto_run`、`--auto-run`、`-y` 及与 Profile 冲突的参数仍拒绝。
+- 默认沿用上游审批与沙箱设置；可透传和仍拒绝的权限参数见《[AI CLI Profile Manager 使用手册](<./AI CLI Profile Manager 使用手册.md#52-配置和启动>)》的“5.2 配置和启动”。
 - 云端 Key 只放在目标子进程环境，并从 OI Shell 环境排除。
 - Live 文本测试使用只读沙箱、无审批执行工具的禁用路径和临时空目录。
 

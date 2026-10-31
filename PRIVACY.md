@@ -9,6 +9,7 @@ AI CLI Profile Manager 默认不包含产品遥测，也不收集提示或回复
 | Profile、书签、默认项和非秘密设置 | `%APPDATA%\AiCliProfileManager` | 可随用户配置保存 |
 | API Key 引用 | 用户 Profile 的 `secretRef` | 需要 Key 的 Profile 一律引用密码中心 `passwordcenter:<vendor>`，不另存本地副本 |
 | 旧 API Key 密文 | `%LOCALAPPDATA%\AiCliProfileManager\secrets` | 只在迁移期兼容读取；用 `Invoke-AiCliSecretMigration` 迁移引用，不自动删除旧密文 |
+| 运行状态与缓存 | `%LOCALAPPDATA%\AiCliProfileManager` | 普通卸载保留，`--purge-user-data` 删除 |
 | 脱敏日志 | `%LOCALAPPDATA%\AiCliProfileManager\logs` | 不保存提示、回复、API Key 或 OAuth 正文 |
 | 命令垫片 | `%LOCALAPPDATA%\aicli\bin` | 仅用于从终端找到本工具 |
 
