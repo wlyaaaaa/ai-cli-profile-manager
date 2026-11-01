@@ -714,11 +714,13 @@ function Test-AiCliRecoverableQuotaPause {
 
 function Get-AiCliRecoverableRunResult {
     param([Parameter(Mandatory)]$State, [object]$Receipt = $null)
+    $migration = Get-AiCliModelMigration -Model ([string]$State.sessionMeta.model) -Effort ([string]$State.sessionMeta.effectiveEffort)
     $created = ConvertTo-AiCliRecoveryUtcInstant -Value $State.createdUtc
     $wallMs = [long][Math]::Max(0, ((Get-Date).ToUniversalTime() - $created).TotalMilliseconds)
     return [pscustomobject]@{
         runId = [string]$State.runId
-        status = [string]$State.status
+        status = $(if ($migration) { 'migration_required' } else { [string]$State.status })
+        modelMigration = $migration
         profileId = [string]$State.sessionMeta.profileId
         workspace = [string]$State.sessionMeta.workspace
         model = [string]$State.sessionMeta.model
@@ -730,8 +732,8 @@ function Get-AiCliRecoverableRunResult {
         lastTurnId = Get-AiCliProperty $State.turnContext 'lastTurnId'
         attempts = [int]$State.turnContext.attempt
         resumeCount = [int]$State.resume.count
-        resumeSupported = [bool]$State.resume.supported
-        resumeReason = [string]$State.resume.reason
+        resumeSupported = $(if ($migration) { $false } else { [bool]$State.resume.supported })
+        resumeReason = $(if ($migration) { 'migration_required' } else { [string]$State.resume.reason })
         eventCursor = [int]$State.turnContext.eventCursor
         accounting = [pscustomobject][ordered]@{
             wallTimeMs = $wallMs
@@ -1160,9 +1162,11 @@ function Invoke-AiCliRecoverableRunCore {
         [Parameter(Mandatory)][string]$RunId,
         [AllowNull()][string]$InitialTaskText = $null
     )
-    $state = Sync-AiCliRecoverableRunState -State (
-        Get-AiCliRecoverableRunState -RunId $RunId
-    )
+    $originalState = Get-AiCliRecoverableRunState -RunId $RunId
+    if (Get-AiCliModelMigration -Model ([string]$originalState.sessionMeta.model) -Effort ([string]$originalState.sessionMeta.effectiveEffort)) {
+        return (Get-AiCliRecoverableRunResult -State $originalState)
+    }
+    $state = Sync-AiCliRecoverableRunState -State $originalState
     if ($state.status -eq 'running' -and
         (Test-AiCliRecoverableControllerAlive -State $state)) {
         return (Get-AiCliRecoverableRunResult -State $state)
@@ -1197,6 +1201,7 @@ function Invoke-AiCliRecoverableRunCore {
     $abortSignal = Join-Path $root 'abort.requested'
     $lastReceipt = $null
     while ($true) {
+        if (Get-AiCliModelMigration -Model ([string]$state.sessionMeta.model) -Effort ([string]$state.sessionMeta.effectiveEffort)) { return (Get-AiCliRecoverableRunResult -State $state) }
         if (Test-Path -LiteralPath $abortSignal -PathType Leaf) {
             $state.status = 'aborted'
             $state.controller.abortRequested = $true

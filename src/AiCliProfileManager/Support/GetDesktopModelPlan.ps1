@@ -4,7 +4,9 @@ param(
     [string[]]$ProfileId = @(),
     [string[]]$CloudProfileId = @(),
     [string]$ModulePath = (Join-Path $PSScriptRoot '..\AiCliProfileManager.psd1'),
-    [switch]$UpstreamOnly
+    [switch]$UpstreamOnly,
+    [string]$ResolveModel,
+    [string]$Effort
 )
 
 # This is configuration discovery only. It neither starts a model nor changes
@@ -17,6 +19,10 @@ if (-not (Test-Path -LiteralPath $ModulePath) -and -not $PSBoundParameters.Conta
     $ModulePath = 'AiCliProfileManager'
 }
 $module = Import-Module -Name $ModulePath -Force -PassThru
+if ($ResolveModel) {
+    & $module { param($Model,$Level) Resolve-AiCliModelSelection -Model $Model -Effort $Level } $ResolveModel $Effort | ConvertTo-Json -Depth 20 -Compress
+    return
+}
 $setPath = & $module { Get-AiCliDataPath -Relative 'local-model-set.json' }
 if ($ProfileId.Count -eq 0 -and -not $UpstreamOnly) {
     $set = Get-Content -LiteralPath $setPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 20
@@ -55,6 +61,7 @@ $plan = & $module {
         }
         $catalogPath = Get-AiCliDataPath -Relative (Join-Path 'model-catalogs' $catalogName)
         $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100
+        $catalog = Update-AiCliCatalogModelRouting -Catalog $catalog
         $matches = @($catalog.models | Where-Object slug -CEQ $model)
         if ($matches.Count -ne 1) { throw "Desktop catalog does not identify the exact profile model: $id" }
         $info = $matches[0]
@@ -127,6 +134,7 @@ $plan = & $module {
         }
         $catalogPath = Get-AiCliDataPath -Relative (Join-Path 'model-catalogs' $catalogName)
         $catalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json -Depth 100
+        $catalog = Update-AiCliCatalogModelRouting -Catalog $catalog
         $matches = @($catalog.models | Where-Object slug -CEQ $model)
         if ($matches.Count -ne 1) { throw "Desktop cloud catalog does not identify the exact profile model: $id" }
         $info = $matches[0]
@@ -173,7 +181,8 @@ $plan = & $module {
             if ($text -notmatch '(?m)^# aicli-managed=true\s*$') { continue }
             $oldModel = [regex]::Match($text, '(?m)^model\s*=\s*"([^"]+)"').Groups[1].Value
             if (-not $oldModel -or $seen.Contains($oldModel)) { continue }
-            $sameFamily = @($entries | Where-Object { ($_.model -split ':')[0] -ceq ($oldModel -split ':')[0] })
+            $resolvedOld = (Resolve-AiCliModelSelection -Model $oldModel).model
+            $sameFamily = @($entries | Where-Object { $_.model -ceq $resolvedOld })
             if ($sameFamily.Count -eq 1) {
                 $legacyModels += [ordered]@{ model = $oldModel; canonicalModel = $sameFamily[0].model }
                 [void]$seen.Add($oldModel)

@@ -20,6 +20,7 @@ public sealed class ModelRouter
     private readonly ConcurrentDictionary<string, byte> deepSeekReasoningProviders = new();
     private readonly ConcurrentDictionary<string, DeepSeekTurnState> deepSeekTurns = new();
     private readonly string catalogPath;
+    private readonly Func<string, string?, Task<JsonObject>>? resolveModel;
     public string? StartupCatalogPath => models.Count > 0 ? catalogPath : null;
     private sealed record ThreadState(string Provider, string? Model);
     private sealed class DeepSeekTurnState
@@ -36,8 +37,9 @@ public sealed class ModelRouter
         public bool AssistantMessageSeen { get; set; }
     }
 
-    public ModelRouter(JsonObject plan)
+    public ModelRouter(JsonObject plan, Func<string, string?, Task<JsonObject>>? resolveModel = null)
     {
+        this.resolveModel = resolveModel;
         var codexHome = Text(plan, "codexHome") ?? "";
         foreach (var value in plan["models"]?.AsArray() ?? [])
         {
@@ -110,7 +112,39 @@ public sealed class ModelRouter
     {
         var method = Text(request, "method");
         var parameters = request["params"] as JsonObject;
-        if (models.Count == 0 || parameters is null) return request;
+        if (parameters is null || method is not ("thread/start" or "thread/resume" or "thread/fork" or "thread/settings/update" or "turn/start")) return request;
+        var thread = Text(parameters, "threadId");
+        ThreadState? saved = thread is null || method == "thread/start" ? null : await ReadThreadAsync(thread, callUpstream);
+        if (resolveModel is not null)
+        {
+            if (saved?.Model is { } previous)
+            {
+                var migration = await resolveModel(previous, null);
+                if (Text(migration, "model") is { } target && previous != target)
+                    return new JsonObject { ["id"] = request["id"]?.DeepClone(), ["error"] = new JsonObject {
+                        ["code"] = -32010, ["message"] = "migration_required", ["data"] = new JsonObject {
+                            ["schema"] = "aicli.model-migration.v1", ["reason"] = "migration_required", ["threadId"] = thread,
+                            ["previousModel"] = previous, ["targetModel"] = target, ["targetEffort"] = migration["effort"]?.DeepClone(), ["action"] = "start_new_run", ["originalThreadPreserved"] = true } } };
+            }
+            if ((SelectedModel(parameters) ?? saved?.Model) is { } requested)
+            {
+                var settings = parameters["collaborationMode"]?["settings"] as JsonObject;
+                var config = parameters["config"] as JsonObject;
+                var effort = Text(settings, "reasoning_effort") ?? Text(parameters, "effort") ?? Text(config, "model_reasoning_effort");
+                var selection = await resolveModel(requested, effort);
+                var target = Text(selection, "model") ?? throw new InvalidOperationException("Model resolver returned no model.");
+                parameters["model"] = target;
+                if (settings is not null) settings["model"] = target;
+                if (config?.ContainsKey("model") == true) config["model"] = target;
+                if (Text(selection, "effort") is { } level && selection["family"] is not null)
+                {
+                    if (settings is not null) settings["reasoning_effort"] = level;
+                    if (method == "turn/start" || parameters.ContainsKey("effort")) parameters["effort"] = level;
+                    if (config is not null) config["model_reasoning_effort"] = level;
+                }
+            }
+        }
+        if (models.Count == 0) return request;
         var selected = SelectedModel(parameters);
         if (method == "thread/start")
         {
@@ -126,7 +160,7 @@ public sealed class ModelRouter
         if (method is not ("thread/resume" or "thread/fork" or "thread/settings/update" or "turn/start")) return request;
         var threadId = Text(parameters, "threadId");
         if (threadId is null) return request;
-        var state = await ReadThreadAsync(threadId, callUpstream);
+        var state = saved ?? await ReadThreadAsync(threadId, callUpstream);
         var providerGroup = await ResolveManagedProviderAsync(state.Provider, callUpstream);
         if (selected is not null && models.ContainsKey(selected))
         {
@@ -663,7 +697,7 @@ public sealed class ModelRouter
     private static RpcException CrossProviderError() => new(-32602,
         "此模型与当前任务使用不同的模型服务。请新建任务后选择它；当前任务和历史保持原连接。同一服务内的模型仍可切换。");
     private static string? SelectedModel(JsonObject? parameters) =>
-        Text(parameters?["collaborationMode"]?["settings"], "model") ?? Text(parameters, "model");
+        Text(parameters?["collaborationMode"]?["settings"], "model") ?? Text(parameters, "model") ?? Text(parameters?["config"], "model");
     private static bool PromoteRawReasoning(JsonNode? node)
     {
         var changed = false;

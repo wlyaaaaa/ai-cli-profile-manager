@@ -54,6 +54,7 @@ function Build-AiCliLaunchPlan {
         if (-not $tid) { $tid = $ProfileId }
         throw "Profile 未配置完成。下一步：aicli profile configure $tid"
     }
+    $NativeArgs = @(Update-AiCliNativeModelRouting -NativeArgs $NativeArgs)
     Assert-AiCliNativeArgsDoNotUseRetiredModel -NativeArgs $NativeArgs
     Assert-AiCliLockedModelArgs -MergedProfile $merged -NativeArgs $NativeArgs
     $project = Resolve-AiCliProjectPath -Project $ProjectPath

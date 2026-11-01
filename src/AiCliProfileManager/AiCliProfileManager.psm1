@@ -14,6 +14,7 @@ $privateOrder = @(
     'ConsoleUi.ps1',
     'SecretStore.ps1',
     'VendorCredential.ps1',
+    'ModelRouting.ps1',
     'ManifestService.ps1',
     'ProfileService.ps1',
     'ChildProcess.ps1',

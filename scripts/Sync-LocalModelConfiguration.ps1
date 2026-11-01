@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 [CmdletBinding()]
 param(
     [string]$ConsumerConfigPath = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'AiCliProfileManager\local-model-consumers.json'),
@@ -15,11 +15,13 @@ $root = Split-Path $PSScriptRoot -Parent
 $utf8 = [Text.UTF8Encoding]::new($false)
 $set = Get-Content (Join-Path $root 'data\local-model-set.json') -Raw | ConvertFrom-Json -AsHashtable
 $consumers = Get-Content -LiteralPath $ConsumerConfigPath -Raw | ConvertFrom-Json -AsHashtable
+$routingModule = Import-Module (Join-Path $root 'src/AiCliProfileManager/AiCliProfileManager.psd1') -Force -PassThru
 $profiles = [ordered]@{}
 $modelIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 foreach ($id in $set.profiles) {
     if ($id -notmatch '^[a-z0-9-]+$' -or $profiles.Contains($id)) { throw 'Invalid or duplicate profile in local model set.' }
     $p = Get-Content (Join-Path $root "data\providers\$id.json") -Raw | ConvertFrom-Json -AsHashtable -Depth 60
+    $p = & $routingModule { param($Profile) Update-AiCliProfileModelRouting -Profile $Profile } $p
     $m = [string]$p.models.primary
     if ($p.provider -ne 'ollama' -or $p.engine -ne 'codex' -or -not $modelIds.Add($m) -or
         $p.modelMetadata[$m].contextWindowTokens -ne 262144 -or -not $set.clients[$id]) { throw "Invalid local model declaration: $id" }

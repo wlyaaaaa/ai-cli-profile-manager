@@ -105,6 +105,7 @@ function Assert-AiCliProfileDoesNotUseRetiredModel {
         [Parameter(Mandatory)]$Profile,
         [string]$Context = 'Profile'
     )
+    $Profile = Update-AiCliProfileModelRouting -Profile $Profile
     # Retired entry names cannot be reused to route an old command to another
     # provider. Match complete IDs (case-insensitively, like Windows paths),
     # while preserving ordinary custom aliases and current exact Profiles.

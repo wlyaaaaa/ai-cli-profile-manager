@@ -25,6 +25,7 @@ Describe 'Manifest' {
         . (Join-Path $root 'src\AiCliProfileManager\Private\Paths.ps1')
         . (Join-Path $root 'src\AiCliProfileManager\Private\JsonStore.ps1')
         . (Join-Path $root 'src\AiCliProfileManager\Private\Redaction.ps1')
+        . (Join-Path $root 'src\AiCliProfileManager\Private\ModelRouting.ps1')
         . (Join-Path $root 'src\AiCliProfileManager\Private\ManifestService.ps1')
     }
 

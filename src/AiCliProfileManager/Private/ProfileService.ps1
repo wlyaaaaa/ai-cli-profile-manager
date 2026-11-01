@@ -91,6 +91,8 @@ function Assert-AiCliExactCodexUserProfileCompatible {
         [Parameter(Mandatory)]$Template,
         [Parameter(Mandatory)]$UserProfile
     )
+    $Template = Update-AiCliProfileModelRouting -Profile $Template
+    $UserProfile = Update-AiCliProfileModelRouting -Profile $UserProfile
     $engine = [string](Get-AiCliProperty $Template 'engine')
     $provider = [string](Get-AiCliProperty $Template 'provider')
     $flexible = [bool](Get-AiCliProperty $Template 'flexible' $true)
@@ -255,6 +257,7 @@ function Merge-AiCliProfile {
         $merged['codexAutoCompactTokenLimitScope'] = $null
     }
 
+    $merged = Update-AiCliProfileModelRouting -Profile $merged
     $merged['profileFingerprint'] = Get-AiCliProfileFingerprint -Profile $merged
     $settings = Get-AiCliSettings
     $ver = $null

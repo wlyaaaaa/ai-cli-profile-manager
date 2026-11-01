@@ -264,7 +264,17 @@ internal sealed class DesktopPlan
         return Parse(await ExportPlanAsync(script, false, cancellationToken).ConfigureAwait(false));
     }
 
-    private static async Task<string> ExportPlanAsync(string scriptPath, bool upstreamOnly, CancellationToken cancellationToken = default)
+    internal static async Task<JsonObject> ResolveModelAsync(string model, string? effort)
+    {
+        var provider = Environment.GetEnvironmentVariable("AICLI_MODEL_ROUTING_PROVIDER")
+            ?? Environment.GetEnvironmentVariable("AICLI_MODEL_ROUTING_PROVIDER", EnvironmentVariableTarget.User);
+        if (string.IsNullOrEmpty(provider)) return new JsonObject { ["model"] = model, ["effort"] = effort };
+        var script = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "GetDesktopModelPlan.ps1"));
+        return JsonNode.Parse(await ExportPlanAsync(script, true, resolveModel: model, effort: effort).ConfigureAwait(false))?.AsObject()
+            ?? throw new InvalidOperationException("Model resolver returned no selection.");
+    }
+
+    private static async Task<string> ExportPlanAsync(string scriptPath, bool upstreamOnly, CancellationToken cancellationToken = default, string? resolveModel = null, string? effort = null)
     {
         if (!File.Exists(scriptPath))
             throw new FileNotFoundException("The desktop launch-plan script is unavailable.");
@@ -285,8 +295,12 @@ internal sealed class DesktopPlan
         process.StartInfo.ArgumentList.Add("-NoProfile");
         process.StartInfo.ArgumentList.Add("-File");
         process.StartInfo.ArgumentList.Add(scriptPath);
-        if (upstreamOnly)
-            process.StartInfo.ArgumentList.Add("-UpstreamOnly");
+        if (resolveModel is not null)
+        {
+            process.StartInfo.ArgumentList.Add("-ResolveModel"); process.StartInfo.ArgumentList.Add(resolveModel);
+            if (effort is not null) { process.StartInfo.ArgumentList.Add("-Effort"); process.StartInfo.ArgumentList.Add(effort); }
+        }
+        else if (upstreamOnly) process.StartInfo.ArgumentList.Add("-UpstreamOnly");
 
         if (!process.Start())
             throw new InvalidOperationException("PowerShell did not start.");

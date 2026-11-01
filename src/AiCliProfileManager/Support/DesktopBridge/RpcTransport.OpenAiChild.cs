@@ -160,12 +160,14 @@ internal sealed partial class RpcTransport
                 return;
             }
 
+            var selection = await DesktopPlan.ResolveModelAsync(model, effort).ConfigureAwait(false);
             // Validate the selected role before any upstream call. Old threads keep
             // their original tool schema, so the error must teach the same contract.
             if (IsProtectedJudgment(agentType))
             {
                 var invalidFields = !HasOnly(arguments, OpenAiChildRequiredFields);
-                if (invalidFields || model != ProtectedJudgmentModel(agentType) || effort != "high")
+                var roleSelection = await DesktopPlan.ResolveModelAsync(ProtectedJudgmentModel(agentType), "high").ConfigureAwait(false);
+                if (invalidFields || selection["model"]?.GetValue<string>() != roleSelection["model"]?.GetValue<string>() || effort != "high")
                 {
                     await WriteOpenAiChildToolResultAsync(requestId, false, new JsonObject
                     {
@@ -185,6 +187,13 @@ internal sealed partial class RpcTransport
                 return;
             }
 
+            if (OptionalId(arguments, "thread_id") is not null && selection["model"]?.GetValue<string>() != model)
+            {
+                await WriteOpenAiChildToolResultAsync(requestId, false, new JsonObject { ["error"] = "migration_required", ["modelMigration"] = selection, ["originalThreadPreserved"] = true }, shutdown.Token).ConfigureAwait(false);
+                return;
+            }
+            model = selection["model"]!.GetValue<string>();
+            effort = selection["effort"]?.GetValue<string>() ?? effort;
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(shutdown.Token);
             timeout.CancelAfter(OpenAiChildTimeout);
             if (agentType == OpenAiChildToolName && !modernParents.ContainsKey(parentThreadId) && childAuthorization?.Enabled == true)
@@ -196,8 +205,8 @@ internal sealed partial class RpcTransport
             var result = IsProtectedJudgment(agentType) || !modernParents.ContainsKey(parentThreadId)
                 ? await RunOpenAiChildAsync(parent, agentType, model, effort, taskName, prompt, timeout.Token).ConfigureAwait(false)
                 : await SendBackgroundChildAsync(parent, model, effort, taskName, prompt, arguments, callId, timeout.Token).ConfigureAwait(false);
-            await WriteOpenAiChildToolResultAsync(requestId, true, result, timeout.Token).ConfigureAwait(false);
-            AnnounceBackgroundResult(result);
+            await WriteOpenAiChildToolResultAsync(requestId, !result.ContainsKey("error"), result, timeout.Token).ConfigureAwait(false);
+            if (!result.ContainsKey("error")) AnnounceBackgroundResult(result);
         }
         catch (NativeChildAuthorizationException ex)
         {

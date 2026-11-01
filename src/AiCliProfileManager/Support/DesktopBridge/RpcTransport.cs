@@ -52,7 +52,7 @@ internal sealed partial class RpcTransport
         ChildProcessLifetime? lifetime = null;
         try
         {
-            var router = new ModelRouter(plan);
+            var router = new ModelRouter(plan, DesktopPlan.ResolveModelAsync);
             var engineArgs = args.ToList();
             if (router.StartupCatalogPath is { } catalogPath)
             {

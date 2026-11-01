@@ -179,6 +179,9 @@ function New-AiCliCodexProviderToml {
 
     $null = Assert-AiCliSafeIdentifier -Id $providerId -Kind 'Codex Provider ID'
     Assert-AiCliEndpointSafe -Url $base
+    $selection = Resolve-AiCliModelSelection -Model $model -Effort $ReasoningEffort
+    $model = $selection.model
+    if ($selection.family) { $ReasoningEffort = $selection.effort }
     $null = Assert-AiCliModelId -Model $model
     $modelToml = ConvertTo-AiCliTomlString $model
     $providerToml = ConvertTo-AiCliTomlString $providerId
@@ -271,6 +274,10 @@ function Publish-AiCliCodexModelCatalog {
     if (@($catalog.models).Count -eq 0) {
         throw "Codex model catalog 为空: $catalogName"
     }
+    $catalogBefore = $catalog | ConvertTo-Json -Depth 100
+    $catalog = Update-AiCliCatalogModelRouting -Catalog $catalog
+    $catalogAfter = $catalog | ConvertTo-Json -Depth 100
+    if ($catalogBefore -cne $catalogAfter) { $sourceBytes = [Text.UTF8Encoding]::new($false).GetBytes($catalogAfter) }
     $autoCompact = Get-AiCliCodexAutoCompactConfiguration -MergedProfile $MergedProfile
     if ($autoCompact) {
         foreach ($catalogModel in @($catalog.models)) {
@@ -586,6 +593,12 @@ function Build-AiCliCodexLaunchPlan {
     $requestedEffort = Resolve-AiCliCodexEffort -MergedProfile $MergedProfile -NativeArgs $NativeArgs
     $effort = Resolve-AiCliCodexEffectiveEffort -MergedProfile $MergedProfile -RequestedEffort $requestedEffort
     $model = Resolve-AiCliCodexModel -MergedProfile $MergedProfile -NativeArgs $NativeArgs
+    $selection = Resolve-AiCliModelSelection -Model $model -Effort $effort
+    $model = $selection.model
+    if ($selection.family -and $selection.effort) { $effort = $selection.effort }
+    $NativeArgs = @($NativeArgs | ForEach-Object {
+        if ($_ -cmatch '^model_reasoning_effort\s*=') { 'model_reasoning_effort=' + (ConvertTo-AiCliTomlString $effort) } else { $_ }
+    })
     if ((Get-AiCliVendorSecretRef -Profile $MergedProfile) -and
         $model -cne [string](Get-AiCliProperty (Get-AiCliProperty $MergedProfile 'models') 'primary')) {
         $copy = [ordered]@{}

@@ -338,6 +338,37 @@ try
         Check(JsonNode.DeepEquals(errorPage, originalError), "History failures must not be converted into success.");
     }
 
+    Task<JsonObject> ResolveFixture(string model, string? effort) => Task.FromResult(new JsonObject {
+        ["model"] = model switch { "orbit-classic" => "lantern", "local-retired" => "local-a", _ => model },
+        ["effort"] = effort, ["family"] = "arbitrary"
+    });
+    var routing = new ModelRouter(plan, ResolveFixture);
+    foreach (var oldModel in new[] { "orbit-classic", "local-retired" })
+    {
+        var start = new JsonObject { ["id"] = 71, ["method"] = "thread/start", ["params"] = new JsonObject { ["model"] = oldModel } };
+        await routing.BeforeRequestAsync(start, NoCall);
+        var expected = oldModel == "local-retired" ? "local-a" : "lantern";
+        Check(start["params"]!["model"]!.GetValue<string>() == expected, "Both upstream and managed legacy requests must use the central target.");
+        if (oldModel == "local-retired") Check(start["params"]!["config"]!["model"]!.GetValue<string>() == expected, "Managed configuration must dispatch the canonical target, not the hidden alias.");
+    }
+    var nested = Parse("""{"method":"thread/start","params":{"model":"orbit-classic","config":{"model":"orbit-classic"},"collaborationMode":{"settings":{"model":"orbit-classic"}}}}""");
+    await routing.BeforeRequestAsync(nested, NoCall);
+    Check(nested["params"]!["collaborationMode"]!["settings"]!["model"]!.GetValue<string>() == "lantern" && nested["params"]!["config"]!["model"]!.GetValue<string>() == "lantern", "Nested selections must not override the resolved model.");
+    routing.AfterResponse("thread/read", null, Parse("""{"result":{"thread":{"id":"retired-task","modelProvider":"openai","model":"orbit-classic"}}}"""));
+    foreach (var method in new[] { "thread/resume", "thread/fork", "turn/start", "thread/settings/update" })
+    {
+        var request = new JsonObject { ["id"] = 72, ["method"] = method, ["params"] = new JsonObject { ["threadId"] = "retired-task" } };
+        var originalRequest = request.DeepClone();
+        var result = await routing.BeforeRequestAsync(request, NoCall);
+        Check(result?["error"]?["data"]?["reason"]?.GetValue<string>() == "migration_required", "Retired durable threads must return structured migration data before dispatch.");
+        Check(result?["error"]?["data"]?["targetModel"]?.GetValue<string>() == "lantern" && JsonNode.DeepEquals(request, originalRequest), "Migration must name the target and leave the original request/thread intact.");
+    }
+    foreach (var unchangedModel in new[] { "unregistered", "orbit-future" })
+    {
+        var request = new JsonObject { ["method"] = "thread/start", ["params"] = new JsonObject { ["model"] = unchangedModel } };
+        await routing.BeforeRequestAsync(request, NoCall);
+        Check(request["params"]!["model"]!.GetValue<string>() == unchangedModel, "Unregistered and future models must not be downgraded.");
+    }
     PublicSummaryProjectionTests.Run(Check);
     Console.WriteLine($"PASS: {checks} desktop router checks");
 }

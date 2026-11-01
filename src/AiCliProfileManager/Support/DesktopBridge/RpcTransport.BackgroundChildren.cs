@@ -132,6 +132,11 @@ internal sealed partial class RpcTransport
             else
             {
                 child = RequireOwnedBackgroundChild(parent.ThreadId, threadId);
+                var selection = await DesktopPlan.ResolveModelAsync(child.Link.Model, child.Link.Effort).ConfigureAwait(false);
+                if (selection["model"]?.GetValue<string>() != child.Link.Model)
+                    return new JsonObject { ["error"] = "migration_required", ["thread_id"] = threadId,
+                        ["modelMigration"] = selection, ["originalThreadPreserved"] = true };
+
                 if (child.Link.Model != model || child.Link.Effort != effort || child.Link.TaskName != taskName ||
                     !SameDirectory(child.Link.Cwd, parent.Cwd))
                     throw new BackgroundChildException("OPENAI_CHILD_CONTINUATION_IDENTITY_MISMATCH");
