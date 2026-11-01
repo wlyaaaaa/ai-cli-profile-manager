@@ -53,6 +53,23 @@ Describe 'Optional central model routing' {
             (Update-AiCliCatalogModelRouting $catalog).models[0].slug | Should -BeExactly 'lantern'
         }
     }
+    It 'deduplicates routed catalog aliases while preserving current model capabilities in either order' {
+        InModuleScope AiCliProfileManager {
+            foreach ($reverse in @($false, $true)) {
+                $old = '{"slug":"orbit-classic","display_name":"old","default_reasoning_level":"low","supported_reasoning_levels":[{"effort":"low"}],"vendorMetadata":{"generation":"old"}}' | ConvertFrom-Json
+                $duplicate = $old.PSObject.Copy()
+                $current = '{"slug":"lantern","display_name":"Current model","default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"high"},{"effort":"max"}],"vendorMetadata":{"generation":"current","futureField":17}}' | ConvertFrom-Json
+                $unknown = '{"slug":"unregistered","display_name":"Unknown model","default_reasoning_level":"medium","futureField":23}' | ConvertFrom-Json
+                $before = $current | ConvertTo-Json -Depth 20 -Compress
+                $catalog = @{ models = $(if ($reverse) { @($current, $old, $duplicate, $unknown) } else { @($old, $duplicate, $current, $unknown) }) }
+                $result = Update-AiCliCatalogModelRouting $catalog
+                @($result.models).Count | Should -Be 2
+                $result.models[0].slug | Should -BeExactly 'lantern'
+                ($result.models[0] | ConvertTo-Json -Depth 20 -Compress) | Should -BeExactly $before
+                $result.models[1].futureField | Should -Be 23
+            }
+        }
+    }
     It 'blocks a retired durable run before sync or dispatch and preserves its ledger' {
         InModuleScope AiCliProfileManager -Parameters @{ Work=$TestDrive } {
             $script:AiCliDataRootOverride = Join-Path $Work 'recovery'

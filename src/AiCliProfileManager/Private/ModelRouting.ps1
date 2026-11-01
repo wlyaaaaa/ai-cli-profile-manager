@@ -46,15 +46,32 @@ function Update-AiCliProfileModelRouting {
 
 function Update-AiCliCatalogModelRouting {
     param($Catalog)
+    $entries = [Collections.Generic.List[object]]::new()
+    $positions = [Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
+    $canonical = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($entry in @($Catalog.models)) {
         $old = [string]$entry.slug
         $selection = Resolve-AiCliModelSelection -Model $old -Effort ([string](Get-AiCliProperty $entry 'default_reasoning_level'))
+        $target = [string]$selection.model
+        $position = 0
+        if ($positions.TryGetValue($target, [ref]$position)) {
+            # A current entry owns its complete metadata even if an old alias
+            # appears first. Never replace its supported effort levels with an alias.
+            if ($old -cne $target -or $canonical.Contains($target)) { continue }
+        } else {
+            $position = $entries.Count
+            $positions.Add($target, $position)
+            $entries.Add($null)
+        }
+        if ($old -ceq $target) { [void]$canonical.Add($target) }
         if ($selection.replaced) {
             $entry.slug = $selection.model
             $entry.display_name = $selection.model
         }
         if ($selection.family -and $selection.effort) { $entry.default_reasoning_level = $selection.effort }
+        $entries[$position] = $entry
     }
+    $Catalog.models = @($entries)
     return $Catalog
 }
 

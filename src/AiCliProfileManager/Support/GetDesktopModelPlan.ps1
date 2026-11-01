@@ -275,6 +275,9 @@ if (-not $UpstreamOnly) {
     if ($null -eq $officialModels) {
         throw 'The original Codex engine did not provide a verifiable online model catalog cache.'
     }
-    $plan['upstreamModels'] = $officialModels
+    $plan['upstreamModels'] = @(& $module {
+        param($Models)
+        (Update-AiCliCatalogModelRouting -Catalog @{ models = $Models }).models
+    } -Models $officialModels)
 }
 $plan | ConvertTo-Json -Depth 100 -Compress
