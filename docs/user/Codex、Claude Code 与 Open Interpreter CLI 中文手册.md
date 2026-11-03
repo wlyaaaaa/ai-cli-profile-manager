@@ -217,8 +217,9 @@ interpreter --version
 ```powershell
 interpreter
 interpreter exec "解释当前目录"
-interpreter update
 ```
+
+更新时按《[AI CLI Profile Manager 使用手册 · Open Interpreter Rust 更新](https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/docs/user/AI%20CLI%20Profile%20Manager%20%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C.md#open-interpreter-rust-%E6%9B%B4%E6%96%B0)》操作：在 PowerShell 7 中核实原安装根并显式设置当前进程的 `INTERPRETER_HOME`，避免继承 `CODEX_HOME` 和内置更新的 `powershell.exe` 兼容问题。
 
 会话内使用：
 

@@ -6,6 +6,18 @@ Import-Module (Join-Path $script:UpdateServiceTestRepoRoot 'src\AiCliProfileMana
 
 Describe 'Update source and stable-version checks' {
     InModuleScope AiCliProfileManager {
+        It 'prints Interpreter installer compatibility guidance without executing an update' {
+            Mock Get-AiCliInstallSource { @{ found = $true; source = 'official-rust'; version = 'interpreter 0.0.58' } }
+            Mock Write-Host {}
+            Mock Invoke-RestMethod { throw 'guide must not download or install' }
+            $exit = Invoke-AiCliUpdateGuide -Component interpreter
+            $exit | Should -Be (Get-AiCliExitCode Success)
+            Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -match 'PowerShell 7.*INTERPRETER_HOME' }
+            Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -match 'github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/docs/user/' }
+            Should -Invoke Write-Host -Times 0 -Exactly -ParameterFilter { $Object -match '^\s*interpreter update\s*$' }
+            Should -Invoke Invoke-RestMethod -Times 0 -Exactly
+        }
+
         It 'rejects a non-map source result instead of silently adapting it' {
             Mock Get-AiCliInstallSource { [pscustomobject]@{ found = $true; source = 'npm'; version = '0.150.1' } }
             { Invoke-AiCliUpdateCheck -Component codex -Json } | Should -Throw '*Install source must return a map*'

@@ -449,12 +449,34 @@ aicli update guide self
 
 从 `0.3.10` 之前的 AICLI 版本升级时，应使用同一发行包内的 `scripts\Install.ps1`；该安装器会完成旧 Qwen3.7 可验证遗留入口的可恢复隔离，并保留新 06-08 exact Profile。如果预检报告未知或篡改项，安装在写入新版本前中止；请先备份并人工审计，不要绕过门禁。
 
-Open Interpreter Rust 可按上游支持使用：
+#### Open Interpreter Rust 更新
+
+在 PowerShell 7（`pwsh`）中运行官方安装脚本。先从原入口脚本或现有安装记录核实原安装根；不要把 PATH 中二进制的父目录当安装根，它可能位于 `releases` 内。将下方占位符换成已核实的原安装根、原入口绝对路径和 E 盘本次临时目录，再执行：
 
 ```powershell
-interpreter update
-interpreter --version
+$interpreterInstallRoot = '<已核实的原安装根目录>'
+$interpreterOriginalEntry = '<已核实的原入口绝对路径>'
+$interpreterUpdateTemp = '<E盘本次更新临时目录>'
+$interpreterPreviousEnv = @{}
+foreach ($name in @('INTERPRETER_HOME', 'OPEN_INTERPRETER_NONINTERACTIVE', 'TEMP', 'TMP', 'TMPDIR')) {
+    $interpreterPreviousEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+}
+try {
+    New-Item -ItemType Directory -Path $interpreterUpdateTemp -Force | Out-Null
+    $env:INTERPRETER_HOME = $interpreterInstallRoot
+    $env:OPEN_INTERPRETER_NONINTERACTIVE = '1'
+    $env:TEMP = $env:TMP = $env:TMPDIR = $interpreterUpdateTemp
+    irm https://www.openinterpreter.com/install.ps1 | iex
+} finally {
+    foreach ($name in $interpreterPreviousEnv.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $interpreterPreviousEnv[$name], 'Process')
+    }
+}
+& $interpreterOriginalEntry --version
+aicli update check interpreter
 ```
+
+仅修改当前进程环境，完成后恢复原值，不修改官方脚本。确认新版本和原入口一致后，清理本次临时目录。未设置 `INTERPRETER_HOME` 时，安装器会回落到 `CODEX_HOME`；内置更新还会固定调用 `powershell.exe`，可能遇到 `Get-FileHash` 兼容问题。上述步骤避开这两个已知问题，AICLI 只打印指引，不自动安装。依据：[官方安装器](https://www.openinterpreter.com/install.ps1)、[Rust 0.0.58 内置更新实现](https://github.com/openinterpreter/openinterpreter/blob/rust-v0.0.58/codex-rs/cli/src/main.rs#L946)。
 
 ### 7.2 通用修复顺序
 

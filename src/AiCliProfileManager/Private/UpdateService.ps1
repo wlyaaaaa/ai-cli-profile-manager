@@ -348,8 +348,10 @@ function Invoke-AiCliUpdateGuide {
             Write-Host 'https://ollama.com/download'
         }
         'interpreter' {
-            Write-Host '当前官方 Rust 版支持内置更新：'
-            Write-Host '  interpreter update'
+            Write-Host '使用官方 install.ps1；先核实原安装根，在 PowerShell 7 当前进程显式设置 INTERPRETER_HOME。'
+            Write-Host '兼容提示：安装器可能继承 CODEX_HOME；内置更新使用 powershell.exe。'
+            Write-Host '完整步骤：《AI CLI Profile Manager 使用手册》→ Open Interpreter Rust 更新：'
+            Write-Host 'https://github.com/wlyaaaaa/ai-cli-profile-manager/blob/main/docs/user/AI%20CLI%20Profile%20Manager%20%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C.md#open-interpreter-rust-%E6%9B%B4%E6%96%B0'
             Write-Host '验证: aicli update check interpreter'
         }
         'self' {
