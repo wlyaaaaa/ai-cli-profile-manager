@@ -26,16 +26,16 @@
   ],
   "displayName": "Codex 官方 (ChatGPT/OpenAI)",
   "id": "codex-official",
-  "notes": "默认 gpt-5.6-sol；可用 aicli start codex-official -- --model gpt-5.6-terra 覆盖模型；会话内用 /reasoning 调整思考等级。",
+  "notes": "默认使用当前清单中的官方模型；可用 aicli start codex-official -- --model 模型名 覆盖模型；会话内用 /reasoning 调整思考等级。",
   "schemaVersion": 1,
   "virtualReady": true,
   "defaultEffort": "high",
   "models": {
-    "primary": "gpt-5.6-sol",
+    "primary": "gpt-6.1-sol",
     "candidates": [
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
-      "gpt-5.6-luna"
+      "gpt-6.1-sol",
+      "gpt-6.1-terra",
+      "gpt-6-luna"
     ],
     "small": null
   },

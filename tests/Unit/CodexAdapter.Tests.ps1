@@ -152,6 +152,38 @@ Describe 'Codex Ollama reasoning effort' {
 }
 
 Describe 'Codex Spark machine profile' {
+    It 'uses the shipped official default without central routing and preserves explicit models' {
+        $profile = Get-Content -LiteralPath (
+            Join-Path $script:CodexAdapterRepoRoot 'data\providers\codex-official.json'
+        ) -Raw | ConvertFrom-Json -AsHashtable
+
+        InModuleScope AiCliProfileManager -Parameters @{ Work = $TestDrive; Profile = $profile } {
+            Mock Resolve-AiCliCodexLaunchExecutable {
+                [pscustomobject]@{ FileName = 'C:\fixture\codex.exe'; PrefixArgs = @(); Kind = 'test' }
+            }
+            # Identity selection represents a fresh install without a central provider.
+            Mock Resolve-AiCliModelSelection {
+                param($Model, $Effort)
+                @{ model = $Model; effort = $Effort; family = $null; replaced = $false }
+            }
+            Mock Write-AiCliCodexManagedProfile { throw 'Official login must not create a managed profile.' }
+            $plan = Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work
+            $plan.model | Should -BeExactly 'gpt-6.1-sol'
+            $plan.argumentList | Should -Contain 'model="gpt-6.1-sol"'
+            $plan.configFiles | Should -BeNullOrEmpty
+            $plan.environmentDelta | Should -BeNullOrEmpty
+
+            $override = Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work `
+                -NativeArgs @('--model', 'future-account-model')
+            $override.model | Should -BeExactly 'future-account-model'
+            $override.argumentList | Should -Contain 'model="future-account-model"'
+
+            $Profile.Remove('models')
+            (Build-AiCliCodexLaunchPlan -MergedProfile $Profile -ProjectPath $Work).model |
+                Should -BeExactly $plan.model
+        }
+    }
+
     It 'pins the exact Spark model and xhigh effort on the npm machine launcher' {
         $profile = Get-Content -LiteralPath (
             Join-Path $script:CodexAdapterRepoRoot 'data\providers\codex-spark-xhigh.json'

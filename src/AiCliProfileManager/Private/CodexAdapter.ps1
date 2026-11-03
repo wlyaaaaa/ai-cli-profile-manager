@@ -593,6 +593,10 @@ function Build-AiCliCodexLaunchPlan {
     $requestedEffort = Resolve-AiCliCodexEffort -MergedProfile $MergedProfile -NativeArgs $NativeArgs
     $effort = Resolve-AiCliCodexEffectiveEffort -MergedProfile $MergedProfile -RequestedEffort $requestedEffort
     $model = Resolve-AiCliCodexModel -MergedProfile $MergedProfile -NativeArgs $NativeArgs
+    if (-not $model -and ($provider -eq 'openai' -or $id -eq 'codex-official')) {
+        $official = Get-AiCliProviderManifest -Id 'codex-official'
+        $model = [string](Get-AiCliProperty (Get-AiCliProperty $official 'models') 'primary')
+    }
     $selection = Resolve-AiCliModelSelection -Model $model -Effort $effort
     $model = $selection.model
     if ($selection.family -and $selection.effort) { $effort = $selection.effort }
@@ -611,7 +615,6 @@ function Build-AiCliCodexLaunchPlan {
     if ($provider -eq 'openai' -or $id -eq 'codex-official') {
         foreach ($v in $script:AiCliCodexProviderVars) { $removeEnv += $v }
         $removeEnv += @('OPENAI_BASE_URL')
-        if (-not $model) { $model = 'gpt-5.6-sol' }
         $cliArgs.Add('-c') | Out-Null
         $cliArgs.Add("model=`"$model`"") | Out-Null
         $cliArgs.Add('-c') | Out-Null
@@ -623,7 +626,7 @@ function Build-AiCliCodexLaunchPlan {
         if ($id -eq 'codex-spark-xhigh') {
             $notes += '该 Profile 精确固定 gpt-5.3-codex-spark / xhigh；文本型、Codex CLI/桌面可用，API 与图像输入不属于此路径。'
         } else {
-            $notes += '可用模型例: gpt-5.6-sol / gpt-5.6-terra / gpt-5.6-luna（以账号可用为准）。'
+            $notes += '可用模型以账号内 /model 列表为准；可用 --model 显式指定。'
         }
         $notes += "启动器: $($resolved.Kind) → $($resolved.FileName)"
         if ($MachineRun) {

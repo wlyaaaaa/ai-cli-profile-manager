@@ -63,7 +63,7 @@ aicli run abort <run-id> --json
 `/model` 用于选择模型，并可在模型支持时选择 reasoning effort；提供 `/reasoning` 的构建也可从独立入口调整。以当前斜杠菜单为准。启动时可透传模型：
 
 ```powershell
-aicli start codex-official -- --model gpt-5.6-sol
+aicli start codex-official -- --model gpt-6.1-sol
 ```
 
 第三方 Codex Profile 的 Provider 配置由 aicli 管理。不要透传 `-c`、`--config` 或 `--profile` 覆盖 Provider；这些参数与启动计划冲突，会被拒绝。
