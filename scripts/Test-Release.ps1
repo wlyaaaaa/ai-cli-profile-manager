@@ -22,9 +22,9 @@ function Assert-True($cond, $msg) {
 New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
 Write-Host "DataRoot=$DataRoot"
 
-# Source/CI smoke must not install, log in to, or call dynamic upstream CLIs.
+# Source smoke must not install, log in to, or call dynamic upstream CLIs.
 # Deterministic PATH shims exercise native/eject plan construction on a clean
-# windows-latest runner; real Provider connectivity is a separate explicit Live test.
+# Windows test environment; real Provider connectivity is a separate explicit Live test.
 $oldProcessPath = $env:PATH
 $stubBin = Join-Path $DataRoot 'cli-stubs'
 New-Item -ItemType Directory -Force -Path $stubBin | Out-Null
@@ -106,7 +106,7 @@ Assert-True ($code -eq 2) 'unknown command exit 2'
 $code = Invoke-AiCli -Tokens @('test','codex-official') -DataRoot $DataRoot
 Assert-True ($code -eq 2 -or $code -eq 4) 'test without --live fails'
 
-# update-check is deliberately offline in this source/CI smoke.  Keep the
+# update-check is deliberately offline in this source smoke.  Keep the
 # real CommandRouter path, but replace only this process' REST command with a
 # fail-closed seam: unavailable official metadata must remain Limited/exit 3,
 # never be turned into a fabricated current/latest result.

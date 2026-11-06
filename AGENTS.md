@@ -25,4 +25,4 @@
 - 普通卸载保留上游 CLI、登录、本地模型、Profile 和秘密；彻底清理另列准确范围。删除本地 OAuth 文件不代表远端撤销；模块更新不顺手替换独立登记的 Desktop 桥。
 - Windows 路径用 Known Folders；中文 PowerShell 脚本用 UTF-8 BOM，Markdown/JSON 用 UTF-8 无 BOM。
 - 离线验证：`pwsh -File scripts/Test-Release.ps1`、Pester 5.5+ 的 `Invoke-Pester -Path tests`；发行再跑 `scripts/Build.ps1`。覆盖参数、中文路径、隔离、原子写入、端口竞争和恢复。
-- CI 不读取真实 Key，不跑付费 Live。Live Tool Test 仅开放隔离 nonce 工具，隔离不能证明就报告限制；未完成当期真实验证不能标 Provider 可用。两本 PDF 变动时由 `scripts/Build-Pdfs.py` 生成并验版，源文哈希必须匹配。
+- Live Tool Test 仅开放隔离 nonce 工具，隔离不能证明就报告限制；未完成当期真实验证不能标 Provider 可用。两本 PDF 变动时由 `scripts/Build-Pdfs.py` 生成并验版，源文哈希必须匹配。
