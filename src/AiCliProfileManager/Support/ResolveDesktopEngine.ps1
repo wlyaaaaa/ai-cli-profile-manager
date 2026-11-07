@@ -77,6 +77,16 @@ function Get-AiCliOfficialCodexCacheCandidate {
         return $null
     }
     $root = [IO.Path]::GetFullPath($OfficialCache).TrimEnd('\')
+    $rejected = @{}
+    $statePath = $null
+    $changed = $false
+    try {
+        $statePath = Join-Path ([string](Get-AiCliAppPaths).LocalRoot) 'desktop\upstream\rejected-versions.json'
+        if (Test-Path -LiteralPath $statePath -PathType Leaf) {
+            $stored = Get-Content -LiteralPath $statePath -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            if ($stored -is [System.Collections.IDictionary]) { $rejected = $stored }
+        }
+    } catch { $rejected = @{} }
     $candidates = @()
     foreach ($directory in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction Stop)) {
         if ($directory.Name -cnotmatch '^[a-f0-9]{16}$' -or
@@ -91,8 +101,21 @@ function Get-AiCliOfficialCodexCacheCandidate {
         if (-not $full.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) {
             continue
         }
+        # Metadata only avoids re-running known obsolete engines; eligible engines
+        # still require the signature, live version and hash checks on every call.
+        try {
+            $known = $rejected[$full]
+            if ($null -ne $known -and $known.length -eq $item.Length -and
+                $known.writeTicks -eq $item.LastWriteTimeUtc.Ticks -and
+                [semver]$known.version -lt $MinimumVersion) { continue }
+        } catch { }
         $version = Get-AiCliCodexCliVersion -Path $full
-        if ($null -eq $version -or $version -lt $MinimumVersion) { continue }
+        if ($null -eq $version) { continue }
+        if ($version -lt $MinimumVersion) {
+            $rejected[$full] = @{ length = $item.Length; writeTicks = $item.LastWriteTimeUtc.Ticks; version = $version.ToString() }
+            $changed = $true
+            continue
+        }
         $hash = Get-AiCliDesktopEngineHash -Path $full
         if ([string]::IsNullOrWhiteSpace($hash)) { continue }
         $candidates += [pscustomobject]@{
@@ -101,6 +124,15 @@ function Get-AiCliOfficialCodexCacheCandidate {
             Hash = $hash
             LastWriteTimeUtc = $item.LastWriteTimeUtc
         }
+    }
+    if ($changed -and $statePath) {
+        $temporary = $statePath + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+        try {
+            [IO.Directory]::CreateDirectory((Split-Path $statePath -Parent)) | Out-Null
+            [IO.File]::WriteAllText($temporary, ($rejected | ConvertTo-Json -Depth 5 -Compress), [Text.UTF8Encoding]::new($false))
+            [IO.File]::Move($temporary, $statePath, $true)
+        } catch { }
+        finally { if (Test-Path -LiteralPath $temporary -ErrorAction SilentlyContinue) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue } }
     }
     if ($candidates.Count -eq 0) { return $null }
     return @($candidates | Sort-Object -Property @(

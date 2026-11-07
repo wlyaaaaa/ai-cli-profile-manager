@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\AiCliProfileManager\Support\DesktopBridge\DesktopBridge.csproj" Aliases="bridge" />
     <Compile Include="..\..\src\AiCliProfileManager\Support\DesktopBridge\Router.cs" Link="Router.cs" />
     <Compile Include="..\..\src\AiCliProfileManager\Support\DesktopBridge\PublicSummaryProjection.cs" Link="PublicSummaryProjection.cs" />
   </ItemGroup>

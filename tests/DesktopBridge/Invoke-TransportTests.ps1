@@ -455,7 +455,7 @@ $testContainer = {
                 $process = New-BridgeProcess -Executable $script:BridgePath -PlanPath $plan.Path -Arguments @('app-server', '--stdio') -Environment @{
                     AICLI_TEST_OPENAI_CHILD_RESULT_FILE = $resultPath
                     AICLI_TEST_OPENAI_CHILD_AGENT_TYPE = 'openai_child'
-                    AICLI_TEST_OPENAI_CHILD_MODEL = 'gpt-5.6-luna'
+                    AICLI_TEST_OPENAI_CHILD_MODEL = 'gpt-6-luna'
                     AICLI_TEST_OPENAI_CHILD_EFFORT = 'high'
                 }
 
@@ -475,7 +475,7 @@ $testContainer = {
                 $payload = $toolReply.result.contentItems[0].text | ConvertFrom-Json
                 $payload.agent_type | Should -Be 'openai_child'
                 $payload.model_provider | Should -Be 'openai'
-                $payload.model | Should -Be 'gpt-5.6-luna'
+                $payload.model | Should -Be 'gpt-6-luna'
                 $payload.reasoning_effort | Should -Be 'high'
                 $payload.final_text | Should -Be 'CHILD_OK'
                 $payload.persistent | Should -BeTrue
@@ -576,8 +576,6 @@ $testContainer = {
 
         It 'keeps one-shot plans separate from full model startup: <Label>' -TestCases @(
             @{ Label = 'version'; Arguments = @('--version') }
-            @{ Label = 'startup config'; Arguments = @('app-server', '--print-startup-config', '--startup-client-info', '{"client":"雪"}') }
-            @{ Label = 'startup sign-out'; Arguments = @('app-server', '--startup-sign-out', '--print-startup-config') }
             @{ Label = 'full plan failure'; Arguments = @('app-server', '--stdio'); FullPlanFailure = $true }
         ) {
             param($Arguments, [bool]$FullPlanFailure = $false)

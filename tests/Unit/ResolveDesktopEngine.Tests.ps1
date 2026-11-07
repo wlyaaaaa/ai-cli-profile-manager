@@ -130,6 +130,42 @@ Describe 'Resolve-AiCliDesktopEngine' {
         (Get-Content -LiteralPath $resolved.FileName -Raw) | Should -Be 'engine-b'
     }
 
+    It 'reuses rejected versions only while metadata and minimum still match: <Change>' -TestCases @(
+        @{ Change = 'none' }, @{ Change = 'size' }, @{ Change = 'time' }, @{ Change = 'corrupt' }, @{ Change = 'minimum' }
+    ) {
+        param($Change)
+        $directory = Join-Path $script:OfficialCache '1111111111111111'
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        $engine = Join-Path $directory 'codex.exe'
+        [IO.File]::WriteAllText($engine, 'engine-a')
+        $minimum = [semver]'2.0.0'
+        Get-AiCliOfficialCodexCacheCandidate -OfficialCache $script:OfficialCache -MinimumVersion $minimum | Should -BeNullOrEmpty
+        $state = Join-Path $script:AiCliLocal 'desktop\upstream\rejected-versions.json'
+        Test-Path -LiteralPath $state | Should -BeTrue
+        switch ($Change) {
+            'size' { [IO.File]::WriteAllText($engine, 'engine-a-changed') }
+            'time' { [IO.File]::SetLastWriteTimeUtc($engine, [IO.File]::GetLastWriteTimeUtc($engine).AddSeconds(1)) }
+            'corrupt' { [IO.File]::WriteAllText($state, '{broken') }
+            'minimum' { $minimum = [semver]'1.0.0' }
+        }
+        $second = Get-AiCliOfficialCodexCacheCandidate -OfficialCache $script:OfficialCache -MinimumVersion $minimum
+        if ($Change -in @('size', 'minimum')) { $second.FileName | Should -Be $engine }
+        else { $second | Should -BeNullOrEmpty }
+        $calls = if ($Change -eq 'none') { 1 } else { 2 }
+        Should -Invoke Get-AiCliCodexCliVersion -Times $calls -Exactly -ParameterFilter { $Path -eq $engine }
+    }
+
+    It 'fully verifies eligible official candidates on every selection' {
+        $directory = Join-Path $script:OfficialCache '2222222222222222'
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+        $engine = Join-Path $directory 'codex.exe'
+        [IO.File]::WriteAllText($engine, 'engine-newer')
+        Mock Get-AiCliDesktopEngineHash { 'verified-hash' }
+        1..2 | ForEach-Object { (Get-AiCliOfficialCodexCacheCandidate -OfficialCache $script:OfficialCache -MinimumVersion ([semver]'2.0.0')).FileName | Should -Be $engine }
+        Should -Invoke Get-AiCliCodexCliVersion -Times 2 -Exactly -ParameterFilter { $Path -eq $engine }
+        Should -Invoke Get-AiCliDesktopEngineHash -Times 2 -Exactly -ParameterFilter { $Path -eq $engine }
+    }
+
     It 'compares prerelease components instead of treating every build of one base version as equal' {
         $old = Join-Path $script:OfficialCache 'OpenAI\Codex\bin\7777777777777777'
         New-Item -ItemType Directory -Path $old -Force | Out-Null

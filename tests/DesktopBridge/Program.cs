@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 
+if (await StartupPreflightTests.ChildAsync(args) is int childExit) { Environment.Exit(childExit); return; }
 var root = Path.Combine(Path.GetTempPath(), "aicli-router-tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 var checks = 0;
@@ -370,6 +371,7 @@ try
         Check(request["params"]!["model"]!.GetValue<string>() == unchangedModel, "Unregistered and future models must not be downgraded.");
     }
     PublicSummaryProjectionTests.Run(Check);
+    await StartupPreflightTests.RunAsync(Check);
     Console.WriteLine($"PASS: {checks} desktop router checks");
 }
 catch (Exception error) { Console.Error.WriteLine("FAIL: " + error.Message); Environment.ExitCode = 1; }

@@ -1,15 +1,30 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("RouterTests")]
 
 internal static class Program
 {
     internal const string PlanFixtureEnvironmentVariable = "AICLI_DESKTOP_PLAN_FILE";
 
-    public static async Task<int> Main(string[] args)
+    public static Task<int> Main(string[] args) => RunAsync(args);
+
+    internal static async Task<int> RunAsync(string[] args, Func<string?>? packageEngine = null)
     {
-        var isAppServer = IsAppServerInvocation(args);
+        var isAppServer = IsAppServerInvocation(args, out var startupCommand);
+        if (startupCommand && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(PlanFixtureEnvironmentVariable)))
+        {
+            var engine = (packageEngine ?? RegisteredPackageEngine.Find)();
+            if (engine is not null)
+            {
+                try { return await RunTransparentAsync(DesktopPlan.ForExecutable(engine), args, retryPlanOnStartFailure: true).ConfigureAwait(false); }
+                catch (System.ComponentModel.Win32Exception) { }
+                catch (InvalidOperationException) { }
+            }
+        }
         DesktopPlan plan;
         try
         {
@@ -28,7 +43,7 @@ internal static class Program
         return await RunTransparentAsync(plan, args).ConfigureAwait(false);
     }
 
-    private static async Task<int> RunTransparentAsync(DesktopPlan plan, string[] args)
+    private static async Task<int> RunTransparentAsync(DesktopPlan plan, string[] args, bool retryPlanOnStartFailure = false)
     {
         using var process = CreateProcess(plan, args, redirect: false);
         try
@@ -38,6 +53,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
+            if (retryPlanOnStartFailure) throw;
             await WriteErrorAsync($"Desktop bridge could not start the Codex engine ({ex.GetType().Name}).").ConfigureAwait(false);
             return 1;
         }
@@ -165,8 +181,9 @@ internal static class Program
         "--dangerously-bypass-hook-trust", "--worktree", "--search", "--no-alt-screen"
     };
 
-    private static bool IsAppServerInvocation(IReadOnlyList<string> args)
+    private static bool IsAppServerInvocation(IReadOnlyList<string> args, out bool startupCommand)
     {
+        startupCommand = false;
         for (var index = 0; index < args.Count; index++)
         {
             var arg = args[index];
@@ -201,17 +218,20 @@ internal static class Program
 
             if (!string.Equals(arg, "app-server", StringComparison.Ordinal)) return false;
             // Startup policy output is a one-shot native command, not a stdio RPC session.
+            var hasListen = false;
             for (++index; index < args.Count; index++)
             {
                 arg = args[index];
                 if (arg == "--") break;
                 var equals = arg.IndexOf('=');
                 var option = equals >= 0 ? arg[..equals] : arg;
-                if (option == "--print-startup-config") return false;
+                if (option == "--print-startup-config") { startupCommand = true; return false; }
+                if (option == "--listen") hasListen = true;
                 if (equals < 0 && (ValueOptions.Contains(option) ||
                     option is "--startup-client-info" or "--listen")) index++;
             }
-            return true;
+            startupCommand = !hasListen && !RegisteredPackageEngine.HasPipedInput();
+            return !startupCommand;
         }
         return false;
     }
@@ -228,6 +248,56 @@ internal static class Program
 
 }
 
+internal static class RegisteredPackageEngine
+{
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern int GetPackagesByPackageFamily(string family, ref uint count, IntPtr names, ref uint length, IntPtr buffer);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern int GetPackagePathByFullName(string name, ref uint length, StringBuilder? path);
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern IntPtr GetStdHandle(int handle);
+    [DllImport("kernel32.dll", ExactSpelling = true)]
+    private static extern uint GetFileType(IntPtr handle);
+
+    internal static bool HasPipedInput() => !OperatingSystem.IsWindows() || GetFileType(GetStdHandle(-10)) == 3;
+
+    internal static string? Find()
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        IntPtr names = IntPtr.Zero, buffer = IntPtr.Zero;
+        try
+        {
+            uint count = 0, length = 0;
+            const string family = "OpenAI.Codex_2p2nqsd0c76g0";
+            if (GetPackagesByPackageFamily(family, ref count, names, ref length, buffer) != 122 || count == 0) return null;
+            names = Marshal.AllocHGlobal(checked((int)count * IntPtr.Size));
+            buffer = Marshal.AllocHGlobal(checked((int)length * sizeof(char)));
+            if (GetPackagesByPackageFamily(family, ref count, names, ref length, buffer) != 0) return null;
+            var packages = new List<(Version Version, string Name)>();
+            for (var i = 0; i < count; i++)
+            {
+                var name = Marshal.PtrToStringUni(Marshal.ReadIntPtr(names, i * IntPtr.Size));
+                var parts = name?.Split('_');
+                if (parts is { Length: >= 2 } && Version.TryParse(parts[1], out var version)) packages.Add((version, name!));
+            }
+            var latest = packages.OrderByDescending(p => p.Version).FirstOrDefault();
+            if (latest.Name is null) return null;
+            length = 0;
+            if (GetPackagePathByFullName(latest.Name, ref length, null) != 122) return null;
+            var path = new StringBuilder(checked((int)length));
+            if (GetPackagePathByFullName(latest.Name, ref length, path) != 0) return null;
+            var engine = Path.Combine(path.ToString(), "app", "resources", "codex.exe");
+            return File.Exists(engine) ? engine : null;
+        }
+        catch { return null; }
+        finally
+        {
+            if (names != IntPtr.Zero) Marshal.FreeHGlobal(names);
+            if (buffer != IntPtr.Zero) Marshal.FreeHGlobal(buffer);
+        }
+    }
+}
+
 internal sealed class DesktopPlan
 {
     private DesktopPlan(JsonObject json, string upstreamFileName, IReadOnlyList<string> upstreamPrefixArgs)
@@ -240,6 +310,8 @@ internal sealed class DesktopPlan
     public JsonObject Json { get; }
     public string UpstreamFileName { get; }
     public IReadOnlyList<string> UpstreamPrefixArgs { get; }
+
+    internal static DesktopPlan ForExecutable(string path) => new(new JsonObject(), path, Array.Empty<string>());
 
     public static async Task<DesktopPlan> LoadAsync(bool upstreamOnly = false)
     {
