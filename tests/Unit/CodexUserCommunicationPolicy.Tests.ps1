@@ -45,8 +45,6 @@ Describe 'Managed Codex user communication policy' {
 
         $manifests['codex-official'].provider | Should -BeExactly 'openai'
         $manifests['codex-official'].ContainsKey('codexModelCatalog') | Should -BeFalse
-        $manifests['codex-spark-xhigh'].provider | Should -BeExactly 'openai'
-        $manifests['codex-spark-xhigh'].ContainsKey('codexModelCatalog') | Should -BeFalse
     }
 
     It 'ships the Chinese policy helper as a BOM-marked PowerShell source file' {

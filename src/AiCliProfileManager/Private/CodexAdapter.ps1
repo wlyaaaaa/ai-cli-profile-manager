@@ -623,11 +623,7 @@ function Build-AiCliCodexLaunchPlan {
         $cliArgs.Add('model_provider="openai"') | Out-Null
         $notes += '使用官方 ChatGPT 登录与真实 CODEX_HOME，不生成派生配置。'
         $notes += "默认模型 $model；思考等级 $requestedEffort（有效档位 $effort）。"
-        if ($id -eq 'codex-spark-xhigh') {
-            $notes += '该 Profile 精确固定 gpt-5.3-codex-spark / xhigh；文本型、Codex CLI/桌面可用，API 与图像输入不属于此路径。'
-        } else {
-            $notes += '可用模型以账号内 /model 列表为准；可用 --model 显式指定。'
-        }
+        $notes += '可用模型以账号内 /model 列表为准；可用 --model 显式指定。'
         $notes += "启动器: $($resolved.Kind) → $($resolved.FileName)"
         if ($MachineRun) {
             $authCandidate = Join-Path (Get-AiCliCodexHome) 'auth.json'

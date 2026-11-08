@@ -29,7 +29,8 @@ function Get-AiCliRetiredModelIds {
         'qwen3.8-max',
         'qwen3.8-max-preview',
         'qwen3.6:27b',
-        'qwen-review-v1'
+        'qwen-review-v1',
+        'gpt-5.3-codex-spark'
     )
 }
 
@@ -38,6 +39,7 @@ function Test-AiCliRetiredModelId {
     if ([string]::IsNullOrWhiteSpace($ModelId)) { return $false }
     $normalized = $ModelId.Trim().Trim('"', "'")
     $lower = $normalized.ToLowerInvariant()
+    if ($lower -eq 'gpt-5.3-codex-spark') { return $true }
     if ($lower -match '^qwen3(?:\.|[-_])?7(?:[-_.])?(?:max|plus)(?:$|[-._:/+@])') {
         return $true
     }
@@ -90,6 +92,9 @@ function Assert-AiCliModelIsActive {
         throw "$Context 引用了已退役的 DeepSeek V4 Flash 模型 $ModelId；AICLI 使用 deepseek-flash（官方自动升级的 Flash ID）。deepseek-v4-pro 仅保留为独立的 CLI Profile，不进入桌面模型列表。"
     }
     $normalized = if ($ModelId) { $ModelId.Trim().Trim('"', "'") } else { '' }
+    if ($normalized -eq 'gpt-5.3-codex-spark') {
+        throw "$Context 引用了已退役的 Codex Spark 模型 $ModelId；请在 codex-official 中显式选择账号当前可用的模型。"
+    }
     if ($normalized -and (Test-AiCliRetiredModelId -ModelId $normalized) -and
         ($normalized.ToLowerInvariant() -match '^qwen3\.6(?::|[-_])27b(?:$|[-._:/+@])' -or
          $normalized.ToLowerInvariant() -match '^qwen-review-v1(?:$|[-._:/+@])')) {
@@ -100,20 +105,21 @@ function Assert-AiCliModelIsActive {
     }
 }
 
+function Assert-AiCliProfileIdIsActive {
+    param([string]$Id, [string]$Context = 'Profile')
+    if ($Id -in @('codex-deepseek', 'claude-deepseek', 'oi-deepseek', 'codex-spark-xhigh')) {
+        throw "$Context 引用了已退役的 Profile ID $Id；请运行 aicli profile list --available 选择现行入口。原配置不会被修改。"
+    }
+}
+
 function Assert-AiCliProfileDoesNotUseRetiredModel {
     param(
         [Parameter(Mandatory)]$Profile,
         [string]$Context = 'Profile'
     )
     $Profile = Update-AiCliProfileModelRouting -Profile $Profile
-    # Retired entry names cannot be reused to route an old command to another
-    # provider. Match complete IDs (case-insensitively, like Windows paths),
-    # while preserving ordinary custom aliases and current exact Profiles.
     foreach ($field in @('id', 'templateId')) {
-        $profileId = [string](Get-AiCliProperty $Profile $field)
-        if ($profileId -in @('codex-deepseek', 'claude-deepseek', 'oi-deepseek')) {
-            throw "$Context 引用了已退役的 Profile ID $profileId；该入口不能重新绑定到其他模板或模型，请显式选择现行 Profile。原配置不会被修改。"
-        }
+        Assert-AiCliProfileIdIsActive -Id ([string](Get-AiCliProperty $Profile $field)) -Context $Context
     }
     $allowExactQwen37 = Test-AiCliQwen37Max0608ExactProfile -Profile $Profile
     $exactQwen37Model = 'qwen3.7-max-2026-06-08'
@@ -536,6 +542,7 @@ function Import-AiCliProviderManifests {
 function Get-AiCliProviderManifest {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Id)
+    Assert-AiCliProfileIdIsActive -Id $Id
     $all = Import-AiCliProviderManifests
     if (-not (Test-AiCliMapHasKey -Map $all -Key $Id)) {
         throw "未知 Profile 模板: $Id"

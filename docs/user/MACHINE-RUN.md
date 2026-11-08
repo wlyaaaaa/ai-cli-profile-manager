@@ -33,7 +33,6 @@ aicli test codex-ollama-qwen3-8-27b --live --level agent --yes --json
 
 | Profile | 智能体 | 端点/模型 |
 | --- | --- | --- |
-| `codex-spark-xhigh` | Codex CLI（官方登录） | OpenAI / `gpt-5.3-codex-spark` / 默认 `xhigh` |
 | `codex-qwen3-7-max-paygo` | Codex CLI（百炼 Workspace） | Responses / `qwen3.7-max-2026-06-08` / requested `max` → effective `xhigh` |
 | `codex-qwen3-8-max-paygo` | Codex CLI（百炼 Workspace） | Responses / `qwen3.8-max-0902` / requested `max` → effective `xhigh` |
 | `codex-deepseek-flash` | Codex CLI | Responses / `deepseek-flash` / 自动升级 Flash / 1M / `max` |

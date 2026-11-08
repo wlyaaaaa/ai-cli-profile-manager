@@ -339,6 +339,7 @@ function Get-AiCliProfileFingerprint {
 
 function Get-AiCliResolvedProfile {
     param([Parameter(Mandatory)][string]$Id)
+    Assert-AiCliProfileIdIsActive -Id $Id
     $user = Get-AiCliUserProfile -Id $Id
     if ($user) {
         $userId = [string](Get-AiCliProperty $user 'id')

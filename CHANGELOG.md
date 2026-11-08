@@ -14,6 +14,7 @@
 
 ### 移除
 
+- [OpenAI 已退役 Codex Spark](https://learn.chatgpt.com/docs/models#deprecated-codex-models)。移除 `codex-spark-xhigh`；旧命令或显式 Spark 型号会收到退役提示，不自动改投其他模型。
 - 退役 OpenClaw 导入脚本及说明，DeepSeek 继续引用密码中心厂商凭据；删除已完成的 Qwen3.7 一次性退役迁移，安装成功后直接清理身份匹配的旧模块。
 - 删除已退役代理目录的初始化声明，以及桌面桥无人读取的轮换候选状态。
 

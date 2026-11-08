@@ -38,7 +38,7 @@
 `qwen3.8-27b-codex.json` 由同一生成器的 `-CatalogKind localQwen38_27b` 模式生成，服务同一模型的 `codex-ollama-main` 与 `codex-ollama-qwen3-8-27b`：
 
 - 上游模型为 <https://huggingface.co/Qwen/Qwen3.8-27B>，公开权重提交 `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`，原生 context 为 262144；1M YaRN 只作为可选扩展事实，不进入本机默认目录；
-- 官方基础标签是 `qwen3.8:27b` Q4_K_M，manifest digest `sha256:22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643`；运行标签是 `qwen3.8-27b:256k`，manifest digest `sha256:8040835723046ec2631b64b960d44414636ea5147942a7d68eaaa7ccdb492e20`，参数层固定 `num_ctx 262144`；
+- 生成受管标签时用的官方基础包是 `qwen3.8:27b` Q4_K_M，当时的 manifest digest `sha256:22130167c4c20e20c7b71454612966ca8e8171e9b3cc8ab6ce8aa6cbfec79643`；运行标签是 `qwen3.8-27b:256k`，manifest digest `sha256:8040835723046ec2631b64b960d44414636ea5147942a7d68eaaa7ccdb492e20`，参数层固定 `num_ctx 262144`；
 - 两个标签共用 config digest `sha256:492b2922d38e553cabc2d319345644ed482874fbf5e5c9e4495cbf8e17b0cf5f`、模型 blob digest `sha256:f5f1dd8920d417aac2718b0bda3403da274301efdd6760b4f0f4b864ff2ad57d` 与 projector digest `sha256:ac3714bfdddeca31351f2752bf1a63f266f4df87c0b68c895e44945ca704448e`；
 - `context_window=max_context_window=262144`，输入支持 text/image，默认 effort 为 `max`，只列 `low` / `medium` / `high` / `max`；
 - `auto_compact_token_limit=235929`，即最大上下文的 90%；

@@ -10,7 +10,7 @@ BeforeAll {
 Describe 'Retired provider identities' {
     It 'rejects retired entry IDs even when rebound to an active model or missing models' {
         InModuleScope AiCliProfileManager {
-            foreach ($id in @('codex-deepseek', 'claude-deepseek', 'oi-deepseek', 'CODEX-DEEPSEEK')) {
+            foreach ($id in @('codex-deepseek', 'claude-deepseek', 'oi-deepseek', 'CODEX-DEEPSEEK', 'codex-spark-xhigh')) {
                 foreach ($template in @('codex-official', 'codex-deepseek-flash')) {
                     $profile = @{ id = $id; templateId = $template; models = @{ primary = 'gpt-5.6-sol' } }
                     { Assert-AiCliProfileDoesNotUseRetiredModel -Profile $profile } | Should -Throw '*已退役的 Profile ID*'
@@ -41,7 +41,7 @@ Describe 'Retired provider identities' {
             Mock Get-AiCliUserProfile { throw 'unexpected user profile read' }
             Mock Resolve-AiCliReusableSecretRef { throw 'unexpected credential access' }
             Mock Save-AiCliUserProfile { throw 'unexpected profile write' }
-            foreach ($id in @('codex-deepseek', 'claude-deepseek', 'oi-deepseek')) {
+            foreach ($id in @('codex-deepseek', 'claude-deepseek', 'oi-deepseek', 'codex-spark-xhigh')) {
                 { Invoke-AiCliProfileConfigure -TemplateId 'codex-official' -ProfileId $id } |
                     Should -Throw '*已退役的 Profile ID*'
             }
@@ -75,6 +75,17 @@ Describe 'Retired provider identities' {
         @($list.profiles.id) | Should -Not -Contain 'codex-deepseek'
         @($list.profiles.id) | Should -Contain 'codex-official'
         (Get-FileHash -LiteralPath $path).Hash | Should -BeExactly $before
+    }
+
+    It 'rejects Spark on a fresh install before preparing a Codex launch' {
+        InModuleScope AiCliProfileManager {
+            Mock Build-AiCliCodexLaunchPlan { throw 'must not build a launch for Spark' }
+            { Build-AiCliLaunchPlan -ProfileId 'codex-spark-xhigh' } |
+                Should -Throw '*已退役的 Profile ID codex-spark-xhigh*'
+            { Build-AiCliLaunchPlan -ProfileId 'codex-official' -NativeArgs @('--model','gpt-5.3-codex-spark') } |
+                Should -Throw '*已退役的 Codex Spark 模型*'
+            Should -Invoke Build-AiCliCodexLaunchPlan -Times 0 -Exactly
+        }
     }
 
     It 'restores only the exact Qwen3.7 Max 06-08 Codex entry while old routes and Plus remain absent' {
