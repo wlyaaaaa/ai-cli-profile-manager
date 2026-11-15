@@ -1,6 +1,6 @@
 # 受管 Codex 模型目录
 
-这里保存 AICLI 随安装包发布、再按内容哈希复制到真实 `CODEX_HOME` 的静态模型目录。目录文件不含 API Key；认证仍由 DPAPI `secretRef` 在启动目标子进程时注入 `env_key`。
+这里保存 AICLI 随安装包发布、再按内容哈希复制到真实 `CODEX_HOME` 的静态模型目录。目录文件不含 API Key；认证由 Profile 的 `passwordcenter:厂商` 引用密码中心；DPAPI 只保留为旧密文的迁移读取兼容。
 
 `glm-5.3-codex.json` 与 `glm-5.3-flash-codex.json` 对应智谱中国区 Codex Responses exact Profile：模型 ID 分别为 `glm-5.3` / `glm-5.3-flash`，上下文 1048576、有效窗口 95%、自动压缩线 943718（最大上下文 90%），推理档位固定 `low/high/max`。两者不包含凭据、不声明 alias 或 fallback，并启用 Codex 延迟工具搜索；其模型级指令要求根任务和子代理默认使用简体中文，以用户目标为中心解释有意义的发现、原因和影响；需要调查、工具或多步处理时，在首次工具前及重要发现、阶段进展或方向变化处主动发送用户可见的助手进度；不能仅留在内部分析或最终答复。不固定摘要长度或汇报模板，内部操作转译成用户关心的目的和影响。最终答复按问题复杂度兼顾必要细节与简洁。Flash 目录只声明 Codex 当前使用的文本和图像输入。
 
