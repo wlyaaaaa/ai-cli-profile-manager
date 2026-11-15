@@ -64,7 +64,7 @@ function Get-AiCliPlanVersionEvidence {
         }
     }
     try {
-        $r = Invoke-AiCliChildCapture -FileName $fileName -ArgumentList $args -TimeoutMs 10000 -CloseStdIn
+        $r = Invoke-AiCliChildCapture -FileName $fileName -ArgumentList $args -TimeoutMs 60000 -CloseStdIn
         if ($r.ExitCode -ne 0) { return $null }
         $line = @(([string]$r.StdOut -split "`r?`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -First 1)
         if ($line.Count -eq 0) { return $null }
@@ -271,6 +271,7 @@ function Invoke-AiCliLiveTest {
             $textResult = Invoke-AiCliTextLiveTest -ProfileId $ProfileId `
                 -Plan $plan -WorkDir $tmp -Checks $checks
             $textPass = [bool]$textResult.Pass
+            $failureSummary = Get-AiCliProperty $textResult 'FailureSummary'
             $textExitCode = $textResult.ExitCode
             $textRuntimeIdentity = Get-AiCliProperty $textResult 'RuntimeIdentity'
             $textRuntimeCliPath = [string](Get-AiCliProperty $textResult 'RuntimeCliPath')
@@ -359,8 +360,9 @@ function Invoke-AiCliLiveTest {
                     effortEvidence     = $(if ($plan) { 'launch-plan' } else { 'profile-default' })
                     attestedEffort     = $null
                     cliPath            = $(if ($agentRuntimeCliPath) { $agentRuntimeCliPath } elseif ($textRuntimeCliPath) { $textRuntimeCliPath } elseif ($plan) { Get-AiCliProperty $plan 'fileName' } else { $null })
-                    cliVersion         = $(if ($agentRuntimeIdentity) {
-                        Get-AiCliProperty $agentRuntimeIdentity 'cli_version'
+                    cliVersion         = $(if ($agentRuntimeIdentity -or $textRuntimeIdentity) {
+                        $identity = if ($agentRuntimeIdentity) { $agentRuntimeIdentity } else { $textRuntimeIdentity }
+                        Get-AiCliProperty $identity 'cli_version'
                     } elseif ($textRuntimeCliPath) {
                         Get-AiCliPlanVersionEvidence -Plan ([pscustomobject]@{
                             engine = 'codex'; fileName = $textRuntimeCliPath; argumentList = @()
@@ -512,11 +514,21 @@ function Invoke-AiCliTextLiveTest {
         $exitCode = Get-AiCliProperty $r $(
             if ($useCodexHarness) { 'exitCode' } else { 'ExitCode' }
         )
-        $Checks.Add((New-AiCliCheck -Id 'live.text' -Status '不可用' -Summary ("文本测试失败：exit={0} 或最终正文不匹配" -f $exitCode))) | Out-Null
+        $failureSummary = "文本测试失败：exit={0} 或最终正文不匹配" -f $exitCode
+        if ($useCodexHarness) {
+            $errorCode = [string](Get-AiCliProperty $r 'errorCode')
+            if ($errorCode -eq 'codex_appserver.provider_quota_pause') {
+                $failureSummary = '用量已满'
+            } elseif ($errorCode) {
+                $failureSummary += '；' + $errorCode
+            }
+        }
+        $Checks.Add((New-AiCliCheck -Id 'live.text' -Status '不可用' -Summary $failureSummary)) | Out-Null
         Write-AiCliLog -Level Warn -Message ("live text fail engine={0} exit={1}" -f $engine, $exitCode)
         return [pscustomobject]@{
             Pass = $false
             ExitCode = $exitCode
+            FailureSummary = $failureSummary
             RuntimeIdentity = $runtimeIdentity
             RuntimeCliPath = [string](Get-AiCliProperty $r 'runtimeCliPath')
             ObservedToolCalls = $(if ($useCodexHarness) { $toolCalls } else { $null })
@@ -528,6 +540,7 @@ function Invoke-AiCliTextLiveTest {
         return [pscustomobject]@{
             Pass = $false
             ExitCode = $null
+            FailureSummary = Protect-AiCliSecretText $safeMessage
             RuntimeIdentity = $null
             RuntimeCliPath = $null
             ObservedToolCalls = $null
