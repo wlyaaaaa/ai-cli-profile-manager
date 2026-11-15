@@ -2453,7 +2453,7 @@ function Get-AiCliResolvedCliVersionEvidence {
     }
     try {
         $result = Invoke-AiCliChildCapture -FileName $fileName `
-            -ArgumentList (@($prefix) + @('--version')) -TimeoutMs 10000 -CloseStdIn
+            -ArgumentList (@($prefix) + @('--version')) -TimeoutMs 60000 -CloseStdIn
         if ([int]$result.ExitCode -ne 0) { return $null }
         $combined = @([string]$result.StdOut, [string]$result.StdErr) -join "`n"
         $line = @($combined -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -First 1)
@@ -2535,6 +2535,9 @@ function Assert-AiCliProfileMinimumCliVersion {
     $evidence = Get-AiCliResolvedCliVersionEvidence -Resolved $Resolved
     $result = Test-AiCliProfileMinimumCliVersion -MergedProfile $MergedProfile -VersionEvidence $evidence
     if (-not $result.Supported) {
+        if ($result.Reason -eq 'actual-unavailable') {
+            throw "无法取得 CLI 版本（探测失败或超时）；尚不能判断是否满足 $($result.Minimum)+。"
+        }
         $actualLabel = if ($result.Actual) { $result.Actual } else { '无法取得版本' }
         throw "当前 CLI 版本不支持此 Profile：需要 $($result.Minimum)+，实际 $actualLabel。"
     }

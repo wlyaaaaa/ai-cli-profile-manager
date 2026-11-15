@@ -8,7 +8,7 @@
 
 ## 1. 当前实现基线
 
-2026-11-15 本轮源码 Manifest 与本机加载模块均为 0.3.19；GLM-5.3 的 text 回执实际观测到 Codex CLI 0.167.0。Flash 预检没有取得 CLI 版本，不把另一条路线的运行时证据挪给它。
+2026-11-15 本轮源码 Manifest 与本机安装模块均为 0.3.19；两条 GLM 的 text 回执均独立观测到 Codex CLI 0.167.0。AICLI 的版本探测期限及失败原因记录已修复并安装，本轮两条均因“用量已满”失败，不标通过。
 
 2026-09-17 留存的环境快照（本轮未重测这些上游版本）：Windows 11、PowerShell 7.6.4、PATH 固定解析的 npm Codex CLI 0.147.0、Claude Code 2.1.220、Qwen Code 0.21.0、OpenCode 1.18.18、Open Interpreter 0.0.21。WindowsApps 中另有不可直接版本探测的 Codex Desktop 可执行文件，不与 npm CLI 混为一谈。它们只是历史实现环境，不是所有用户机器的保证，也不代替逐 Profile Live 验收。`codex-deepseek-flash` 的最低兼容基线仍按 Codex CLI `0.144.0` 或更高处理；桌面桥每次启动动态定位当前 Codex 引擎，不固定版本目录。
 
@@ -29,8 +29,8 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 | `codex-custom-responses` | 已实现（隐藏模板） | 无记录 | 待验 |
 | `codex-deepseek-flash` | 已实现 / deepseek-flash | `0.3.19` / text / 通过 / exit=0 / 2026-10-28 04:52:13 | 0.3.19 text 通过记录（2026-10-28）；本轮未重测 |
 | `codex-deepseek-v4-pro` | 已实现 / deepseek-v4-pro；CLI-only | `0.3.5` / text / 失败 / exit=0 / 2026-08-14 04:30:46 | 待验（旧版本失败） |
-| `codex-glm-5-3` | 已实现 / glm-5.3 | `0.3.19` / text / 失败 / exit=1 / 2026-11-15 16:10:57 | text 失败（原因见下） |
-| `codex-glm-5-3-flash` | 已实现 / glm-5.3-flash | `0.3.19` / text / 失败 / exit=未取得 / 2026-11-15 16:11:45 | text 失败（原因见下） |
+| `codex-glm-5-3` | 已实现 / glm-5.3 | `0.3.19` / text / 失败 / exit=1 / 2026-11-15 16:39:48 | 用量已满；版本探测及诊断已修复 |
+| `codex-glm-5-3-flash` | 已实现 / glm-5.3-flash | `0.3.19` / text / 失败 / exit=1 / 2026-11-15 16:40:35 | 用量已满；版本探测已修复，已进入模型调用 |
 | `codex-official` | 已实现 / gpt-6.1-sol | `0.3.12` / agent / 通过 / exit=0 / 2026-08-28 11:11:58 | 待验（旧版本通过） |
 | `codex-ollama` | 已实现（隐藏模板） / qwen3:8b | `0.1.0` / text / 通过 / exit=未取得 / 2026-07-14 02:16:42 | 待验（旧版本通过） |
 | `codex-ollama-main` | 已实现 / qwen3.8-27b:256k | `0.3.14` / agent / 通过 / exit=0 / 2026-09-16 00:54:59 | 待验（旧版本通过） |
@@ -47,12 +47,22 @@ Open Interpreter 只支持当前官方 Rust CLI `0.0.21` 或更高。输出形�
 
 ### 本轮 GLM 实测
 
+2026-11-15 第二轮查清：GLM-5.3 的目标 CLI exit 1 对应“用量已满”，不是入口缺失；Flash 第一轮另被 AICLI 的 10 秒版本探测期限挡住。同一 npm Codex 0.167.0 的版本探测实测需要 34250ms，原期限会把启动慢误报成“不支持版本”，与模型选择无关。
+
+AICLI 已将两个版本探测入口的期限放宽到 60 秒，探测失败只报告版本未取得；text 回执复用已验证的运行时 CLI 版本，并保存明确的失败原因。这些本机问题已修复并安装；修复后仍遇到的上游“用量已满”不能由本机代码解决。
+
 | Profile | 产品 / 级别 | AICLI 命令退出码 | 目标 CLI 退出码 / 版本 | 记录时间（北京时间） | 结论 |
 | --- | --- | --- | --- | --- | --- |
-| `codex-glm-5-3` | 0.3.19 / text | 4 | 1 / 0.167.0 | 2026-11-15 16:10:57 | 失败；已取得 exact `glm-5.3` / `aicli_glm_5_3` 运行时身份，观测工具数 0；验收只返回“exit=1 或最终正文不匹配”，未留存更细的上游原因，不能判断为账号、端点或模型故障 |
-| `codex-glm-5-3-flash` | 0.3.19 / text | 4 | 未启动 / 未取得 | 2026-11-15 16:11:45 | 失败；启动计划预检报“需要 0.154.0+，实际 无法取得版本”；未进入模型文本调用，不能据此判断 GLM Flash 服务可用性 |
+| `codex-glm-5-3` | 0.3.19 / text | 4 | 1 / 0.167.0 | 2026-11-15 16:39:48 | 用量已满；上游结构化错误为 `usageLimitExceeded`，harness 分类为 `codex_appserver.provider_quota_pause` |
+| `codex-glm-5-3-flash` | 0.3.19 / text | 4 | 1 / 0.167.0 | 2026-11-15 16:40:35 | 版本预检已过，真实模型调用仍返回用量已满（`codex_appserver.provider_quota_pause`） |
 
-两条失败均由项目自带 live test 写入本机 verification；本轮不修产品代码。GLM-5.3 回执证明 `approval_policy=never`、`danger-full-access`、`codex-native`、`dangerFullAccess`；Flash 在预检失败，没有运行时权限证据。两条都不能标为通过。
+两条都取得 exact 模型/Provider 身份、观测工具数 0，以及 `approval_policy=never`、`danger-full-access`、`codex-native`、`dangerFullAccess` 权限证据；verification 里两条的 failureSummary 均为“用量已满”，cliVersion 均为 0.167.0。没有查询用量数或重置时间，不以失败记录推断其余 Agent 能力。第一轮的 Flash“未进入调用”结论已被本轮证据更新。
+
+### Codex Desktop 与 CLI 的关系
+
+两条 GLM 在 Desktop 与 CLI 共用已解析的 Profile、智谱 coding-plan、`https://open.bigmodel.cn/api/v1` Responses 端点、exact 模型和同一厂商凭据来源。Desktop 通过受管桥动态选择官方桌面引擎，并由原生客户端私有管道取密；CLI machine/text 验收固定使用 npm 包内的原生 Codex 引擎。两者不是同一个启动入口。
+
+本机已登记的 Desktop 桥的模型计划、取密辅助和引擎解析三个脚本与仓库源码 SHA256 一致。CLI 的 10 秒版本预检故障不会直接阻断 Desktop 的独立启动路径；同账号同端点的上游“用量已满”也会阻断 Desktop 的 GLM 请求。这是路径与上游证据推断，本轮没有在桌面界面发消息，不能声称桌面实际验收通过。
 
 tool（工具）档位“无法证明隔离就跳过”是有意不补的边界（2026-11-15 AI 判定：日常用不到，不再当缺口报）；text 通过仍只证明文本链路。
 
