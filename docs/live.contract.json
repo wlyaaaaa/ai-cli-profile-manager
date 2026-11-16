@@ -1,0 +1,23 @@
+{"v":1,"id":"ai-cli-profile-manager","name":"AI 发射台","about":"给 Codex、Claude 这些 AI 工具换厂商、换模型的启动器。","headline":"latest_agent","tasks":["task-a1f8f36e9351786fa8ffd947"],"skills":[],"bindings_complete":true,
+  "sections":[
+    {"id":"installed","label":"装的是哪版","about":"修过的东西装进去没有？","metrics":["installed"],"note":"只核对已安装文件，不代表桌面进程已加载；源码以本机登记的项目检出为准。"},
+    {"id":"verification","label":"配了多少、验过多少","about":"我配了多少、试成多少，实战结论有多旧？","metrics":["profiles","results","current_agent","latest_test","latest_agent"],"note":"每个配置只留最后一次测试，新测会盖掉旧的；通过数不是累计次数，也不是今天能用的个数。配置数含留着的旧入口，测试记录还可能属于自带模板或已停用入口。最近失败不推断账号或模型状态。"},
+    {"id":"more-data","label":"更多数据","about":"好奇：最近测了哪些配置，最近成功在哪天，项目存着多少文件？","metrics":["tested7","tested30","last_text_pass","last_agent_pass","bridge_installed","doc_files","code_files","tracked_files"],"note":"近 7/30 天只算各配置留存的最后一条记录，不是请求次数；桥的启用记录只证明装过。规模按需更新，不含第三方、PDF 和生成物。"}
+  ],
+  "metrics":[
+    {"id":"installed","label":"装着的版本","source":"aicli.live","pointer":"/metrics/installed","time":"/at","mode":"live","unit":"","public":"same","stale_after":86400},
+    {"id":"profiles","label":"你存的启动配置","source":"aicli.live","pointer":"/metrics/profiles","time":"/at","mode":"live","unit":"个","public":"same","stale_after":86400},
+    {"id":"results","label":"各配置最后一次测试的结果","source":"aicli.live","pointer":"/metrics/results","time":"/at","mode":"live","unit":"","public":"rewrite","public_pointer":"/public/results","records":"/records","public_records":"/public_records","shape":"table","stale_after":86400},
+    {"id":"current_agent","label":"现版实战验收记录","source":"aicli.live","pointer":"/metrics/current_agent","time":"/at","mode":"live","unit":"份","public":"same","stale_after":900,"note":"没有同版本通过记录时为真实零；存在同版本候选时尚须完整核对身份、权限及 CLI 版本，未核对给 null，不称可用模型。"},
+    {"id":"latest_test","label":"最近一次测试","source":"aicli.live","pointer":"/metrics/latest_test","time":"/at","mode":"live","unit":"","public":"same","stale_after":86400},
+    {"id":"latest_agent","label":"上次实战验收","source":"aicli.live","pointer":"/metrics/latest_agent","time":"/at","mode":"live","unit":"","public":"same","stale_after":86400},
+    {"id":"tested7","label":"近 7 天有新实测记录的配置","source":"aicli.live","pointer":"/metrics/tested7","time":"/at","mode":"live","unit":"个","public":"same","stale_after":86400},
+    {"id":"tested30","label":"近 30 天有新实测记录的配置","source":"aicli.live","pointer":"/metrics/tested30","time":"/at","mode":"live","unit":"个","public":"same","stale_after":86400},
+    {"id":"last_text_pass","label":"最近一次留存的回话测试成功","source":"aicli.live","pointer":"/metrics/last_text_pass","time":"/at","mode":"live","unit":"","public":"same","stale_after":86400},
+    {"id":"last_agent_pass","label":"最近一次留存的实战验收成功","source":"aicli.live","pointer":"/metrics/last_agent_pass","time":"/at","mode":"live","unit":"","public":"same","stale_after":86400},
+    {"id":"bridge_installed","label":"桌面桥启用记录最后更新","source":"aicli.live","pointer":"/metrics/bridge_installed","time":"/at","mode":"live","unit":"","public":"same","stale_after":86400},
+    {"id":"doc_files","label":"自有文档文件","source":"aicli.static","pointer":"/metrics/doc_files","time":"/at","mode":"static","unit":"份","public":"same"},
+    {"id":"code_files","label":"自有代码文件","source":"aicli.static","pointer":"/metrics/code_files","time":"/at","mode":"static","unit":"份","public":"same"},
+    {"id":"tracked_files","label":"Git 已跟踪文件","source":"aicli.static","pointer":"/metrics/tracked_files","time":"/at","mode":"static","unit":"份","public":"same"}
+  ],
+  "size":{"source":"aicli.static","pointer":"/size"},"artifacts":{"source":"aicli.live","pointer":"/artifacts"},"links":[{"id":"intro","label":"项目介绍","href":"https://github.com/wlyaaaaa/ai-cli-profile-manager#readme"}]}

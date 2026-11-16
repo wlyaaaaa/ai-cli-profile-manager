@@ -32,6 +32,7 @@ $privateOrder = @(
     'AgentAcceptance.ps1',
     'DoctorService.ps1',
     'LiveTestService.ps1',
+    'LiveStatus.ps1',
     'UpdateService.ps1',
     'HelpService.ps1',
     'CommandRouter.ps1'

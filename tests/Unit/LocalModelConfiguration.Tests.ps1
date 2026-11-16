@@ -27,6 +27,7 @@ Describe 'Dedicated Ollama model set synchronization' {
             New-Item -ItemType Directory -Path (Join-Path $fixture $path) -Force | Out-Null
         }
         Copy-Item (Join-Path $sourceRoot 'scripts/Sync-LocalModelConfiguration.ps1') (Join-Path $fixture 'scripts')
+        Copy-Item (Join-Path $sourceRoot 'src') (Join-Path $fixture 'src') -Recurse
         Set-Content (Join-Path $fixture 'scripts/Install.ps1') 'param([switch]$Force,[switch]$SkipShellIntegration)'
         Set-Content (Join-Path $fixture 'scripts/Set-CodexDesktopLocalModels.ps1') 'param($Mode,[switch]$Json) ''{"status":"disabled"}'''
         $global:LocalModelSyncTestDigest = 'a' * 64

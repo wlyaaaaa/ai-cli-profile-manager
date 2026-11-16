@@ -146,7 +146,7 @@ Describe 'Rust Open Interpreter adapter' {
             { Assert-AiCliInterpreterNativeArgs -NativeArgList @('-c', 'model_provider="other"') } | Should -Throw
         }
 
-        It 'reports the supported Rust family and uses the real update command' {
+        It 'reports the supported Rust family and explains the installer home' {
             Mock Resolve-AiCliInterpreterExecutable {
                 [pscustomobject]@{
                     FileName = 'C:\Program Files\Open Interpreter\bin\interpreter.exe'
@@ -161,7 +161,7 @@ Describe 'Rust Open Interpreter adapter' {
             $info.version | Should -Be 'interpreter 0.0.21'
 
             Invoke-AiCliUpdateGuide -Component interpreter | Should -Be (Get-AiCliExitCode Success)
-            Should -Invoke Write-Host -ParameterFilter { $Object -eq '  interpreter update' } -Times 1
+            Should -Invoke Write-Host -ParameterFilter { [string]$Object -match 'install\.ps1.*INTERPRETER_HOME' } -Times 1
             Should -Invoke Write-Host -ParameterFilter { [string]$Object -match 'interpreter update (status|now)' } -Times 0
         }
 

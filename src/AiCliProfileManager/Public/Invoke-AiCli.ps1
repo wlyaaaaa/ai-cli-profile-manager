@@ -38,6 +38,7 @@
         Write-Host (Protect-AiCliSecretText $_.Exception.Message) -ForegroundColor Red
         return (Get-AiCliExitCode InternalError)
     } finally {
+        try { Update-AiCliLiveStatus } catch { Write-Verbose '项目页数据未更新；保留上次采样。' }
         if ($DataRoot) {
             Set-AiCliDataRootOverride -Path $null
         }
