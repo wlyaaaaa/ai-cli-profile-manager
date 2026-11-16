@@ -18,6 +18,5 @@
     {"id":"bridge_installed","label":"桌面桥启用记录最后更新","source":"aicli.live","pointer":"/metrics/bridge_installed","time":"/at","mode":"live","unit":"","public":"same","stale_after":86400},
     {"id":"doc_files","label":"自有文档文件","source":"aicli.static","pointer":"/metrics/doc_files","time":"/at","mode":"static","unit":"份","public":"same"},
     {"id":"code_files","label":"自有代码文件","source":"aicli.static","pointer":"/metrics/code_files","time":"/at","mode":"static","unit":"份","public":"same"},
-    {"id":"tracked_files","label":"Git 已跟踪文件","source":"aicli.static","pointer":"/metrics/tracked_files","time":"/at","mode":"static","unit":"份","public":"same"}
-  ],
+    {"id":"tracked_files","label":"Git 已跟踪文件","source":"aicli.static","pointer":"/metrics/tracked_files","time":"/at","mode":"static","unit":"份","public":"same"}],
   "size":{"source":"aicli.static","pointer":"/size"},"artifacts":{"source":"aicli.live","pointer":"/artifacts"},"links":[{"id":"intro","label":"项目介绍","href":"https://github.com/wlyaaaaa/ai-cli-profile-manager#readme"}]}

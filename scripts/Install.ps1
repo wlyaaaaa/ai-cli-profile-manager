@@ -59,6 +59,7 @@ function Test-InstallCandidateModule {
             $messages = @($powershell.Streams.Error | ForEach-Object { $_.Exception.Message })
             throw ($messages -join ' | ')
         }
+        if ($CandidateManifest -eq (Join-Path $destVer 'AiCliProfileManager.psd1')) { $powershell.Commands.Clear(); $null = $powershell.AddScript({ & (Get-Module AiCliProfileManager) { if (Test-Path Function:\Update-AiCliLiveStatus) { Update-AiCliLiveStatus } } }); $null = $powershell.Invoke() }
     } finally {
         $powershell.Dispose()
         $env:PSModulePath = $modulePathBefore
