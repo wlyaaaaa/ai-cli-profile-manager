@@ -16,13 +16,17 @@
                 Update-AiCliLiveStatus -SourceRoot $Repo -InstalledRoot "$Repo/src/AiCliProfileManager"
                 $live = Get-Content "$($paths.LocalRoot)/live.json" -Raw | ConvertFrom-Json -AsHashtable
                 $live.metrics.current_agent | Should -Be 0
-                $live.metrics.results | Should -Match '2 个留有记录.*通过 1 个.*实战的 1 个里通过 1 个'
+                $live.metrics.results | Should -Match '2 个历史测试过的配置.*通过 1 个.*实战的 1 个里通过 1 个'
                 $live.records.Count | Should -Be 2
+                @($live.records.label) | Should -Contain 'privateName'
+                $stableLabel = ($live.public_records | Where-Object version -eq '0.0.1').label
+                $stableLabel | Should -Match '^配置 [a-f0-9]{12}$'
                 ($live.public_records | ConvertTo-Json) | Should -Not -Match 'privateName|never-export|profile'
                 $old.productVersion = Get-AiCliVersion
                 Write-AiCliJsonFile $paths.SettingsFile @{ verification=@{ privateName=$old } }
                 $null = Invoke-AiCli -Tokens @('help') -DataRoot $Root
                 (Get-Content "$($paths.LocalRoot)/live.json" -Raw | ConvertFrom-Json).metrics.current_agent | Should -BeNullOrEmpty
+                (Get-Content "$($paths.LocalRoot)/live.json" -Raw | ConvertFrom-Json).public_records[0].label | Should -Be $stableLabel
             } finally { Set-AiCliDataRootOverride $null }
         }
     }

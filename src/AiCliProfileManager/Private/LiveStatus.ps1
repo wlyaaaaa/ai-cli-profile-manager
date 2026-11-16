@@ -24,11 +24,11 @@ function Update-AiCliLiveStatus {
     $verification = if ($known) { $settings['verification'] } else { @{} }
     $rows = @($verification.GetEnumerator() | ForEach-Object {
         $r = $_.Value
-        [ordered]@{ profile = $_.Key; at = $r.timestampUtc; level = $r.level; result = $r.result
+        [ordered]@{ profile = $_.Key; label = $_.Key; at = $r.timestampUtc; level = $r.level; result = $r.result
             version = $r.productVersion; text_pass = ($r['textPass'] -is [bool] -and $r['textPass']); agent_pass = ($r['agentPass'] -is [bool] -and $r['agentPass'])
             state_text = $(switch ($r.result) { pass { '通过' } fail { '未通过' } limited { '有限制' } default { '未记录状态' } }) }
     } | Sort-Object { [DateTimeOffset]::Parse($_.at) } -Descending)
-    $publicRows = @($rows | ForEach-Object { $r = [ordered]@{}; foreach ($k in $_.Keys) { if ($k -ne 'profile') { $r[$k] = $_[$k] } }; $r })
+    $publicRows = @($rows | ForEach-Object { $r = [ordered]@{ label = '配置 ' + [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($_.profile))).Substring(0,12).ToLowerInvariant() }; foreach ($k in $_.Keys) { if ($k -notin @('profile','label')) { $r[$k] = $_[$k] } }; $r })
     if (-not $InstalledRoot) {
         $installed = Get-Module -ListAvailable AiCliProfileManager | Sort-Object Version -Descending | Select-Object -First 1
         if ($installed) { $InstalledRoot = Split-Path -Parent $installed.Path }
@@ -46,7 +46,7 @@ function Update-AiCliLiveStatus {
     $text = @($rows | Where-Object text_pass)
     $passed = @($agents | Where-Object agent_pass)
     $current = @($passed | Where-Object version -eq $version)
-    $summary = '{0} 个留有记录：最后一次回话通过 {1} 个；做过实战的 {2} 个里通过 {3} 个' -f $rows.Count,$text.Count,$agents.Count,$passed.Count
+    $summary = '{0} 个历史测试过的配置：最后一次回话通过 {1} 个；做过实战的 {2} 个里通过 {3} 个' -f $rows.Count,$text.Count,$agents.Count,$passed.Count
     $profiles = if (Test-Path -LiteralPath $paths.ProfilesDir) { @(Get-ChildItem -LiteralPath $paths.ProfilesDir -Filter '*.json' -File).Count } else { 0 }
     $displayTime = { param($t,$format='MM-dd HH:mm') [DateTimeOffset]::Parse($t).ToOffset([TimeSpan]::FromHours(8)).ToString($format) }
     $metrics = [ordered]@{
