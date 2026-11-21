@@ -23,6 +23,15 @@ function Show-AiCliHelp {
 function Show-AiCliHelpRoot {
     $cmd = Get-AiCliCommandName
     $name = Get-AiCliProductName
+    $ollamaExamples = if (Test-AiCliOllamaProfilesEnabled) {
+        @"
+  $cmd start codex-ollama-main --project <trusted-workspace>
+  $cmd start codex-ollama-qwen3-8-27b --project <trusted-workspace>
+  $cmd start codex-ollama-review --project <trusted-workspace>
+"@
+    } else {
+        '  本机 Ollama 模型已停用。'
+    }
     Write-Host @"
 $name — 命令帮助
 
@@ -50,9 +59,7 @@ $name — 命令帮助
   $cmd start codex-glm-5-3 --project <trusted-workspace>
   $cmd start codex-glm-5-3-flash --project <trusted-workspace>
   $cmd start codex-deepseek-flash --project <trusted-workspace>
-  $cmd start codex-ollama-main --project <trusted-workspace>
-  $cmd start codex-ollama-qwen3-8-27b --project <trusted-workspace>
-  $cmd start codex-ollama-review --project <trusted-workspace>
+$ollamaExamples
 
 使用 $cmd profile list --available 查看 exact model 与默认 max；云 Profile 首次使用前只需配置一次 SecretRef。
 所有当前及未来 Codex harness 调用固定为原生 danger-full-access，并默认提供受管 public_web_search；显式较低权限会失败关闭，--no-web-search 只关闭搜索。

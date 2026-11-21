@@ -228,7 +228,7 @@ function Invoke-AiCliLiveTest {
         [switch]$Json
     )
     $null = Assert-AiCliSafeIdentifier -Id $ProfileId -Kind 'Profile ID'
-    $merged = Get-AiCliResolvedProfile -Id $ProfileId
+    $merged = Get-AiCliEnabledProfile -Id $ProfileId
     $liveEngine = [string](Get-AiCliProperty $merged 'engine')
     if (-not $Yes) {
         Write-AiCliWarn 'Live Test 会通过目标 CLI 向 Provider/模型发送真实请求，可能消耗 API 或订阅额度。'

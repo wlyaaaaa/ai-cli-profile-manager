@@ -49,8 +49,13 @@ function Invoke-AiCliDoctor {
         $checks.Add((New-AiCliCheck -Id 'dep.claude.version' -Status '通过' -Summary $claudeEvidence.Version)) | Out-Null
     }
 
-    $ollama = Find-AiCliCommandPath 'ollama'
-    $checks.Add((New-AiCliCheck -Id 'dep.ollama' -Status $(if ($ollama) { '通过' } else { '可用但有限制' }) -Summary $(if ($ollama) { "Ollama: $ollama" } else { 'Ollama 未安装（仅本地模型 Profile 需要）' }))) | Out-Null
+    $ollama = $null
+    if (Test-AiCliOllamaProfilesEnabled) {
+        $ollama = Find-AiCliCommandPath 'ollama'
+        $checks.Add((New-AiCliCheck -Id 'dep.ollama' -Status $(if ($ollama) { '通过' } else { '可用但有限制' }) -Summary $(if ($ollama) { "Ollama: $ollama" } else { 'Ollama 未安装（仅本地模型 Profile 需要）' }))) | Out-Null
+    } else {
+        $checks.Add((New-AiCliCheck -Id 'dep.ollama' -Status '通过' -Summary 'Ollama 模型已停用')) | Out-Null
+    }
 
     $oi = $null
     $oiError = $null
@@ -114,7 +119,7 @@ function Invoke-AiCliDoctor {
     # profile-specific
     if ($ProfileId) {
         try {
-            $merged = Get-AiCliResolvedProfile -Id $ProfileId
+            $merged = Get-AiCliEnabledProfile -Id $ProfileId
             $checks.Add((New-AiCliCheck -Id 'profile.resolve' -Status '通过' -Summary ("解析 Profile: {0} / {1}" -f (Get-AiCliProperty $merged 'displayName'), (Get-AiCliProperty $merged 'id')))) | Out-Null
             $cfg = [bool](Get-AiCliProperty $merged 'configured')
             $checks.Add((New-AiCliCheck -Id 'profile.configured' -Status $(if ($cfg) { '通过' } else { '不可用' }) -Summary $(if ($cfg) { '配置就绪' } else { '未配置' }) -NextStep $(if (-not $cfg) { "aicli profile configure $(Get-AiCliProperty $merged 'templateId')" }))) | Out-Null

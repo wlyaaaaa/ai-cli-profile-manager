@@ -108,6 +108,46 @@ Describe 'CommandRouter' {
         $code | Should -Be 0
     }
 
+    It 'hides paused Ollama profiles and blocks explicit launches until re-enabled' {
+        $dataRoot = Join-Path $TestDrive 'ollama-pause'
+        $settings = Join-Path $dataRoot 'AppData/settings.json'
+        $null = New-Item -ItemType Directory (Split-Path $settings -Parent)
+        Set-Content -LiteralPath $settings '{"ollamaProfilesEnabled":false,"lastProfileId":"ollama-alias","verification":{}}'
+        $profilesDir = New-Item -ItemType Directory (Join-Path $dataRoot 'AppData/profiles')
+        Set-Content -LiteralPath (Join-Path $profilesDir.FullName 'ollama-alias.json') '{"id":"ollama-alias","templateId":"codex-ollama-main"}'
+
+        $help = (& {
+            Invoke-AiCli -Tokens @('help') -DataRoot $dataRoot | Out-Null
+        } 6>&1 | Out-String)
+        $help | Should -Not -Match 'start codex-ollama-'
+        $help | Should -Match 'Ollama 模型已停用'
+
+        $oldOut = [Console]::Out
+        $writer = [IO.StringWriter]::new()
+        try {
+            [Console]::SetOut($writer)
+            (Invoke-AiCli -Tokens @('profile','list','--available','--json') -DataRoot $dataRoot) | Should -Be 0
+            $profiles = ($writer.ToString() | ConvertFrom-Json).profiles
+            $profiles.provider | Should -Not -Contain 'ollama'
+            $profiles.id | Should -Not -Contain 'ollama-alias'
+            $profiles.id | Should -Contain 'codex-official'
+            $profiles.id | Should -Contain 'codex-deepseek-flash'
+
+            $null = $writer.GetStringBuilder().Clear()
+            (Invoke-AiCli -Tokens @('run','start','codex-ollama-main','--stdin','--json','--dry-run') -DataRoot $dataRoot) | Should -Be 4
+            ($writer.ToString() | ConvertFrom-Json).error.summary | Should -Match 'Ollama 模型已停用'
+        } finally {
+            [Console]::SetOut($oldOut)
+            $writer.Dispose()
+        }
+
+        Set-Content -LiteralPath $settings '{"ollamaProfilesEnabled":true}'
+        $help = (& {
+            Invoke-AiCli -Tokens @('help') -DataRoot $dataRoot | Out-Null
+        } 6>&1 | Out-String)
+        $help | Should -Match 'start codex-ollama-main'
+    }
+
     It 'rejects unknown options instead of silently ignoring them' {
         (Invoke-AiCli -Tokens @('version','--definitely-invalid') -DataRoot $script:DataRoot) | Should -Be 2
         (Invoke-AiCli -Tokens @('native','codex-official','unexpected') -DataRoot $script:DataRoot) | Should -Be 2

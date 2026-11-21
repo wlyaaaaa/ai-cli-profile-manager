@@ -294,7 +294,7 @@ function Invoke-AiCliProfileCommand {
         }
         'show' {
             $pos = Assert-AiCliTokenShape -Tokens $rest -MinPositionals 1 -MaxPositionals 1 -Switches @('--json')
-            $p = Get-AiCliResolvedProfile -Id $pos[0]
+            $p = Get-AiCliEnabledProfile -Id $pos[0]
             $view = Protect-AiCliObject -InputObject $p
             $credentialState = Get-AiCliProfileCredentialState -Profile $p
             $publicState = [ordered]@{
@@ -399,6 +399,10 @@ function Invoke-AiCliRunCommand {
             $runId = [string]$controlPositionals[0]
             $controlResult = switch ($runAction) {
                 'resume' {
+                    if (-not (Test-AiCliOllamaProfilesEnabled)) {
+                        $state = Get-AiCliRecoverableRunState -RunId $runId
+                        $null = Get-AiCliEnabledProfile -Id $state.sessionMeta.profileId
+                    }
                     if ($backgroundControl) {
                         Start-AiCliRecoverableControllerProcess -RunId $runId
                     } else {
@@ -439,7 +443,7 @@ function Invoke-AiCliRunCommand {
         }
         $timeoutSecondsText = Get-AiCliFlagValue -Tokens $split.Before -Name '--timeout-seconds' -Default '120'
         $profileId = [string]$pos[0]
-        $resolvedForHarness = Get-AiCliResolvedProfile -Id $profileId
+        $resolvedForHarness = Get-AiCliEnabledProfile -Id $profileId
         $isCodexHarness = [string](Get-AiCliProperty $resolvedForHarness 'engine') -eq 'codex'
         $controlFile = Get-AiCliFlagValue -Tokens $split.Before -Name '--control-file'
         if ($controlFile -and -not $isCodexHarness) { throw 'Run control receipt requires the Codex recoverable runner.' }
@@ -798,7 +802,7 @@ function Invoke-AiCliInteractiveSelector {
     )) {
         if ([string]::IsNullOrWhiteSpace($entry.Id) -or $ids -contains $entry.Id) { continue }
         try {
-            $resolvedRecent = Get-AiCliResolvedProfile -Id $entry.Id
+            $resolvedRecent = Get-AiCliEnabledProfile -Id $entry.Id
             if (-not [bool](Get-AiCliProperty $resolvedRecent 'configured' $false)) { continue }
             $identity = Get-AiCliInteractiveProfileIdentity -Profile $resolvedRecent
             if (-not $identities.Add($identity)) { continue }

@@ -14,6 +14,18 @@ function Get-AiCliSettings {
     return $s
 }
 
+function Test-AiCliOllamaProfilesEnabled {
+    $enabled = Get-AiCliProperty (Get-AiCliSettings) 'ollamaProfilesEnabled' $true
+    return ($enabled -isnot [bool] -or $enabled)
+}
+
+function Assert-AiCliProfileProviderEnabled {
+    param($Profile)
+    if ((Get-AiCliProperty $Profile 'provider') -eq 'ollama' -and -not (Test-AiCliOllamaProfilesEnabled)) {
+        throw '本机 AICLI 的 Ollama 模型已停用。'
+    }
+}
+
 function Save-AiCliSettings {
     param($Settings)
     $paths = Get-AiCliAppPaths
@@ -370,6 +382,13 @@ function Get-AiCliResolvedProfile {
     return (Merge-AiCliProfile -Template $template -UserProfile $null)
 }
 
+function Get-AiCliEnabledProfile {
+    param([Parameter(Mandatory)][string]$Id)
+    $profile = Get-AiCliResolvedProfile -Id $Id
+    Assert-AiCliProfileProviderEnabled -Profile $profile
+    return $profile
+}
+
 function Get-AiCliProfileList {
     param([switch]$Available)
     $result = @()
@@ -384,7 +403,7 @@ function Get-AiCliProfileList {
     $seen = @{}
     foreach ($uid in $userIds) {
         try {
-            $r = Get-AiCliResolvedProfile -Id $uid
+            $r = Get-AiCliEnabledProfile -Id $uid
             if(-not $Available -and [string](Get-AiCliProperty $r 'lifecycle') -ceq 'frozen'){continue}
             $result += $r
             $seen[$uid] = $true
@@ -392,9 +411,11 @@ function Get-AiCliProfileList {
             throw
         } catch {}
     }
+    $ollamaEnabled = Test-AiCliOllamaProfilesEnabled
     foreach ($tid in $templates.Keys) {
         $t = $templates[$tid]
-        if (Get-AiCliProperty $t 'hidden' $false) { continue }
+        if ((Get-AiCliProperty $t 'hidden' $false) -or
+            (-not $ollamaEnabled -and (Get-AiCliProperty $t 'provider') -eq 'ollama')) { continue }
         if (@($seen.Keys) -contains $tid) { continue }
         $merged = Merge-AiCliProfile -Template $t -UserProfile $null
         if ($Available) {
@@ -417,7 +438,7 @@ function Get-AiCliProfileList {
 
 function Set-AiCliDefaultProfile {
     param([string]$Id)
-    $null = Get-AiCliResolvedProfile -Id $Id
+    $null = Get-AiCliEnabledProfile -Id $Id
     $s = Get-AiCliSettings
     $s.defaultProfileId = $Id
     Save-AiCliSettings -Settings $s
@@ -552,6 +573,7 @@ function Invoke-AiCliProfileConfigure {
         [string]$ModelCatalog
     )
     $template = Get-AiCliProviderManifest -Id $TemplateId
+    Assert-AiCliProfileProviderEnabled -Profile $template
     if (Get-AiCliProperty $template 'hidden' $false) {
         throw "不能配置隐藏模板: $TemplateId"
     }

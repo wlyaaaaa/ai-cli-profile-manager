@@ -48,7 +48,7 @@ function Build-AiCliLaunchPlan {
         [string[]]$NativeArgs = @(),
         [switch]$MachineRun
     )
-    $merged = Get-AiCliResolvedProfile -Id $ProfileId
+    $merged = Get-AiCliEnabledProfile -Id $ProfileId
     if (-not (Get-AiCliProperty $merged 'configured')) {
         $tid = Get-AiCliProperty $merged 'templateId'
         if (-not $tid) { $tid = $ProfileId }
@@ -79,7 +79,7 @@ function Build-AiCliLaunchPlan {
 function Show-AiCliNative {
     param([Parameter(Mandatory)][string]$ProfileId)
     $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId
-    $merged = Get-AiCliResolvedProfile -Id $ProfileId
+    $merged = Get-AiCliEnabledProfile -Id $ProfileId
     Write-Host ''
     Write-Host ("=== native: {0} ===" -f $ProfileId)
     Write-Host ("引擎: {0}" -f (Get-AiCliProperty $plan 'engine'))
@@ -138,7 +138,7 @@ function Export-AiCliEject {
         [Parameter(Mandatory)][string]$ProfileId,
         [string]$OutputPath
     )
-    $merged = Get-AiCliResolvedProfile -Id $ProfileId
+    $merged = Get-AiCliEnabledProfile -Id $ProfileId
     $plan = Build-AiCliLaunchPlan -ProfileId $ProfileId
     if ([string]::IsNullOrWhiteSpace($OutputPath)) {
         $OutputPath = Join-Path (Get-Location).Path $ProfileId
@@ -257,7 +257,7 @@ function Start-AiCliProfile {
         [string]$ProjectPath,
         [string[]]$NativeArgs = @()
     )
-    $merged = Get-AiCliResolvedProfile -Id $ProfileId
+    $merged = Get-AiCliEnabledProfile -Id $ProfileId
     $localReadiness = Test-AiCliSelectedLocalProviderReadiness -MergedProfile $merged
     if ($localReadiness.Applicable -and -not $localReadiness.Ready) {
         Write-AiCliWarn "选定本地 Provider 不可用: $($localReadiness.Summary)"
