@@ -159,6 +159,7 @@ Describe 'selected local Provider readiness' {
         InModuleScope AiCliProfileManager {
             $profile = [ordered]@{ provider = 'ollama'; endpoint = 'http://127.0.0.1:32100/v1'; models = [ordered]@{ primary = 'qwen3.6-35b:256k' } }
             Mock Get-AiCliResolvedProfile { $profile }
+            Mock Test-AiCliOllamaProfilesEnabled { $true }
             Mock Test-AiCliSelectedLocalProviderReadiness {
                 [pscustomobject]@{ Applicable = $true; Ready = $false; Reason = 'response_timeout'; Summary = '本地 Provider 未在 5 秒内返回完整正文' }
             }
@@ -182,6 +183,7 @@ Describe 'selected local Provider readiness' {
             Mock Resolve-AiCliInterpreterExecutable { $null }
             Mock Get-AiCliClaudeConflictSettingsHints { @() }
             Mock Get-AiCliResolvedProfile { $profile }
+            Mock Test-AiCliOllamaProfilesEnabled { $true }
             Mock Get-AiCliProviderManifest { $null }
             Mock Get-AiCliProfileCliIdentityEvidence { $null }
             Mock Test-AiCliProfileMinimumCliVersion { [pscustomobject]@{ Required = $false; Supported = $false } }

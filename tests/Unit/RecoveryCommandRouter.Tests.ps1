@@ -172,12 +172,18 @@ Describe 'Recoverable run command routing' {
     It 'routes status resume and abort without requiring task stdin' {
         InModuleScope AiCliProfileManager {
             $id='c'*32
+            Mock Test-AiCliOllamaProfilesEnabled { $false }
+            Mock Get-AiCliRecoverableRunState { @{sessionMeta=@{profileId='codex-official'}} }
+            Mock Get-AiCliResolvedProfile { @{provider='openai'} }
             Mock Get-AiCliRecoverableRunStatus {[pscustomobject]@{runId=$id;status='interrupted';resumeSupported=$true}}
             Mock Invoke-AiCliRecoverableRun {[pscustomobject]@{runId=$id;status='completed';resumeSupported=$false}}
             Mock Stop-AiCliRecoverableRun {[pscustomobject]@{runId=$id;status='abort_requested';resumeSupported=$false}}
             Invoke-AiCliRunCommand -Tokens @('status',$id,'--json')|Should -Be 0
             Invoke-AiCliRunCommand -Tokens @('resume',$id,'--json')|Should -Be 0
             Invoke-AiCliRunCommand -Tokens @('abort',$id,'--json')|Should -Be 0
+            Mock Get-AiCliRecoverableRunState { @{sessionMeta=@{profileId='codex-ollama-main'}} }
+            Mock Get-AiCliResolvedProfile { @{provider='ollama'} } -ParameterFilter { $Id -eq 'codex-ollama-main' }
+            Invoke-AiCliRunCommand -Tokens @('resume',$id,'--json')|Should -Be 4
             Should -Invoke Get-AiCliRecoverableRunStatus -Times 1 -Exactly
             Should -Invoke Invoke-AiCliRecoverableRun -Times 1 -Exactly
             Should -Invoke Stop-AiCliRecoverableRun -Times 1 -Exactly
