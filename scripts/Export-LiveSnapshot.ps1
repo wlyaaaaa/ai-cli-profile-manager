@@ -1,12 +1,15 @@
 ﻿#Requires -Version 7.0
 [CmdletBinding()]
-param([string]$SourceRoot = (Split-Path -Parent $PSScriptRoot), [string]$PrivateContract, [string]$OutputRoot)
+param([string]$SourceRoot = (Split-Path -Parent $PSScriptRoot), [string]$PrivateContract, [string]$OutputRoot, [switch]$StaticOnly)
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $root = Split-Path -Parent $PSScriptRoot
 Get-Module AiCliProfileManager -All | Remove-Module -Force
 Import-Module (Join-Path $root 'src/AiCliProfileManager/AiCliProfileManager.psd1') -Force
 $module = Get-Module AiCliProfileManager
-& $module { param($source,$output) Update-AiCliLiveStatus -SourceRoot $source -OutputRoot $output } $SourceRoot $OutputRoot
+if (-not $StaticOnly) {
+    & $module { param($source,$output) Update-AiCliLiveStatus -SourceRoot $source -OutputRoot $output } $SourceRoot $OutputRoot
+}
 $files = @(git -c core.quotepath=false -C $root ls-files --cached --others --exclude-standard)
 if ($LASTEXITCODE -ne 0) { throw '无法读取项目文件清单' }
 $docs = 0; $code = 0; $docFiles = 0; $codeFiles = 0
