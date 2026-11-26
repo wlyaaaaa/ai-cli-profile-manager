@@ -198,6 +198,7 @@ internal sealed partial class RpcTransport
             }
 
             var sequence = Interlocked.Increment(ref clientRequestNumber);
+            ObserveRetryClientRequest(message);
             var task = HandleClientRequestAsync(line, message, cancellationToken);
             requestTasks[sequence] = task;
             _ = task.ContinueWith(
@@ -314,6 +315,8 @@ internal sealed partial class RpcTransport
                 continue;
             if (message is not null && TryHandleOpenAiChildNotification(message))
                 continue;
+            if (message is not null)
+                ObserveRetryNotification(message);
             if (message is not null && SoftenOrdinaryRateLimitHardBlockNotification(message))
                 line = message.ToJsonString();
 
@@ -340,6 +343,7 @@ internal sealed partial class RpcTransport
                         RememberManagedParentThread(context, message);
                         FilterBackgroundChildList(context.Method, message);
                         ObserveParentCancellation(context, message);
+                        ObserveRetryResubscription(context, message);
                     }
                     catch (Exception ex)
                     {
@@ -372,7 +376,8 @@ internal sealed partial class RpcTransport
     private Task<JsonObject> CallUpstreamAsync(string method, JsonObject parameters) =>
         CallUpstreamAsync(method, parameters, shutdown.Token);
 
-    private async Task<JsonObject> CallUpstreamAsync(string method, JsonObject parameters, CancellationToken cancellationToken)
+    private async Task<JsonObject> CallUpstreamAsync(string method, JsonObject parameters, CancellationToken cancellationToken,
+        Func<bool>? beforeSend = null)
     {
         if (Volatile.Read(ref childInputClosed) != 0)
             throw new IOException("The Codex engine input is closed.");
@@ -392,7 +397,7 @@ internal sealed partial class RpcTransport
         };
         try
         {
-            await WriteChildLineAsync(request.ToJsonString(), cancellationToken).ConfigureAwait(false);
+            await WriteChildLineAsync(request.ToJsonString(), cancellationToken, beforeSend).ConfigureAwait(false);
             return await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -401,13 +406,15 @@ internal sealed partial class RpcTransport
         }
     }
 
-    private async Task WriteChildLineAsync(string line, CancellationToken cancellationToken)
+    private async Task WriteChildLineAsync(string line, CancellationToken cancellationToken, Func<bool>? beforeSend = null)
     {
         await childWriteLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (Volatile.Read(ref childInputClosed) != 0)
                 throw new IOException("The Codex engine input is closed.");
+            if (beforeSend is not null && !beforeSend())
+                throw new OperationCanceledException();
             var bytes = Encoding.UTF8.GetBytes(line + "\n");
             await childInput.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
             await childInput.FlushAsync(cancellationToken).ConfigureAwait(false);

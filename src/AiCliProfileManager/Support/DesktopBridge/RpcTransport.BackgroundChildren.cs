@@ -656,20 +656,10 @@ internal sealed partial class RpcTransport
             // boundary. Only idle threads need a generation trigger. The official
             // engine explicitly returns EmptyInput for this wake request if active.
             // Do not resend the event, create a thread, or fabricate human input.
-            var wake = await CallBoundedUpstreamAsync("turn/start", new JsonObject
-            {
-                ["threadId"] = parentId, ["input"] = new JsonArray(),
-                ["turnTrigger"] = "aicli_background_event",
-                ["additionalContext"] = new JsonObject
-                {
-                    ["aicli_background_delivery"] = new JsonObject
-                    {
-                        ["kind"] = "untrusted",
-                        ["value"] = "Background agent context was appended. Process only unhandled events already in history, " +
-                            "continue the owning task as appropriate, and preserve existing human authorization limits."
-                    }
-                }
-            }, shutdown.Token).ConfigureAwait(false);
+            var wake = await StartContextWakeAsync(parentId, "aicli_background_event", "aicli_background_delivery",
+                "Background agent context was appended. Process only unhandled events already in history, " +
+                "continue the owning task as appropriate, and preserve existing human authorization limits.",
+                shutdown.Token).ConfigureAwait(false);
             var alreadyActive = wake["error"] is JsonObject error &&
                 error["code"]?.GetValue<int>() == -32603 &&
                 TryGetString(error["message"], out var errorText) &&
@@ -879,11 +869,22 @@ internal sealed partial class RpcTransport
         await DeliverBackgroundEventAsync(child, evt).ConfigureAwait(false);
     }
 
-    private async Task<JsonObject> CallBoundedUpstreamAsync(string method, JsonObject args, CancellationToken token)
+    private Task<JsonObject> StartContextWakeAsync(string threadId, string trigger, string contextName, string text,
+        CancellationToken token, Func<bool>? beforeSend = null) => CallBoundedUpstreamAsync("turn/start", new JsonObject
+        {
+            ["threadId"] = threadId, ["input"] = new JsonArray(), ["turnTrigger"] = trigger,
+            ["additionalContext"] = new JsonObject
+            {
+                [contextName] = new JsonObject { ["kind"] = "untrusted", ["value"] = text }
+            }
+        }, token, beforeSend);
+
+    private async Task<JsonObject> CallBoundedUpstreamAsync(string method, JsonObject args, CancellationToken token,
+        Func<bool>? beforeSend = null)
     {
         using var bound = CancellationTokenSource.CreateLinkedTokenSource(token, shutdown.Token);
         bound.CancelAfter(TimeSpan.FromSeconds(60));
-        return await CallUpstreamAsync(method, args, bound.Token).ConfigureAwait(false);
+        return await CallUpstreamAsync(method, args, bound.Token, beforeSend).ConfigureAwait(false);
     }
 
     private sealed class BackgroundChildException : Exception
