@@ -394,7 +394,7 @@ internal sealed class DesktopPlan
             var stderrTask = process.StandardError.ReadToEndAsync();
             try
             {
-                var startupLimit = TimeSpan.FromSeconds(upstreamOnly ? 30 : 90);
+                var startupLimit = TimeSpan.FromSeconds(upstreamOnly ? 30 : 300);
                 await process.WaitForExitAsync().WaitAsync(startupLimit, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
