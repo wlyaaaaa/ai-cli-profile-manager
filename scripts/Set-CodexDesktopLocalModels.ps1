@@ -102,7 +102,7 @@ function Invoke-Utf8JsonPowerShellFile {
     try {
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(60000)) {
+        if (-not $process.WaitForExit(300000)) {
             $process.Kill($true)
             throw 'Desktop discovery process timed out.'
         }
