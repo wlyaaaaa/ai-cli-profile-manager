@@ -49,17 +49,23 @@ function Update-AiCliLiveStatus {
     $summary = '{0} 个历史测试过的配置：最后一次回话通过 {1} 个；做过实战的 {2} 个里通过 {3} 个' -f $rows.Count,$text.Count,$agents.Count,$passed.Count
     $profiles = if (Test-Path -LiteralPath $paths.ProfilesDir) { @(Get-ChildItem -LiteralPath $paths.ProfilesDir -Filter '*.json' -File).Count } else { 0 }
     $displayTime = { param($t,$format='MM-dd HH:mm') [DateTimeOffset]::Parse($t).ToOffset([TimeSpan]::FromHours(8)).ToString($format) }
+    $latestAgentTime = if ($agents.Count) { & $displayTime $agents[0].at }
+    $latestAgentSameVersion = $agents.Count -gt 0 -and $agents[0].version -eq $version
     $metrics = [ordered]@{
         installed = $(if ($version) { "$version；程序文件 $matched/$($files.Count) 与所登记源码一致" } else { $null })
         profiles = $profiles; results = $summary
         current_agent = $(if ($version -and $current.Count -eq 0) { 0 } else { $null })
         latest_test = $(if ($rows.Count) { "$(& $displayTime $rows[0].at)；$(switch ($rows[0].level) { agent {'实战'} text {'回话'} tool {'工具'} all {'回话和工具'} default {'未记录层级'} })；$($rows[0].state_text)" } else { $null })
-        latest_agent = $(if ($agents.Count) { "$(& $displayTime $agents[0].at)；$(if ($agents[0].version -eq $version) { '同版本，身份有效性未复核' } else { '旧版' })" } else { $null })
+        latest_agent = $(if ($agents.Count) { "$latestAgentTime；$(if ($latestAgentSameVersion) { '同版本，身份有效性未复核' } else { '旧版' })" } else { $null })
         tested7 = @($rows | Where-Object { $t = [DateTimeOffset]::Parse($_.at); $t -le $now -and $t -ge $now.AddDays(-7) }).Count
         tested30 = @($rows | Where-Object { $t = [DateTimeOffset]::Parse($_.at); $t -le $now -and $t -ge $now.AddDays(-30) }).Count
         last_text_pass = $(if ($text.Count) { & $displayTime $text[0].at 'MM-dd HH:mm:ss' } else { $null })
         last_agent_pass = $(if ($passed.Count) { & $displayTime $passed[0].at 'MM-dd HH:mm:ss' } else { $null })
         bridge_installed = $null
+    }
+    if ($agents.Count) {
+        $metrics.latest_agent_short_text = $latestAgentTime
+        $metrics.latest_agent_explanation_text = if ($latestAgentSameVersion) { '同版本，身份有效性未复核' } else { '当时还是旧版本' }
     }
     if (-not $known) { foreach ($k in @('results','current_agent','tested7','tested30')) { $metrics[$k] = $null } }
     $bridgePath = Join-Path $paths.LocalRoot 'desktop/state.json'
